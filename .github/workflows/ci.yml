@@ -51,6 +51,10 @@ jobs:
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
         run: xvfb-run -a npm run test:smoke
+      - name: Drops against the inventory fixture
+        env:
+          ELECTRON_DISABLE_SANDBOX: "1"
+        run: xvfb-run -a npm run test:drops
 
   package:
     name: AppImage builds

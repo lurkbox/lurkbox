@@ -35,6 +35,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   autoCatchUp: true,
   chatStyle: 'lurkbox', // 'lurkbox' (IRC panel) | 'twitch' (Twitch's embedded chat: points, predictions, polls)
   autoClaimPoints: true, // click the channel-points bonus chest in Twitch's chat frame
+  autoClaimDrops: true, // check Twitch's Drops inventory every 15 min and click Claim for finished drops
   earnWatchPoints: true, // direct engine: report watched minutes for the stream on screen, like Twitch's player
   chatEmotes7tv: true, // Lurkbox chat: 7TV emotes
   chatEmotesBttv: true, // BetterTTV emotes
@@ -54,7 +55,7 @@ export function sanitizeSettings(patch) {
   const out = {};
   if ('clientId' in patch) out.clientId = String(patch.clientId || '').trim().replace(/[^A-Za-z0-9]/g, '');
   if ('defaultQuality' in patch) out.defaultQuality = String(patch.defaultQuality || 'auto');
-  for (const k of ['chatDefault', 'raidFollow', 'skipContentGate', 'inputWhenUnfocused', 'confirmExit', 'videoOnlyUnfocused', 'hwDecode', 'lowLatency', 'autoCatchUp', 'steamArtSync', 'autoClaimPoints', 'earnWatchPoints', 'chatEmotes7tv', 'chatEmotesBttv', 'chatEmotesFfz', 'chatAnimatedEmotes', 'chat7tvCosmetics', 'chatExtensions', 'navSounds']) {
+  for (const k of ['chatDefault', 'raidFollow', 'skipContentGate', 'inputWhenUnfocused', 'confirmExit', 'videoOnlyUnfocused', 'hwDecode', 'lowLatency', 'autoCatchUp', 'steamArtSync', 'autoClaimPoints', 'autoClaimDrops', 'earnWatchPoints', 'chatEmotes7tv', 'chatEmotesBttv', 'chatEmotesFfz', 'chatAnimatedEmotes', 'chat7tvCosmetics', 'chatExtensions', 'navSounds']) {
     if (k in patch) out[k] = !!patch[k];
   }
   if ('screenMargin' in patch) out.screenMargin = [0, 2.5, 5].includes(Number(patch.screenMargin)) && patch.screenMargin !== 'auto' ? Number(patch.screenMargin) : 0;

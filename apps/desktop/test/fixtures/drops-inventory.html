@@ -1,0 +1,76 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Drops inventory fixture</title>
+<!-- Modelled on twitch.tv/drops/inventory as public descriptions and userscripts show it (2026): a content column
+     (.inventory-max-width) with an "In progress" heading, then one card per campaign: a header
+     (.inventory-campaign-info: box-art link to the game's directory page, campaign name, end date) and a row of drop
+     tiles (picture, name, a role=progressbar bar with "45% of 2 hours", or a "Claim Now" button once finished).
+     Class names are made up except the two above; buttons carry no data attributes except where noted, so the scan
+     has to fall back to the button text. Query: ?signedout=1 shows the sign-in wall, ?stuck=1 ignores Claim clicks. -->
+<style>
+  body { margin: 0; background: #0e0e10; color: #efeff1; font: 14px system-ui, sans-serif; }
+  .top-nav { height: 50px; display: flex; gap: 10px; align-items: center; padding: 0 10px; background: #18181b; }
+  .inventory-max-width { max-width: 960px; margin: 0 auto; padding: 20px; }
+  .Card { background: #1f1f23; border-radius: 6px; margin: 0 0 20px; padding: 14px; }
+  .inventory-campaign-info { display: flex; gap: 10px; align-items: center; }
+  .inventory-campaign-info img { width: 52px; height: 70px; background: #444; }
+  .Tiles { display: flex; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
+  .Tile { width: 160px; padding: 8px; background: #26262c; border-radius: 4px; }
+  .Tile img { display: block; width: 96px; height: 96px; background: #555; }
+  .Bar { height: 6px; background: #333; } .Bar > div { height: 100%; background: #a970ff; }
+  button { font: inherit; padding: 6px 10px; }
+  .tall { height: 600px; }
+</style></head>
+<body>
+<div class="top-nav"><a href="/directory">Browse</a><button aria-label="Search">Search</button><a href="/drops/campaigns">Campaigns</a><a href="/drops/inventory">Inventory</a></div>
+<div id="page"></div>
+<script>
+  const params = new URLSearchParams(location.search);
+  window.claims = [];
+  const page = document.getElementById('page');
+  if (params.get('signedout')) {
+    page.innerHTML = '<div class="Wall"><p>Log in to see your Drops</p><button data-a-target="login-button">Log In</button></div>';
+  } else {
+    page.innerHTML = '<div class="inventory-max-width"><div class="tw-loading-spinner" style="width:40px;height:40px;background:#888"></div></div>';
+    setTimeout(() => {
+      document.querySelector('.inventory-max-width').innerHTML = `
+        <div><h2>In progress</h2><p>Drops you're earning. <a href="/drops/campaigns">See all campaigns</a></p><button>Learn how to claim</button></div>
+        <div class="Card" id="card-rust">
+          <div class="inventory-campaign-info">
+            <a href="/directory/category/rust"><img alt="Rust" src="data:,"></a>
+            <div><p><a href="/drops/campaigns?dropID=1">Rust: Winter Drops Week</a></p><span>Ends Fri, 5:00 PM</span></div>
+          </div>
+          <div class="Tiles">
+            <div class="Tile" id="tile-jacket"><img alt="Winter Jacket" src="data:,"><p>Winter Jacket</p>
+              <div class="Bar" role="progressbar" aria-valuenow="45" aria-valuemax="100"><div style="width:45%"></div></div><div><span>45% of 2 hours</span></div></div>
+            <div class="Tile" id="tile-hatchet"><img alt="Frost Hatchet" src="data:,"><p>Frost Hatchet</p>
+              <div class="Bar" role="progressbar" aria-valuenow="100" aria-valuemax="100"><div style="width:100%"></div></div>
+              <button id="claim-hatchet" class="ScCoreButton-sc-x"><div><div>Claim Now</div></div></button></div>
+          </div>
+        </div>
+        <div class="Card" id="card-quest">
+          <div class="inventory-campaign-info">
+            <a href="/directory/category/example-quest"><img alt="Example Quest" src="data:,"></a>
+            <div><p><a href="/drops/campaigns">Example Quest Launch Celebration</a></p><span>Ends in 3 days</span></div>
+          </div>
+          <div class="Tiles">
+            <div class="Tile" id="tile-badge"><img alt="Launch Badge" src="data:,"><p>Launch Badge</p>
+              <button disabled>Claimed</button></div>
+            <div class="Tile" id="tile-banner"><img alt="Explorer Banner" src="data:,"><p>Explorer Banner</p>
+              <button id="claim-banner" data-a-target="drops-claim-button" aria-label="Claim Explorer Banner"><span>Click to claim</span></button></div>
+            <div class="Tile" id="tile-pet"><img alt="Pocket Pet" src="data:,"><p>Pocket Pet</p>
+              <div class="Bar" role="progressbar" aria-valuenow="10" aria-valuemax="100"><div style="width:10%"></div></div><div><span>10% of 4 hours</span></div></div>
+          </div>
+        </div>
+        <div class="tall"></div>
+        <div><h2>Claimed</h2><button id="bottom-link">Show older drops</button></div>`;
+      for (const b of document.querySelectorAll('button[id^="claim-"]')) {
+        b.addEventListener('click', () => {
+          window.claims.push(b.id);
+          if (params.get('stuck')) return;
+          setTimeout(() => { b.textContent = 'Claimed'; b.disabled = true; }, 200);
+        });
+      }
+    }, 300);
+  }
+</script>
+</body></html>

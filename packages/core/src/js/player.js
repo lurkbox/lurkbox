@@ -4,6 +4,7 @@ import { A, B, X, Y, LB, RB, START, UP, DOWN, LEFT, RIGHT, DIRECTIONS, hint } fr
 import { Scrubber, seekJump, fmtTime, resumeDecision, storyboardFrame, parseHelixDuration, matchArchive, rewindGeometry, rewindTarget } from './seek.js';
 import { SeekBar } from './seekbar.js';
 import { TwitchChatFrame } from './twitch-chat.js';
+import { pickDropsChip } from './drops.js';
 import { StartTimeline } from './start-timeline.js';
 import { helix } from './api.js';
 import { moveFocus, focusFirst, focusEl, focusables } from './focus.js';
@@ -269,6 +270,16 @@ export class Player {
     if (cur !== this.current) return; // switched meanwhile
     this.watcher.watch(cur.userId ? { id: cur.userId, login: cur.login } : null);
     if (this.overlayVisible()) this.renderOverlay();
+    this.loadDropsChip(cur);
+  }
+
+  /** The drops chip: progress on a drop for this stream's game, from the host's last look at the inventory page. */
+  async loadDropsChip(cur) {
+    if (!window.lurkbox.dropsProgress || !cur.stream || !cur.stream.game_name) return;
+    const p = await window.lurkbox.dropsProgress().catch(() => null);
+    if (cur !== this.current || !p) return;
+    cur.dropsChip = pickDropsChip(p.campaigns, cur.stream.game_name);
+    if (this.overlayVisible()) this.renderOverlay(true);
   }
 
   async ensureEmbed(opts) {
@@ -738,7 +749,8 @@ export class Player {
     ui.name = el('span', { class: 'po-name' });
     ui.badge = el('span', { class: 'po-live', hidden: true });
     ui.title = el('span', { class: 'po-title marquee-line' });
-    ui.top = el('div', { class: 'po-top' }, ui.avatar, ui.name, ui.badge, ui.title);
+    ui.drops = el('span', { class: 'po-drops', hidden: true });
+    ui.top = el('div', { class: 'po-top' }, ui.avatar, ui.name, ui.badge, ui.drops, ui.title);
     ui.buttons = {};
     for (const key of ALL_CONTROLS) {
       const b = el('button', {
@@ -924,6 +936,9 @@ export class Player {
     if (ui.name.textContent !== name) ui.name.textContent = name;
     const title = cur.kind === 'video' ? (cur.title || '') : ((s && s.title) || '');
     if (ui.title.textContent !== title) { ui.title.textContent = title; requestAnimationFrame(() => marqueeLine(ui.title)); }
+    const chip = cur.kind === 'live' ? cur.dropsChip : null;
+    ui.drops.hidden = !chip;
+    if (chip && ui.drops.textContent !== chip.label) { ui.drops.textContent = chip.label; ui.drops.title = chip.label; }
     this.renderAvatar(cur);
     // The seek bar is one persistent node (it keeps focus and drag state), between the top line and the buttons.
     const seekable = !!this.seekModel();
