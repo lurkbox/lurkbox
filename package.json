@@ -19,6 +19,7 @@
     "test:vod": "npm run test:vod -w apps/desktop --",
     "test:rewind": "npm run test:rewind -w apps/desktop --",
     "test:points": "npm run test:points -w apps/desktop --",
+    "test:drops": "npm run test:drops -w apps/desktop --",
     "test:chat": "npm run test:chat -w apps/desktop --",
     "screenshots": "npm run screenshots -w apps/desktop --"
   }

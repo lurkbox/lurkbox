@@ -22,6 +22,7 @@ import { followingView } from './views/following.js';
 import { browseView } from './views/browse.js';
 import { categoriesView } from './views/categories.js';
 import { searchView } from './views/search.js';
+import { dropsView } from './views/drops.js';
 import { settingsView } from './views/settings.js';
 import { channelView } from './views/channel.js';
 
@@ -30,6 +31,7 @@ const TOP = {
   browse: browseView,
   categories: categoriesView,
   search: searchView,
+  drops: dropsView,
   settings: settingsView,
 };
 const TOP_ORDER = Object.keys(TOP);
@@ -192,6 +194,8 @@ const nav = {
   },
 
   openChannel(c) { nav.push(channelView(c)); },
+  /** Focus the current section's rail button (B out of a view that keeps the controller, like Drops). */
+  focusRail() { focusEl(railButton(currentTop)); },
 
   /** One sign-in on the TV (covers the player too). */
   signIn() {
@@ -322,10 +326,12 @@ const ICONS = {
   browse: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
   categories: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="9" rx="1"/><rect x="3" y="15" width="7" height="6" rx="1"/><rect x="14" y="15" width="7" height="6" rx="1"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/>',
+  // A gift box (a drop reward).
+  drops: '<rect x="4" y="11" width="16" height="10" rx="1.5"/><path d="M12 11v10M4 15h16M12 11c-1.5-3-5-4-5-1.5S10 11 12 11zM12 11c1.5-3 5-4 5-1.5S14 11 12 11z"/>',
   // Gear (Feather "settings" icon, MIT licence).
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
 };
-const LABELS = { following: 'Following', browse: 'Browse', categories: 'Categories', search: 'Search', settings: 'Settings' };
+const LABELS = { following: 'Following', browse: 'Browse', categories: 'Categories', search: 'Search', drops: 'Drops', settings: 'Settings' };
 
 function buildRail() {
   rail.replaceChildren(
@@ -476,6 +482,8 @@ async function start() {
     nav.playChannel({ login: r.channel, name: r.name || r.channel });
   };
   window.lurkbox.onOpenChannel(openRequested);
+  // Drops auto-claim (the host checks Twitch's inventory page in the background).
+  if (window.lurkbox.onDropsEvent) window.lurkbox.onDropsEvent((ev) => { if (ev && ev.type === 'claimed') toast(`Drop claimed: ${ev.name}`, 5000); });
   window.lurkbox.openReady().then(openRequested).catch(() => {});
   console.log(`[lurkbox] ready (signedIn=${state.auth.signedIn}, clientId=${state.auth.hasClientId})`);
 }

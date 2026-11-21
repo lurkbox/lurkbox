@@ -10,7 +10,7 @@ const path = require('path');
 const { openSteamKeyboard } = require('./steam-keyboard');
 const { JoydevReader } = require('./joydev');
 const { app, BrowserWindow, ipcMain, Menu, session, nativeImage, safeStorage, net, protocol } = require('electron');
-const { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom } = require('./player-session');
+const { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, CHROME_UA } = require('./player-session');
 const { TvSignIn } = require('./tv-signin');
 const qrcode = require('qrcode-generator');
 const { JsonFile, DEFAULT_SETTINGS, sanitizeSettings } = require('./store');
@@ -20,6 +20,7 @@ const { fetchMaster } = require('./direct');
 const hlsProxy = require('./hls-proxy');
 const { navSource, pressSource, backSource } = require('./frame-nav');
 const points = require('./channel-points');
+const drops = require('./drops');
 const { WatchMinutes } = require('./watch-minutes');
 const { ResumeStore } = require('./resume');
 const { WEB_CLIENT_ID, GQL_URL } = require('./direct');
@@ -185,6 +186,69 @@ function zoomChatFrames() {
   }
 }
 
+// ---- Twitch Drops (drops.js): the Drops section's frame of Twitch's inventory page, and the background auto-claim ----
+let dropsEngaged = false; // the Drops section's frame has the app's focus
+let dropsProgress = { checkedAt: null, campaigns: [] };
+let dropsClaimer = null;
+function dropsFrames() {
+  if (!win || win.isDestroyed()) return [];
+  return win.webContents.mainFrame.framesInSubtree.filter((f) => { try { return drops.isDropsPageUrl(f.url); } catch { return false; } });
+}
+/** Zooms the inventory frame for the TV (the login window's rule) and, while it has focus, (re)starts the navigation. */
+async function prepareDropsFrames() {
+  const z = loginZoom(require('electron').screen.getPrimaryDisplay().size.height, settings.get().uiScale);
+  for (const f of dropsFrames()) {
+    try {
+      await f.executeJavaScript(zoomFrameSource(z));
+      if (!dropsEngaged) continue;
+      await f.executeJavaScript(navSource(drops.NAV_OPTIONS));
+      // Twitch renders the inventory after load: start on the first target once there is one.
+      for (let i = 0; i < 20 && dropsEngaged; i++) {
+        if (await f.executeJavaScript('window.__lbNav ? window.__lbNav.start() : false')) break;
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    } catch { /* frame navigating or gone */ }
+  }
+}
+
+/** Loads the inventory page in a hidden window of the same session, waits for it, scans it and (claim) presses Claim. */
+async function scanInventoryHidden({ claim }) {
+  const w = new BrowserWindow({
+    show: false, width: 1280, height: 900, paintWhenInitiallyHidden: true,
+    webPreferences: { session: session.defaultSession, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  });
+  const wc = w.webContents;
+  try {
+    wc.setAudioMuted(true);
+    wc.setUserAgent(CHROME_UA);
+    wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+    wc.on('will-navigate', (e, url) => { if (!/^https:\/\/(www\.)?twitch\.tv\//.test(url)) e.preventDefault(); });
+    await Promise.race([wc.loadURL(drops.INVENTORY_URL), new Promise((_r, rej) => setTimeout(() => rej(new Error('load timed out')), 45000))]);
+    let r = null;
+    for (let i = 0; i < 30; i++) {
+      r = await wc.executeJavaScript(drops.scanSource({ claim: false }));
+      if (r && r.state !== 'loading') break;
+      await new Promise((res) => setTimeout(res, 1000));
+    }
+    if (!r || r.state !== 'ready') return r || { state: 'loading', campaigns: [], claimed: [] };
+    await new Promise((res) => setTimeout(res, 2500)); // the campaign list fills in after the first paint
+    return await wc.executeJavaScript(drops.scanSource({ claim }));
+  } finally {
+    if (!w.isDestroyed()) w.destroy();
+  }
+}
+
+function startDropsClaimer() {
+  dropsClaimer = new drops.DropsClaimer({
+    enabled: () => settings.get().autoClaimDrops !== false,
+    hasSession: async () => (await playerStatus(session.defaultSession.cookies)).signedIn,
+    run: () => scanInventoryHidden({ claim: true }),
+    onClaim: (name) => send('drops:event', { type: 'claimed', name }),
+    onProgress: (campaigns) => { dropsProgress = { checkedAt: Date.now(), campaigns }; },
+    log: appLog,
+  }).start();
+}
+
 async function createWindow() {
   server = await startServer(WEB_ROOT, {
     '/vendor/hls.min.js': HLS_JS,
@@ -222,6 +286,7 @@ async function createWindow() {
   });
   wc.on('did-frame-finish-load', patchPlayerFrames);
   wc.on('did-frame-finish-load', zoomChatFrames);
+  wc.on('did-frame-finish-load', () => prepareDropsFrames());
   wc.on('frame-created', patchPlayerFrames);
   watchDecoders(wc, appLog);
   if (chatExt) chatExt.watchFrames(wc);
@@ -567,6 +632,37 @@ function registerIpc() {
     return true;
   });
 
+  // ---- Drops section: Twitch's inventory page in the renderer's frame, driven with the controller (frame-nav) ----
+  ipcMain.handle('drops:status', async () => ({
+    signedIn: (await playerStatus(session.defaultSession.cookies)).signedIn,
+    lastCheckAt: dropsClaimer && dropsClaimer.lastRunAt, nextCheckAt: dropsClaimer && dropsClaimer.nextAt,
+  }));
+  ipcMain.handle('drops:open', async () => {
+    dropsEngaged = true;
+    if (!dropsFrames().length) return { ok: false, reason: 'inventory not loaded' };
+    prepareDropsFrames().catch(() => {});
+    return { ok: true };
+  });
+  ipcMain.handle('drops:pad', async (_e, key) => {
+    const k = String(key);
+    const src = k === 'b' ? backSource() : pressSource(k);
+    const frame = dropsFrames()[0];
+    if (!src) return null;
+    if (!frame) return k === 'b' ? 'close' : null;
+    try {
+      const r = await frame.executeJavaScript(src);
+      if (r === 'keyboard') openSteamKeyboard(appLog);
+      if (r === 'no-nav') prepareDropsFrames().catch(() => {});
+      return r;
+    } catch { return k === 'b' ? 'close' : null; }
+  });
+  ipcMain.handle('drops:close', async () => {
+    dropsEngaged = false;
+    for (const f of dropsFrames()) await f.executeJavaScript('window.__lbNav ? (window.__lbNav.stop(), true) : false').catch(() => {});
+    return true;
+  });
+  ipcMain.handle('drops:progress', () => dropsProgress);
+
   // Watch-time points for the stream on screen (direct engine). The renderer reports once a minute what it plays.
   const minuteMasters = new Map();
   const watchMinutes = new WatchMinutes({
@@ -644,6 +740,13 @@ app.whenReady().then(async () => {
     cb(['fullscreen', 'clipboard-sanitized-write'].includes(permission));
   });
 
+  // The Drops section frames Twitch's inventory page, which refuses framing: allow it for that page in Lurkbox's own
+  // window only (drops.allowFraming drops X-Frame-Options and CSP frame-ancestors, nothing else).
+  session.defaultSession.webRequest.onHeadersReceived({ urls: ['https://www.twitch.tv/drops/inventory*'] }, (d, cb) => {
+    const ours = d.resourceType === 'subFrame' && win && !win.isDestroyed() && d.webContentsId === win.webContents.id;
+    cb(ours && drops.isInventoryUrl(d.url) ? { responseHeaders: drops.allowFraming(d.responseHeaders) } : {});
+  });
+
   registerIpc();
   // Twitch's chat iframe lives in the default session, so the extensions are loaded there before the window opens.
   chatExt = setupChatExtensions({ ipcMain, ses: session.defaultSession, getSettings: () => settings.get(), dir: path.join(dir, 'extensions'), fetch: (u, o) => net.fetch(u, o), log: appLog });
@@ -665,6 +768,7 @@ app.whenReady().then(async () => {
   setInterval(() => twitch.validate().then(() => twitch.emitState()).catch(() => {}), 60 * 60 * 1000);
 
   await createWindow();
+  startDropsClaimer();
   logGpu({ log: appLog, hwRequested, config: `config ${gpuConfig}, ozone ${ozoneNote}` }).catch(() => {});
 });
 

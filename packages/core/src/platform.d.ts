@@ -236,6 +236,21 @@ export interface LurkboxPlatform {
   /** Optional. Once a minute while a live stream plays on the direct engine: report a watched minute (earns watch-time points; the host applies the gates). */
   watchMinute?(info: { login: string; channelId: string; broadcastId: string; direct: boolean; live: boolean; rewound: boolean; playing: boolean }): Promise<{ ok: boolean; [k: string]: unknown }>;
 
+  // ---- Twitch Drops (Twitch's own Drops Inventory page with the twitch.tv session; the host auto-claims) ----
+
+  /** Optional. Whether a twitch.tv web session exists (the Drops section shows a sign-in prompt otherwise) and when the background inventory check last ran (ms since the epoch, or null). */
+  dropsStatus?(): Promise<{ signedIn: boolean; lastCheckAt: number | null; nextCheckAt: number | null }>;
+  /** The Drops section's frame (https://www.twitch.tv/drops/inventory) got the app's focus: zoom it for the TV and start controller navigation inside it. */
+  dropsOpen(): Promise<{ ok: boolean; reason?: string }>;
+  /** Forward a controller key ('up', 'down', 'left', 'right', 'a' or 'b') to the inventory frame. For 'b', resolves 'back' when a dialog in the page closed, else 'close' (the app leaves the frame). */
+  dropsPad(key: string): Promise<string | null>;
+  /** The frame lost the app's focus: stop the navigation inside it. */
+  dropsClose(): Promise<boolean>;
+  /** Optional. Campaigns in progress from the last inventory check, for the player's drops chip: [{ game, name, drops: [{ name, percent, claimable }] }]. */
+  dropsProgress?(): Promise<{ checkedAt: number | null; campaigns: { game: string; name: string; drops: { name: string; percent: number | null; claimable: boolean }[] }[] }>;
+  /** Optional. Drops events: { type: 'claimed', name } after auto-claim pressed a drop's Claim button and the page took it. */
+  onDropsEvent?(cb: (event: { type: string; name?: string }) => void): Unsubscribe;
+
   // ---- open requests (desktop: from the Decky plugin's go-live toasts) ----
 
   /** The page is ready for open requests; resolves one that arrived before it was ready, or null. */

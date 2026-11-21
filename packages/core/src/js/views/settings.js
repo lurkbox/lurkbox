@@ -190,6 +190,7 @@ export function settingsView() {
           row('Hardware video decoding', toggle('hwDecode'), 'VA-API. Takes effect after restarting Lurkbox.'),
           row('Default quality', qualityBtn),
           row('Auto-claim bonus points', toggle('autoClaimPoints'), 'Claims the channel-points bonus as soon as it appears, through Twitch\'s chat page in the background. Needs the TV sign-in.'),
+          row('Auto-claim drops', toggle('autoClaimDrops'), 'Every 15 minutes, Lurkbox opens Twitch\'s Drops inventory page in the background and presses its Claim button for drops you have finished. Needs the TV sign-in.'),
           row('Earn channel points while watching', toggle('earnWatchPoints'), 'With the Direct player, reports the stream you\'re watching once a minute the way Twitch\'s own player does, so watch time earns points. Only while it plays on screen; never for other streams.'),
           ...chatSettingsRows({ row, rerender, pickRow }),
           el('h2', { class: 'section-title settings-section' }, 'General'),

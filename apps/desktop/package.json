@@ -18,6 +18,7 @@
     "test:vod": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/vod.js",
     "test:rewind": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/rewind.js",
     "test:points": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/points.js",
+    "test:drops": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/drops.js",
     "test:chat": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/chat.js",
     "screenshots": "node scripts/screenshots.mjs"
   },

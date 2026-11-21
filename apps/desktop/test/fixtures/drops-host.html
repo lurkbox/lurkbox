@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>drops view fixture</title>
+<!-- The Drops section as the core builds it (views/drops.js); the smoke test links the core's app.css. -->
+</head>
+<body>
+  <div id="app"><nav id="rail" style="width:15rem"></nav>
+    <main id="content">
+      <section class="view" data-view="drops">
+        <header class="view-header"><h1>Drops</h1><span class="refresh-status drops-status">Auto-claim on</span></header>
+        <div class="drops-stage focusable is-focused" tabindex="0"><iframe src="drops-inventory.html" title="Twitch Drops inventory" tabindex="-1"></iframe></div>
+        <div class="drops-hint-strip"><span class="points-hint">D-pad move · <kbd class="glyph" data-act="A">A</kbd> select · <kbd class="glyph" data-act="B">B</kbd> back</span></div>
+      </section>
+    </main>
+  </div>
+</body></html>

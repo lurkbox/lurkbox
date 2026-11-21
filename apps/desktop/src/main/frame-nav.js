@@ -159,7 +159,9 @@ function installNav(opts) {
     }
     var rr = target.getBoundingClientRect();
     var dyDoc = navNearestDelta(rr.top, rr.bottom, 0, innerHeight);
-    if (dyDoc) document.scrollingElement.scrollTop += dyDoc / zoom();
+    // The document's own scroll offset is in viewport pixels even with <html> zoomed (the Drops page), unlike the
+    // scroll containers inside the zoomed page above.
+    if (dyDoc) document.scrollingElement.scrollTop += dyDoc;
   };
   var setCurrent = function (el) {
     current = el;
