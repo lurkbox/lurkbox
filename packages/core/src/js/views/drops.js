@@ -16,17 +16,28 @@ function ago(at) {
 export function dropsView() {
   let stage = null;
   let frame = null;
+  // The page's navigation runs while the frame is "engaged": from focus on the stage until focus goes to another
+  // control of the app (or the view closes). Focus briefly in the iframe itself (Twitch's page focusing something, a
+  // click) or the window losing focus (Game Mode, Floater) doesn't count, so the app and the page never take turns.
+  let engaged = false;
+  const engage = () => { if (!engaged) { engaged = true; window.lurkbox.dropsOpen().catch(() => {}); } };
+  const leave = () => { if (engaged) { engaged = false; window.lurkbox.dropsClose().catch(() => {}); } };
+  const onFocusIn = (e) => { if (stage && e.target !== stage && e.target !== frame) leave(); };
+  const ours = () => !!stage && (document.activeElement === stage || document.activeElement === frame);
   return {
     id: 'drops',
     title: 'Drops',
-    destroy() { if (frame) window.lurkbox.dropsClose().catch(() => {}); },
+    destroy() {
+      document.removeEventListener('focusin', onFocusIn, true);
+      if (frame) { engaged = true; leave(); }
+    },
     onAction(action) {
-      if (!stage || document.activeElement !== stage) return false;
+      if (!ours()) return false;
       if (action === Y) { frame.src = INVENTORY_URL; return true; }
       const key = dropsPadKey(action);
       if (!key) return false;
       if (key === 'b') {
-        window.lurkbox.dropsPad('b').then((r) => { if (r !== 'back' && document.activeElement === stage) this.nav.focusRail(); }).catch(() => this.nav.focusRail());
+        window.lurkbox.dropsPad('b').then((r) => { if (r !== 'back' && ours()) this.nav.focusRail(); }).catch(() => this.nav.focusRail());
         return true;
       }
       window.lurkbox.dropsPad(key).catch(() => {});
@@ -60,10 +71,10 @@ export function dropsView() {
         sandbox: 'allow-scripts allow-same-origin allow-forms',
       });
       stage = el('div', { class: 'drops-stage focusable', tabindex: '0', 'aria-label': 'Drops inventory', dataset: { focusKey: 'drops-stage' } }, frame);
-      // Focus on the frame (from the rail, or at the start): start the page's own navigation.
-      // Leaving it (B, the rail, another section) stops it, so its focus ring is only there while the frame has focus.
-      stage.addEventListener('focus', () => { window.lurkbox.dropsOpen().catch(() => {}); });
-      stage.addEventListener('blur', () => { window.lurkbox.dropsClose().catch(() => {}); });
+      // Focus on the frame (from the rail, or at the start): start the page's own navigation. Focus on another control
+      // (B, the rail, another section) stops it, so its focus ring is only there while the frame has focus.
+      stage.addEventListener('focus', engage);
+      document.addEventListener('focusin', onFocusIn, true);
       host.append(stage, el('div', { class: 'drops-hint-strip' }, hint('D-pad move · {A} select · {B} back', 'points-hint')));
     },
   };

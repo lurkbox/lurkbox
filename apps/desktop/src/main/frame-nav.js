@@ -167,7 +167,9 @@ function installNav(opts) {
     current = el;
     if (!el) { drawRing(); return; }
     reveal(el);
-    if (!isTextField(el)) el.focus({ preventScroll: true });
+    // domFocus: false (the Drops section) keeps DOM focus out of the page: focusing an element in a frame takes focus
+    // from the app's element hosting it, and the app takes it back, so the two would fight. The ring alone shows it.
+    if (!isTextField(el) && opts.domFocus !== false) el.focus({ preventScroll: true });
     drawRing();
   };
   var hideHint = function () {};
@@ -271,9 +273,18 @@ function installNav(opts) {
 
 const HELPERS = [navTooBig, navInnermost, navIntersect, navNearestDelta];
 
-/** Source to inject: installs window.__lbNav. opts: { hint?, preferText?, scopeSelector?, fallbackSelector?, backSelector? } */
+/**
+ * Source to inject: installs window.__lbNav. opts: { hint?, preferText?, scopeSelector?, fallbackSelector?,
+ * backSelector?, domFocus? (false: never move DOM focus into the page, only the ring) }. Injecting it again resets the
+ * focus; ensureNavSource() leaves a running navigation alone.
+ */
 function navSource(opts = {}) {
   return `(() => { ${HELPERS.map((f) => f.toString()).join('\n')}\nreturn (${installNav.toString()})(${JSON.stringify(opts)}); })()`;
+}
+
+/** Source that installs the navigation only when the page has none yet ('already' otherwise, focus kept). */
+function ensureNavSource(opts = {}) {
+  return `(window.__lbNav ? 'already' : ${navSource(opts)})`;
 }
 
 const PRESS_KEYS = new Set(['up', 'down', 'left', 'right', 'a']);
@@ -288,4 +299,4 @@ function backSource() {
   return "(window.__lbNav ? window.__lbNav.back() : 'close')";
 }
 
-module.exports = { navSource, pressSource, backSource, installNav, navTooBig, navInnermost, navIntersect, navNearestDelta };
+module.exports = { navSource, ensureNavSource, pressSource, backSource, installNav, navTooBig, navInnermost, navIntersect, navNearestDelta };

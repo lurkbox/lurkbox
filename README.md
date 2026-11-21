@@ -86,7 +86,7 @@ npm run test:direct # direct engine plays a live channel
 npm run test:vod    # direct engine plays a VOD
 npm run test:rewind # live rewind on the direct engine
 npm run test:points # channel-points scanning against a local fixture
-npm run test:drops  # drops: inventory scanning, claiming and controller navigation against a local fixture
+npm run test:drops  # drops: inventory scanning, claiming and controller navigation against a local fixture, and the Drops section's focus (stable while idle, the D-pad moves)
 npm run test:chat   # Lurkbox chat on a busy live channel: emotes, overlays, badges, paints (LURKBOX_SHOT=x.png saves a screenshot)
 LURKBOX_CHAT_STYLE=twitch npm run test:chat   # Twitch chat style: the frame's TV zoom, panel width, no overlap with the video (LURKBOX_CHAT_SIZE=175 for a fixed size)
 LURKBOX_CHAT_EXT=1 npm run test:chat   # the experimental real extensions in Twitch chat style

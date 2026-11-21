@@ -12,6 +12,7 @@ import { RaidWatcher } from './eventsub.js';
 import { el, toast } from './ui.js';
 import { tw } from './api.js';
 import { installMarquee } from './marquee.js';
+import { keepFocusOutOfFrames } from './frame-focus.js';
 import { mascotEl, iconDataUrl } from './mascot.js';
 import { UnfocusedMode, resolveBack, quitWithCleanup } from './lifecycle.js';
 import { onPlayerLogin } from './player-login.js';
@@ -377,20 +378,7 @@ window.addEventListener('themechange', () => {
   }, 300);
 });
 
-// The embed iframe can grab focus (on load or when clicked). Keys would then go
-// to the iframe and the focus ring would vanish, so take focus back.
-let lastFocused = null;
-document.addEventListener('focusin', (e) => { if (e.target.tagName !== 'IFRAME') lastFocused = e.target; });
-window.addEventListener('blur', () => {
-  const mouse = input && input.mode.mode === 'mouse';
-  setTimeout(() => {
-    const a = document.activeElement;
-    if (!a || a.tagName !== 'IFRAME') return;
-    a.blur();
-    window.focus();
-    if (lastFocused && lastFocused.isConnected) lastFocused.focus({ preventScroll: true });
-  }, mouse ? 600 : 0);
-});
+keepFocusOutOfFrames({ isMouse: () => !!input && input.mode.mode === 'mouse' });
 let pendingReturnToSignIn = false;
 
 async function start() {
