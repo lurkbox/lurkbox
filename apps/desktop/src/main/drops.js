@@ -31,8 +31,11 @@ const SELECTORS = Object.freeze({
 /** Button texts that mean "claim this drop" (and not "Claimed"). */
 const CLAIM_TEXT = /^\s*(click\s+to\s+)?claim(\s+now|\s+drop|\s+reward)?\s*!?\s*$/i;
 
-/** frame-nav options in the Drops view: stay in an open dialog, otherwise the whole page. */
-const NAV_OPTIONS = Object.freeze({ scopeSelector: '[role=dialog]' });
+/**
+ * frame-nav options in the Drops view: stay in an open dialog, otherwise the whole page; DOM focus stays on the app's
+ * frame host (the ring shows the target), so the app's focus and the page's never take turns.
+ */
+const NAV_OPTIONS = Object.freeze({ scopeSelector: '[role=dialog]', domFocus: false });
 
 /** Is this the Drops Inventory page (www.twitch.tv/drops/inventory)? */
 function isInventoryUrl(url) {

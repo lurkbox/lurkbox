@@ -198,3 +198,22 @@ test('the Auto-claim drops setting defaults on and is a boolean', () => {
   assert.equal(DEFAULT_SETTINGS.autoClaimDrops, true);
   assert.deepEqual(sanitizeSettings({ autoClaimDrops: 0 }), { autoClaimDrops: false });
 });
+
+test('the Drops frame never takes DOM focus, and re-preparing it keeps a running navigation', async () => {
+  const { ensureNavSource } = require('../../src/main/frame-nav');
+  const { createDropsFrameHost } = require('../../src/main/drops-frame');
+  assert.equal(D.NAV_OPTIONS.domFocus, false);
+  const src = ensureNavSource(D.NAV_OPTIONS);
+  assert.ok(src.startsWith("(window.__lbNav ? 'already' : "));
+  const ran = [];
+  const frame = { executeJavaScript: async (s) => { ran.push(s); return s.includes('start()') ? true : 'already'; } };
+  const host = createDropsFrameHost({ frames: () => [frame], zoom: () => 1.5 });
+  await host.prepare();
+  assert.equal(ran.length, 1, 'not engaged: only the zoom');
+  await host.open();
+  await new Promise((r) => setTimeout(r, 0));
+  await host.prepare();
+  assert.ok(ran.filter((s) => s.includes('__lbNav ?') && s.includes('installNav')).length >= 1);
+  await host.close();
+  assert.equal(host.engaged, false);
+});

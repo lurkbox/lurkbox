@@ -21,6 +21,7 @@ const hlsProxy = require('./hls-proxy');
 const { navSource, pressSource, backSource } = require('./frame-nav');
 const points = require('./channel-points');
 const drops = require('./drops');
+const { createDropsFrameHost } = require('./drops-frame');
 const { WatchMinutes } = require('./watch-minutes');
 const { ResumeStore } = require('./resume');
 const { WEB_CLIENT_ID, GQL_URL } = require('./direct');
@@ -187,29 +188,17 @@ function zoomChatFrames() {
 }
 
 // ---- Twitch Drops (drops.js): the Drops section's frame of Twitch's inventory page, and the background auto-claim ----
-let dropsEngaged = false; // the Drops section's frame has the app's focus
 let dropsProgress = { checkedAt: null, campaigns: [] };
 let dropsClaimer = null;
 function dropsFrames() {
   if (!win || win.isDestroyed()) return [];
   return win.webContents.mainFrame.framesInSubtree.filter((f) => { try { return drops.isDropsPageUrl(f.url); } catch { return false; } });
 }
-/** Zooms the inventory frame for the TV (the login window's rule) and, while it has focus, (re)starts the navigation. */
-async function prepareDropsFrames() {
-  const z = loginZoom(require('electron').screen.getPrimaryDisplay().size.height, settings.get().uiScale);
-  for (const f of dropsFrames()) {
-    try {
-      await f.executeJavaScript(zoomFrameSource(z));
-      if (!dropsEngaged) continue;
-      await f.executeJavaScript(navSource(drops.NAV_OPTIONS));
-      // Twitch renders the inventory after load: start on the first target once there is one.
-      for (let i = 0; i < 20 && dropsEngaged; i++) {
-        if (await f.executeJavaScript('window.__lbNav ? window.__lbNav.start() : false')) break;
-        await new Promise((r) => setTimeout(r, 400));
-      }
-    } catch { /* frame navigating or gone */ }
-  }
-}
+const dropsFrame = createDropsFrameHost({
+  frames: dropsFrames,
+  zoom: () => loginZoom(require('electron').screen.getPrimaryDisplay().size.height, settings.get().uiScale),
+  openKeyboard: () => openSteamKeyboard(appLog),
+});
 
 /** Loads the inventory page in a hidden window of the same session, waits for it, scans it and (claim) presses Claim. */
 async function scanInventoryHidden({ claim }) {
@@ -286,7 +275,7 @@ async function createWindow() {
   });
   wc.on('did-frame-finish-load', patchPlayerFrames);
   wc.on('did-frame-finish-load', zoomChatFrames);
-  wc.on('did-frame-finish-load', () => prepareDropsFrames());
+  wc.on('did-frame-finish-load', () => dropsFrame.prepare());
   wc.on('frame-created', patchPlayerFrames);
   watchDecoders(wc, appLog);
   if (chatExt) chatExt.watchFrames(wc);
@@ -637,30 +626,9 @@ function registerIpc() {
     signedIn: (await playerStatus(session.defaultSession.cookies)).signedIn,
     lastCheckAt: dropsClaimer && dropsClaimer.lastRunAt, nextCheckAt: dropsClaimer && dropsClaimer.nextAt,
   }));
-  ipcMain.handle('drops:open', async () => {
-    dropsEngaged = true;
-    if (!dropsFrames().length) return { ok: false, reason: 'inventory not loaded' };
-    prepareDropsFrames().catch(() => {});
-    return { ok: true };
-  });
-  ipcMain.handle('drops:pad', async (_e, key) => {
-    const k = String(key);
-    const src = k === 'b' ? backSource() : pressSource(k);
-    const frame = dropsFrames()[0];
-    if (!src) return null;
-    if (!frame) return k === 'b' ? 'close' : null;
-    try {
-      const r = await frame.executeJavaScript(src);
-      if (r === 'keyboard') openSteamKeyboard(appLog);
-      if (r === 'no-nav') prepareDropsFrames().catch(() => {});
-      return r;
-    } catch { return k === 'b' ? 'close' : null; }
-  });
-  ipcMain.handle('drops:close', async () => {
-    dropsEngaged = false;
-    for (const f of dropsFrames()) await f.executeJavaScript('window.__lbNav ? (window.__lbNav.stop(), true) : false').catch(() => {});
-    return true;
-  });
+  ipcMain.handle('drops:open', () => dropsFrame.open());
+  ipcMain.handle('drops:pad', (_e, key) => dropsFrame.pad(key));
+  ipcMain.handle('drops:close', () => dropsFrame.close());
   ipcMain.handle('drops:progress', () => dropsProgress);
 
   // Watch-time points for the stream on screen (direct engine). The renderer reports once a minute what it plays.

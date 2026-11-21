@@ -8,8 +8,11 @@
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol } = require('electron');
 const drops = require('../../src/main/drops');
+const { createDropsFrameHost } = require('../../src/main/drops-frame');
+const { startServer } = require('../../src/main/server');
+const { WEB_ROOT } = require('../../src/main/paths');
 const { navSource, pressSource, backSource } = require('../../src/main/frame-nav');
 const { zoomFrameSource, tvZoom } = require('@lurkbox/core/src/shared/tv-zoom.js');
 const ZOOM = tvZoom(800, 100); // the login window's rule on the 800-px Game Mode screen
@@ -28,6 +31,108 @@ async function scanReady(js, opts) {
     await wait(100);
   }
   return opts && opts.claim && r.state === 'ready' ? js(drops.scanSource(opts)) : r;
+}
+
+/**
+ * The Drops section as the app runs it: the core's views/drops.js and frame-focus guard in a page served by Lurkbox's
+ * server, the inventory URL answered with the fixture, and drops-frame.js behind drops:open/pad/close. Focus must stay
+ * put for 5 s (no focus events in the app, the same target and ring rect, no open/close), also while Twitch's page
+ * loads sub-frames and after the window loses and regains focus; then D-pad right and down move it every time.
+ * Resolves a summary, or null after fail().
+ */
+async function sectionTest() {
+  const fixture = fs.readFileSync(FIXTURE);
+  protocol.handle('https', (req) => {
+    const u = new URL(req.url);
+    if (u.hostname === 'www.twitch.tv' && u.pathname === '/drops/inventory') return new Response(fixture, { headers: { 'content-type': 'text/html' } });
+    if (u.hostname === 'www.twitch.tv' && u.pathname === '/blank') return new Response('<!doctype html><title>sub-frame</title>', { headers: { 'content-type': 'text/html' } });
+    return new Response('', { status: 404 });
+  });
+  const server = await startServer(WEB_ROOT, { '/test/drops-app.html': path.join(__dirname, '..', 'fixtures', 'drops-app.html') });
+  const win = new BrowserWindow({ show: true, x: 0, y: 0, frame: false, width: 1280, height: 800, useContentSize: true,
+    webPreferences: { preload: path.join(__dirname, 'drops-preload.js'), sandbox: true, contextIsolation: true } });
+  const calls = { open: 0, close: 0 };
+  const frames = () => win.webContents.mainFrame.framesInSubtree.filter((f) => { try { return drops.isDropsPageUrl(f.url); } catch { return false; } });
+  const dh = createDropsFrameHost({ frames, zoom: () => ZOOM });
+  ipcMain.handle('drops:status', () => ({ signedIn: true, lastCheckAt: null, nextCheckAt: null }));
+  ipcMain.handle('drops:open', () => { calls.open++; return dh.open(); });
+  ipcMain.handle('drops:close', () => { calls.close++; return dh.close(); });
+  ipcMain.handle('drops:pad', (_e, k) => dh.pad(k));
+  win.webContents.on('did-frame-finish-load', () => dh.prepare()); // as main.js does
+  await win.loadURL(`${server.url}test/drops-app.html`);
+  win.focus();
+  const host = (s) => win.webContents.executeJavaScript(s);
+  for (let i = 0; i < 50 && !(await host('!!(window.__t && window.__t.ready && document.querySelector(".drops-stage iframe"))')); i++) await wait(100);
+  const frame = async () => { for (let i = 0; i < 50; i++) { const f = frames()[0]; if (f) return f; await wait(100); } return null; };
+  if (!(await frame())) { fail('section: no inventory frame'); return null; }
+  for (let i = 0; i < 40; i++) { const r = await (await frame()).executeJavaScript(drops.scanSource({ claim: false })); if (r.state === 'ready') break; await wait(100); }
+  // Focus arrives from the rail, as RIGHT on the rail does.
+  await host('document.getElementById("rail-drops").focus(); document.querySelector(".drops-stage").focus(); true');
+  const fjs = async (s) => (await frame()).executeJavaScript(s);
+  const snap = () => fjs(`(() => {
+    const c = window.__lbNav && window.__lbNav.current();
+    const g = document.getElementById('lurkbox-focus-ring');
+    const r = g && g.style.display !== 'none' ? g.getBoundingClientRect() : null;
+    return { cur: c ? (c.id || c.textContent.trim().slice(0, 24) || c.getAttribute('href')) : null, ring: r ? [r.left, r.top, r.width, r.height].map((v) => Math.round(v)).join(',') : null };
+  })()`).catch(() => ({ cur: null, ring: null }));
+  let s0 = null;
+  for (let i = 0; i < 40; i++) { s0 = await snap(); if (s0.cur && s0.ring) break; await wait(100); }
+  if (!s0.cur || !s0.ring) { fail(`section: no focus in the frame: ${JSON.stringify(s0)} events ${await host('JSON.stringify(__t.events)')}`); return null; }
+  await wait(600);
+  s0 = await snap();
+  const idle = async (label, ms, during = async () => {}) => {
+    const before = { ...calls, events: await host('__t.events.length') };
+    const base = await snap();
+    const seen = new Set();
+    for (let t = 0; t < ms; t += 250) {
+      await during(t);
+      await wait(250);
+      const s = await snap();
+      seen.add(`${s.cur}@${s.ring}`);
+    }
+    const ev = await host(`__t.events.slice(${before.events})`);
+    const active = await host('__t.active()');
+    if (seen.size !== 1 || !seen.has(`${base.cur}@${base.ring}`) || ev.length || calls.open !== before.open || calls.close !== before.close || !/drops-stage/.test(active)) {
+      fail(`section: ${label}: focus not stable: states ${JSON.stringify([...seen])} (start ${base.cur}@${base.ring}), app focus events ${JSON.stringify(ev)}, open ${calls.open - before.open} close ${calls.close - before.close}, active ${active}`);
+      return false;
+    }
+    return true;
+  };
+  if (!(await idle('idle 5 s', 5000))) return null;
+  // Game Mode: the window loses OS focus (a game, Steam's overlay) and gets it back.
+  const other = new BrowserWindow({ show: true, x: 100, y: 100, width: 300, height: 200 });
+  other.focus();
+  await wait(800);
+  other.destroy();
+  win.focus();
+  await wait(800);
+  const back = await snap();
+  if (back.cur !== s0.cur || back.ring !== s0.ring) { fail(`section: focus moved after unfocus/refocus: ${JSON.stringify(back)} vs ${JSON.stringify(s0)}`); return null; }
+  if (!(await idle('after refocus', 2000))) return null;
+  // The D-pad moves the focus every time, in the frame, and the app keeps its own focus on the frame.
+  const path_ = [s0.cur];
+  for (const a of ['RIGHT', 'RIGHT', 'RIGHT', 'DOWN', 'DOWN', 'DOWN']) {
+    const prev = await snap();
+    if (!(await host(`__t.press(${JSON.stringify(a)})`))) { fail(`section: ${a} was not handled by the Drops view (active ${await host('__t.active()')})`); return null; }
+    let now = prev;
+    for (let i = 0; i < 20 && now.cur === prev.cur; i++) { await wait(50); now = await snap(); }
+    if (now.cur === prev.cur || !now.ring) { fail(`section: ${a} did not move from ${prev.cur} (path ${path_.join(' > ')})`); return null; }
+    path_.push(now.cur);
+    await wait(300);
+    const still = await snap();
+    if (still.cur !== now.cur) { fail(`section: after ${a} focus jumped back from ${now.cur} to ${still.cur}`); return null; }
+  }
+  // Twitch's page keeps loading sub-frames (ads, tracking): each load must not restart the navigation (focus
+  // away from the first target, where a restart would put it).
+  if (!(await idle('sub-frames loading', 2000, (t) => (t % 500 ? null : fjs("(() => { const f = document.createElement('iframe'); f.src = 'https://www.twitch.tv/blank'; f.style.cssText = 'width:1px;height:1px;border:0'; document.body.append(f); return true; })()"))))) return null;
+  if (!/drops-stage/.test(await host('__t.active()'))) { fail(`section: the app lost focus on the frame: ${await host('__t.active()')}`); return null; }
+  // B with no dialog: back to the rail, and the navigation stops.
+  await host('__t.press("B")');
+  for (let i = 0; i < 20 && !(await host('__t.rail')); i++) await wait(50);
+  if (!(await host('__t.rail')) || calls.close < 1) { fail(`section: B did not go to the rail (rail ${await host('__t.rail')}, close ${calls.close})`); return null; }
+  win.destroy();
+  server.close && server.close();
+  return `stable 5 s idle and after an unfocus/refocus with no app focus events; D-pad ${path_.join(' > ')}; stable through 2 s of sub-frame loads; B to the rail`;
 }
 
 app.whenReady().then(async () => {
@@ -133,7 +238,13 @@ app.whenReady().then(async () => {
   await js('window.__lbNav.stop()');
   if (await js('!!document.getElementById("lurkbox-focus-ring") || !!window.__lbNav')) return fail('navigation not cleaned up');
 
-  console.log(`[drops-smoke] PASS: loading -> ready; 2 campaigns (Jacket 45%, Pet 10%); Claim clicked once each for Hatchet (text) and Banner (attribute), both confirmed, never for Claimed or "Learn how to claim"; same result with other class names and no attributes; a page that ignores the click got one click; sign-in wall seen; frame ${layout.stage[2]}x${layout.stage[3]} zoomed ${zoom} with the hint below; ${targets.length} targets, down walked ${seen.length} with the ring on each and the page scrolled; B asks to leave`);
+  win.destroy();
+
+  // ---- the real Drops section in the app's focus model: stable while idle, and the D-pad moves ----
+  const section = await sectionTest();
+  if (!section) return;
+
+  console.log(`[drops-smoke] PASS: loading -> ready; 2 campaigns (Jacket 45%, Pet 10%); Claim clicked once each for Hatchet (text) and Banner (attribute), both confirmed, never for Claimed or "Learn how to claim"; same result with other class names and no attributes; a page that ignores the click got one click; sign-in wall seen; frame ${layout.stage[2]}x${layout.stage[3]} zoomed ${zoom} with the hint below; ${targets.length} targets, down walked ${seen.length} with the ring on each and the page scrolled; B asks to leave; section: ${section}`);
   hidden.destroy();
   app.exit(0);
 }).catch((e) => fail((e && e.stack) || String(e)));

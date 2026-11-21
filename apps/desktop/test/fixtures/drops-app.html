@@ -1,0 +1,26 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>drops section harness</title>
+<link rel="stylesheet" href="/css/app.css">
+<!-- The real Drops section (views/drops.js) and the app's frame-focus guard, served by Lurkbox's own server; the smoke
+     test's preload gives it dropsStatus/dropsOpen/dropsPad/dropsClose backed by the real drops-frame.js host, and the
+     inventory URL is answered with drops-inventory.html. press(action) is the app's dispatch for this view: the view
+     first, else the app's own spatial focus (recorded as "unhandled"). -->
+</head>
+<body>
+  <div id="app"><nav id="rail" style="width:15rem"><button class="focusable rail-btn" id="rail-drops" data-view="drops">Drops</button></nav>
+    <main id="content"><section class="view" data-view="drops" id="host"></section></main>
+  </div>
+<script type="module">
+  import { dropsView } from '/js/views/drops.js';
+  import { keepFocusOutOfFrames } from '/js/frame-focus.js';
+  import '/js/focus.js';
+  keepFocusOutOfFrames();
+  const view = dropsView();
+  const t = { events: [], unhandled: [], rail: 0, ready: false };
+  t.press = (action) => { const h = view.onAction(action); if (!h) t.unhandled.push(action); return h; };
+  t.active = () => { const a = document.activeElement; return a ? (a.id || a.className || a.tagName) : null; };
+  for (const type of ['focusin', 'focusout']) document.addEventListener(type, (e) => t.events.push(`${type}:${e.target.id || e.target.className || e.target.tagName}`), true);
+  window.__t = t;
+  view.mount(document.getElementById('host'), { focusRail() { t.rail++; document.getElementById('rail-drops').focus(); }, signIn() {} }).then(() => { t.ready = true; });
+</script>
+</body></html>
