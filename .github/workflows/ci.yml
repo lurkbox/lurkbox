@@ -46,6 +46,10 @@ jobs:
           npm ci --ignore-scripts
           npm rebuild electron
       - name: Run the app once under a virtual display
+        # GitHub's Ubuntu runners block Chromium's SUID sandbox helper and user namespaces for unprivileged users.
+        # The sandbox is only switched off here, for this CI smoke test; the app itself keeps it.
+        env:
+          ELECTRON_DISABLE_SANDBOX: "1"
         run: xvfb-run -a npm run test:smoke
 
   package:
