@@ -1178,25 +1178,42 @@ export class Player {
     }).catch(() => {});
   }
 
-  /** Twitch's rewards popover (rewards: true) or its chat with the prediction/poll, large and controller-driven. */
+  /**
+   * The rewards view: Twitch's chat frame as a large modal over the player, with its rewards popover (rewards: true) or
+   * the pinned prediction/poll, fitted to the frame and driven by the controller. The hint sits below the modal.
+   */
   async openPointsPanel({ rewards }) {
     if (!this.tchat.login) return;
     this.hideOverlay();
     this.pointsPanel = true;
-    this.tchat.setMode('expanded');
-    if (!this.pointsHint) { this.pointsHint = hint('D-pad move \u00B7 {A} select \u00B7 {B} close', 'points-hint'); this.screen.append(this.pointsHint); }
-    this.pointsHint.hidden = false;
+    if (!this.pointsBackdrop) {
+      this.pointsBackdrop = el('div', { class: 'points-backdrop', hidden: true, onclick: () => this.closePointsPanel({ focusIcon: true }) }, hint('D-pad move \u00B7 {A} select \u00B7 {B} back / close', 'points-hint'));
+      this.screen.append(this.pointsBackdrop);
+    }
+    this.pointsBackdrop.hidden = false;
+    this.tchat.setMode('modal');
     const r = await window.lurkbox.pointsOpenPanel({ rewards });
     if (r && !r.ok) toast(`Channel points: ${r.reason}`, 3000, 'warn');
     else if (rewards && r && !r.opened) toast('No channel points here (signed out, or the channel has none)', 3500);
   }
 
-  closePointsPanel() {
+  /** B in the rewards view: a reward's detail/confirm step goes back first; otherwise the view closes. */
+  async pointsBack() {
+    const r = await window.lurkbox.pointsPad('b');
+    if (r !== 'back' && this.pointsPanel) this.closePointsPanel({ focusIcon: true });
+  }
+
+  /** Closes the rewards view; with focusIcon the overlay comes back with the channel-points icon focused. */
+  closePointsPanel({ focusIcon = false } = {}) {
     if (!this.pointsPanel) return;
     this.pointsPanel = false;
-    if (this.pointsHint) this.pointsHint.hidden = true;
+    if (this.pointsBackdrop) this.pointsBackdrop.hidden = true;
     window.lurkbox.pointsClosePanel();
     this.applyLayout();
+    if (focusIcon && this.active && this.current) {
+      this.lastFocusKey = 'po-points';
+      this.showOverlay();
+    }
   }
 
   /** Once a minute on the direct engine: tell the platform layer what is on screen (it decides whether to report). */
@@ -1510,7 +1527,8 @@ export class Player {
 
   handleAction(action) {
     if (this.pointsPanel) {
-      if (action === B || action === START) { this.closePointsPanel(); return true; }
+      if (action === B) { this.pointsBack(); return true; }
+      if (action === START) { this.closePointsPanel({ focusIcon: true }); return true; }
       const key = { UP: 'up', DOWN: 'down', LEFT: 'left', RIGHT: 'right', A: 'a' }[action];
       if (key) window.lurkbox.pointsPad(key);
       return true;

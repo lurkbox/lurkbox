@@ -25,7 +25,15 @@ const SELECTORS = Object.freeze({
   poll: ['[data-test-selector="community-poll-highlight"]', '[class*="poll-highlight"]', '[data-test-selector="poll-highlight"]'],
   // "Bits and Points Balances" (seen 2026-11-21).
   rewardsButton: ['[data-test-selector="community-points-summary"] button[aria-label*="Points" i]', '[data-test-selector="community-points-summary"] button'],
+  // The "Power-ups & Rewards" popover the balance button opens (and the prediction/poll details, same balloon).
+  rewardsPopover: ['.reward-center__content', '[data-test-selector="reward-center-content"]', '[class*="reward-center__content"]', '.reward-center-body'],
   signedOut: ['[data-a-target="chat-welcome-message"] a[href*="login"]', 'button[data-a-target="login-button"]', '[data-test-selector="chat-input-signup-button"]'],
+});
+
+/** frame-nav options in the rewards view: stay in the popover; without one, the pinned prediction/poll and the balance. */
+const NAV_OPTIONS = Object.freeze({
+  scopeSelector: '[role=dialog], .reward-center__content',
+  fallbackSelector: '.community-highlight-stack, [class*="community-highlight"], [data-test-selector="community-points-summary"]',
 });
 
 /** "1,234" → 1234, "12.3K" → 12300, "1.2M" → 1200000, "12,3 k" → 12300. NaN when there is no number. */
@@ -67,13 +75,99 @@ function scanSource({ autoClaim }) {
   })()`;
 }
 
-/** Opens the rewards popover (the balance button). Returns true if it clicked. */
+/** Opens the rewards popover (the balance button; it toggles, so not when it is already open). True when it is open. */
 function openRewardsSource() {
   return `(() => {
     const S = ${JSON.stringify(SELECTORS)};
+    const shown = (n) => { const r = n.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
+    for (const s of S.rewardsPopover) for (const n of document.querySelectorAll(s)) if (shown(n)) return true;
     for (const s of S.rewardsButton) { const n = document.querySelector(s); if (n) { n.click(); return true; } }
     return false;
   })()`;
+}
+
+/**
+ * Installs window.__lbFit in the chat frame: while it runs, the rewards popover (Twitch anchors it above the chat
+ * input, with a max-height for a desktop window) fills the whole frame, and its scroll container takes all the height
+ * that is left under the header. Re-applied every 400 ms (sub-views replace the popover's content); stop() undoes it.
+ * Returns whether a popover is fitted right now.
+ */
+function fitRewardsSource() {
+  return `(() => {
+    if (window.__lbFit) return window.__lbFit.run();
+    const SEL = ${JSON.stringify(SELECTORS.rewardsPopover)};
+    const shown = (n) => { const r = n.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
+    const changed = [];
+    const set = (n, k, v) => {
+      if (n.style.getPropertyValue(k) === v && n.style.getPropertyPriority(k) === 'important') return;
+      if (!changed.some((c) => c[0] === n && c[1] === k)) changed.push([n, k, n.style.getPropertyValue(k), n.style.getPropertyPriority(k)]);
+      n.style.setProperty(k, v, 'important');
+    };
+    const findRoot = () => {
+      for (const s of SEL) for (const n of document.querySelectorAll(s)) {
+        if (shown(n)) return n.closest('[role=dialog]') || n.closest('[class*="balloon" i]') || n;
+      }
+      return null;
+    };
+    const scroller = (root) => {
+      let best = null;
+      let most = -1;
+      for (const n of root.querySelectorAll('*')) {
+        if (!/(auto|scroll|overlay)/.test(getComputedStyle(n).overflowY)) continue;
+        if (n.scrollHeight > most) { most = n.scrollHeight; best = n; }
+      }
+      return best;
+    };
+    let root = null;
+    let sc = null;
+    const run = () => {
+      const r = findRoot();
+      if (!r) { root = null; sc = null; return false; }
+      if (r !== root || !sc || !sc.isConnected || !r.contains(sc)) { root = r; sc = scroller(r); }
+      // A transformed ancestor would make position: fixed relative to it instead of the frame.
+      for (let p = r.parentElement; p && p !== document.documentElement; p = p.parentElement) {
+        const cs = getComputedStyle(p);
+        if (cs.transform !== 'none') set(p, 'transform', 'none');
+        if (cs.filter !== 'none') set(p, 'filter', 'none');
+        if (cs.contain !== 'none' && cs.contain !== '') set(p, 'contain', 'none');
+      }
+      for (const [k, v] of [['position', 'fixed'], ['inset', '0px'], ['width', 'auto'], ['height', 'auto'], ['min-width', '0px'],
+        ['max-width', 'none'], ['max-height', 'none'], ['margin', '0px'], ['transform', 'none'], ['translate', 'none'],
+        ['display', 'flex'], ['flex-direction', 'column'], ['z-index', '2147483000'], ['border-radius', '0px']]) set(r, k, v);
+      if (!sc) { set(r, 'overflow-y', 'auto'); return true; }
+      // Every box from the popover down to the scroll container grows to the frame; the rest (header, footer) keeps its
+      // height.
+      for (let n = sc; n && n !== r; n = n.parentElement) {
+        set(n, 'flex', '1 1 auto');
+        set(n, 'min-height', '0px');
+        set(n, 'max-height', 'none');
+        set(n, 'width', 'auto'); // Twitch gives the popover's content a desktop width: use the frame's
+        set(n, 'max-width', 'none');
+        set(n, 'align-self', 'stretch');
+        if (n !== sc) { set(n, 'display', 'flex'); set(n, 'flex-direction', 'column'); }
+        else set(n, 'height', 'auto');
+        for (const sib of n.parentElement ? n.parentElement.children : []) if (sib !== n) set(sib, 'flex-shrink', '0');
+      }
+      return true;
+    };
+    const timer = setInterval(run, 400);
+    window.__lbFit = {
+      run,
+      scroller: () => sc,
+      root: () => root,
+      stop: () => {
+        clearInterval(timer);
+        for (const [n, k, v, prio] of changed.reverse()) { if (v) n.style.setProperty(k, v, prio); else n.style.removeProperty(k); }
+        delete window.__lbFit;
+      },
+    };
+    return run();
+  })()`;
+}
+
+/** Source run when the rewards view closes: Escape for Twitch's popover, then the navigation and the fit stop. */
+function closeRewardsSource() {
+  return "(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); if (window.__lbNav) window.__lbNav.stop(); if (window.__lbFit) window.__lbFit.stop(); return true; })()";
 }
 
 /** A prediction/poll title for the toast: drop the "Prediction"/"Poll" label and timers. */
@@ -145,4 +239,4 @@ class PointsTracker {
   state() { return { signedIn: !!this.signedIn, balance: this.balance, prediction: this.prediction, poll: this.poll }; }
 }
 
-module.exports = { SELECTORS, parseBalance, scanSource, openRewardsSource, highlightTitle, isChatFrameUrl, PointsTracker };
+module.exports = { SELECTORS, NAV_OPTIONS, parseBalance, scanSource, openRewardsSource, fitRewardsSource, closeRewardsSource, highlightTitle, isChatFrameUrl, PointsTracker };

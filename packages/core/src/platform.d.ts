@@ -223,9 +223,9 @@ export interface LurkboxPlatform {
 
   /** Optional. Watch the channel's embedded chat frame for the points balance, bonus chest (auto-claim), predictions and polls; null stops. */
   pointsWatch?(login: string | null): Promise<boolean>;
-  /** Open the rewards popover (rewards: true) or focus the chat's prediction/poll, for controller navigation inside the frame. */
+  /** The chat frame is shown as the large rewards view: open the rewards popover (rewards: true) or focus the chat's prediction/poll, fitted to the frame, for controller navigation inside it. */
   pointsOpenPanel(opts?: { rewards?: boolean }): Promise<{ ok: boolean; opened?: boolean; reason?: string }>;
-  /** Forward a controller key ('up', 'down', 'left', 'right' or 'a') to the frame's navigation. Resolves the frame's answer, or null. */
+  /** Forward a controller key ('up', 'down', 'left', 'right', 'a' or 'b') to the frame's navigation. Resolves the frame's answer ('keyboard' after A on a text box; for 'b', 'back' when a sub-view closed, else 'close'), or null. */
   pointsPad(key: string): Promise<string | null>;
   /** Close the popover and reset in-frame navigation. */
   pointsClosePanel(): Promise<boolean>;

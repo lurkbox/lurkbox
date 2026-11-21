@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 const P = require('../../src/main/channel-points.js');
 const W = require('../../src/main/watch-minutes.js');
 const { sanitizeSettings, DEFAULT_SETTINGS } = require('../../src/main/store.js');
-const { navSource, pressSource } = require('../../src/main/frame-nav.js');
+const { navSource, pressSource, backSource, navTooBig, navInnermost, navIntersect, navNearestDelta } = require('../../src/main/frame-nav.js');
 
 test('balance parser', () => {
   assert.equal(P.parseBalance('0'), 0);
@@ -130,6 +130,47 @@ test('channel-points settings', () => {
 test('shared frame navigation script', () => {
   assert.doesNotThrow(() => new Function(`return ${navSource({ hint: 'x "y"', preferText: true })}`));
   assert.match(pressSource('down'), /__lbNav\.press\("down"\)/);
-  assert.equal(pressSource('b'), null);
+  assert.equal(pressSource('b'), null, 'B is not a press: it goes through backSource');
   assert.equal(pressSource('x); alert(1'), null);
+  assert.match(backSource(), /__lbNav\.back\(\)/);
+  assert.match(backSource(), /'close'/, 'no navigation in the page: close the view');
+  const src = navSource({ scopeSelector: P.NAV_OPTIONS.scopeSelector, fallbackSelector: P.NAV_OPTIONS.fallbackSelector });
+  for (const f of ['navTooBig', 'navInnermost', 'navIntersect', 'navNearestDelta', 'installNav']) assert.ok(src.includes(`function ${f}(`), `${f} is injected`);
+  assert.doesNotThrow(() => new Function(`return ${src}`));
+});
+
+test('nav targets: elements over ~60 % of the viewport are not targets', () => {
+  const vw = 515, vh = 391; // the rewards view at zoom 1.74
+  assert.equal(navTooBig({ width: 100, height: 80 }, vw, vh), false, 'a reward tile');
+  assert.equal(navTooBig({ width: vw, height: 40 }, vw, vh), false, 'a full-width button or tab bar');
+  assert.equal(navTooBig({ width: 60, height: vh }, vw, vh), false, 'a tall narrow strip');
+  assert.equal(navTooBig({ width: vw, height: vh }, vw, vh), true, 'the whole popover');
+  assert.equal(navTooBig({ width: vw * 0.7, height: vh * 0.7 }, vw, vh), true, 'a panel over 60 % both ways');
+  assert.equal(navTooBig({ width: vw, height: vh * 0.65 }, vw, vh), true, 'over 60 % of the area');
+  assert.equal(navTooBig({ width: 10, height: 10 }, 0, 0), false, 'no viewport yet: nothing is too big');
+});
+
+test('nav targets: wrappers give way to the smallest elements inside them', () => {
+  // A focusable box around the reward row and the chat input (the "big region" from the TV photo), its tiles, and a
+  // tile with a focusable badge inside.
+  const wrap = { id: 'wrap', kids: ['t1', 't2', 'input', 'badge'] };
+  const t1 = { id: 't1', kids: [] };
+  const t2 = { id: 't2', kids: ['badge'] };
+  const badge = { id: 'badge', kids: [] };
+  const input = { id: 'input', kids: [] };
+  const contains = (a, b) => a.kids.includes(b.id);
+  assert.deepEqual(navInnermost([wrap, t1, t2, badge, input], contains).map((x) => x.id), ['t1', 'badge', 'input']);
+  assert.deepEqual(navInnermost([t1, input], contains).map((x) => x.id), ['t1', 'input'], 'siblings stay');
+  assert.deepEqual(navInnermost([], contains), []);
+});
+
+test('focus ring: clipped to what is visible; scroll-into-view moves by the nearest amount', () => {
+  const frame = { left: 0, top: 0, right: 515, bottom: 391 };
+  assert.deepEqual(navIntersect({ left: 10, top: 380, right: 110, bottom: 460 }, frame), { left: 10, top: 380, right: 110, bottom: 391 }, 'cut at the frame bottom');
+  assert.equal(navIntersect({ left: 10, top: 400, right: 110, bottom: 460 }, frame), null, 'scrolled out of view');
+  // block: 'nearest' inside a scroll container spanning 100..380
+  assert.equal(navNearestDelta(150, 230, 100, 380), 0, 'already visible: no scroll');
+  assert.equal(navNearestDelta(350, 430, 100, 380), 50, 'below: scroll down until its bottom shows');
+  assert.equal(navNearestDelta(60, 140, 100, 380), -40, 'above: scroll up until its top shows');
+  assert.equal(navNearestDelta(50, 500, 100, 380), -50, 'taller than the container: its top is aligned');
 });
