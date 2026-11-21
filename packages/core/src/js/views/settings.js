@@ -1,0 +1,210 @@
+import { el, button, toast } from '../ui.js';
+import { state, saveSettings, QUALITY_OPTIONS, RAID_DELAYS, THEMES, applyTheme, SCREEN_MARGINS, UI_SCALES } from '../state.js';
+import { pickFromList, confirmDialog } from '../modal.js';
+import { openKeyboard } from '../osk.js';
+import { customThemeView } from './custom-theme.js';
+import { playerSignIn } from '../player-login.js';
+import { switchTo, addAccount, avatar } from '../accounts.js';
+import { tvSignIn } from '../auth.js';
+import { scheduleSteamArt, restoreSteamArt } from '../steam-art.js';
+import { SORTS } from '../follows.js';
+import { chatSettingsRows } from './settings-chat.js';
+
+function row(label, control, help) {
+  return el('div', { class: 'setting-row' },
+    el('div', { class: 'setting-label' }, el('div', {}, label), help ? el('div', { class: 'setting-help' }, help) : null),
+    el('div', { class: 'setting-control' }, control));
+}
+
+export function settingsView() {
+  return {
+    id: 'settings',
+    title: 'Settings',
+    mount(host, nav) {
+      const s = state.settings;
+      const defaults = state.info.defaults || {};
+      const rerender = () => nav.refresh();
+
+      const toggle = (key) => button(s[key] ? 'On' : 'Off', async () => {
+        await saveSettings({ [key]: !state.settings[key] });
+        rerender();
+      }, { class: `toggle ${s[key] ? 'on' : ''}`, dataset: { setting: key } });
+
+      // ---- Client ID ----
+      const idInput = el('input', {
+        class: 'text-input focusable client-id-input',
+        type: 'text',
+        value: s.clientId || '',
+        placeholder: 'Twitch Client ID',
+        spellcheck: 'false',
+        autocomplete: 'off',
+        'data-osk': 'Twitch Client ID',
+      });
+      const saveId = async () => {
+        const v = idInput.value.trim();
+        if (v === (state.settings.clientId || '')) return;
+        await saveSettings({ clientId: v });
+        toast(v ? 'Client ID saved' : 'Client ID cleared', 3000, v ? 'ok' : 'warn');
+        rerender();
+      };
+      idInput.addEventListener('change', saveId);
+      idInput.addEventListener('osk-done', saveId);
+      idInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); saveId(); } });
+      const idControls = el('div', { class: 'row' },
+        idInput,
+        button('Keyboard', () => openKeyboard({ title: 'Twitch Client ID', value: idInput.value, onDone: (v) => { idInput.value = v; saveId(); } })),
+        defaults.clientId && s.clientId !== defaults.clientId
+          ? button('Use built-in', () => { idInput.value = defaults.clientId; saveId(); })
+          : null);
+
+      // ---- Account: one sign-in covers Lurkbox (API) and the player (twitch.tv web session) ----
+      const a = state.auth;
+      let account = null;
+      if (!a.hasClientId) {
+        account = el('div', { class: 'setting-value warn' }, 'Set a Client ID first');
+      } else if (!a.signedIn) {
+        account = el('div', { class: 'row' },
+          el('div', { class: 'setting-value' }, a.needsReauth ? 'New permissions needed' : 'Not signed in'),
+          button('Sign in', () => nav.signIn(), { class: 'primary sign-in' }),
+          button('Sign in with your phone instead', () => nav.phoneSignIn(), { dataset: { setting: 'phoneSignIn' } }));
+      }
+
+      const fixPlayer = async (x) => {
+        if (x.id !== state.auth.active) await switchTo(x.id);
+        await playerSignIn();
+        rerender();
+      };
+      const accountRow = (x) => {
+        const name = x.display_name || x.login;
+        const detail = el('div', { class: 'account-detail' });
+        const row = el('div', { class: 'account-row' },
+          el('div', { class: 'row' },
+            avatar(x),
+            el('div', { class: 'setting-value' }, `${x.needsSignin ? `${name}: needs sign-in` : `Signed in as ${name}`}${x.id === a.active ? ' (active)' : ''}`),
+            x.id !== a.active ? button('Switch', () => switchTo(x.id).then(rerender), { dataset: { key: `switch-${x.id}` } }) : null,
+            x.needsSignin
+              ? button('Sign in again', () => tvSignIn({ accountId: x.id, onSuccess: rerender }), { class: 'primary' })
+              : button('Sign out', () => confirmDialog({ title: `Sign out ${x.login}?`, message: 'Signs out Lurkbox and the video player for this account. It stays in the list; sign in again any time.', yes: 'Sign out', onYes: async () => { await window.lurkbox.signOut(x.id); toast('Signed out'); rerender(); } }), { class: 'sign-out' }),
+            button('Remove', () => confirmDialog({ title: `Remove ${x.login}?`, message: 'Forgets this account and its player sign-in on this device.', yes: 'Remove', onYes: async () => { await window.lurkbox.removeAccount(x.id); toast('Account removed'); rerender(); } }))),
+          detail);
+        // Only one half broken? Say which, with a Fix button.
+        statusP.then((list) => {
+          const st = list.find((y) => y.id === x.id);
+          if (!st || x.needsSignin) return;
+          if (!st.api) {
+            detail.replaceChildren(el('div', { class: 'setting-help warn' }, 'Lurkbox\'s access needs renewing.'), button('Fix', () => tvSignIn({ accountId: x.id, onSuccess: rerender })));
+          } else if (!st.player) {
+            const why = st.playerLogin ? `The player is signed in as ${st.playerLogin}, so subs and Turbo apply to them.` : 'The player isn\'t signed in, so your subs and Turbo don\'t apply.';
+            detail.replaceChildren(el('div', { class: 'setting-help warn' }, why), button('Fix', () => fixPlayer(x), { dataset: { setting: `fixPlayer-${x.id}` } }));
+          }
+        }).catch(() => {});
+        return row;
+      };
+      const statusP = (a.accounts || []).length ? window.lurkbox.accountsStatus() : Promise.resolve([]);
+      const accountsList = el('div', { class: 'accounts-list' },
+        (a.accounts || []).map(accountRow),
+        a.hasClientId ? button('Add account', () => addAccount(), { dataset: { setting: 'addAccount' } }) : null);
+
+      const qLabel = (QUALITY_OPTIONS.find((q) => q.value === s.defaultQuality) || { label: s.defaultQuality }).label;
+      const qualityBtn = button(qLabel, () => pickFromList({
+        title: 'Default quality',
+        items: QUALITY_OPTIONS,
+        current: state.settings.defaultQuality,
+        onPick: async (v) => { await saveSettings({ defaultQuality: v }); rerender(); },
+      }), { dataset: { setting: 'defaultQuality' } });
+
+      const delayBtn = button(`${s.raidDelay} s`, () => pickFromList({
+        title: 'Raid cancel delay',
+        items: RAID_DELAYS.map((d) => ({ value: d, label: d === 0 ? 'Follow immediately' : `${d} seconds` })),
+        current: state.settings.raidDelay,
+        onPick: async (v) => { await saveSettings({ raidDelay: v }); rerender(); },
+      }), { dataset: { setting: 'raidDelay' } });
+
+      const themeLabel = (THEMES.find((t) => t.value === s.theme) || THEMES[0]).label;
+      const themeBtn = button(themeLabel, () => pickFromList({
+        title: 'Theme',
+        items: THEMES,
+        current: state.settings.theme || 'lurkbox',
+        onPreview: (v) => applyTheme(v), // live preview while moving focus
+        onPick: async (v) => {
+          if (v === 'custom') { nav.push(customThemeView()); return; } // saved from the editor
+          applyTheme(v);
+          await saveSettings({ theme: v });
+          scheduleSteamArt(); // committed with A; never during the live preview
+          rerender();
+        },
+        onCancel: () => applyTheme(state.settings.theme), // B reverts
+      }), { dataset: { setting: 'theme' } });
+
+      const steamArtBtn = button(s.steamArtSync ? 'On' : 'Off', async () => {
+        const on = !state.settings.steamArtSync;
+        await saveSettings({ steamArtSync: on });
+        if (on) scheduleSteamArt();
+        rerender();
+      }, { class: `toggle ${s.steamArtSync ? 'on' : ''}`, dataset: { setting: 'steamArtSync' } });
+      const restoreArtBtn = button('Restore', () => confirmDialog({
+        title: 'Restore original Lurkbox art?',
+        message: 'Puts back the library art Lurkbox had before it recoloured it.',
+        yes: 'Restore',
+        onYes: async () => {
+          if (state.settings.steamArtSync) await saveSettings({ steamArtSync: false });
+          await restoreSteamArt();
+          rerender();
+        },
+      }), { dataset: { setting: 'steamArtRestore' } });
+
+      const pickRow = (key, title, items) => {
+        const cur = items.find((i) => String(i.value) === String(s[key])) || items[0];
+        return button(cur.label, () => pickFromList({
+          title, items, current: s[key],
+          onPick: async (v) => { await saveSettings({ [key]: v }); rerender(); },
+        }), { dataset: { setting: key } });
+      };
+
+      const banner = !a.hasClientId
+        ? el('div', { class: 'banner warn' }, 'Lurkbox needs a Twitch Client ID before it can sign in or load anything. Enter one below, or select "Use built-in".')
+        : null;
+
+      host.append(
+        el('header', { class: 'view-header' }, el('h1', {}, 'Settings')),
+        banner || '',
+        el('div', { class: 'settings' },
+          el('h2', { class: 'section-title settings-section' }, 'Account'),
+          account ? row('Account', account, 'One sign-in, here on the TV, covers Lurkbox and the video player (your subs and Turbo).') : '',
+          (a.accounts || []).length ? row('Accounts', accountsList) : '',
+          row('At startup', pickRow('profilePicker', 'At startup', [{ value: 'remember', label: 'Remember last account' }, { value: 'ask', label: 'Always ask who\'s watching' }])),
+          row('Client ID', idControls, 'From your app at dev.twitch.tv (public client). Not a secret.'),
+          el('h2', { class: 'section-title settings-section' }, 'Appearance'),
+          row('Theme', themeBtn, 'Previews as you move. A keeps it, B reverts.'),
+          row('Custom colours', button('Edit', () => nav.push(customThemeView()), { dataset: { setting: 'customEdit' } }), 'Pick your own background, surface, accent and text colours.'),
+          row('Match Steam library artwork to theme', steamArtBtn, 'Recolours Lurkbox\'s capsule, hero, logo and icon in the Steam library when you pick a theme. This uses Steam\'s internal, undocumented client interface (enabled by Decky Loader) and may break with Steam updates. Without it, the art changes the next time Steam restarts.'),
+          row('Restore original Lurkbox art', restoreArtBtn, 'Puts the original library art back and turns the setting above off.'),
+          row('Screen margin', pickRow('screenMargin', 'Screen margin', SCREEN_MARGINS), 'Space around the edges for TVs that crop the picture (overscan).'),
+          row('UI scale', pickRow('uiScale', 'UI scale', UI_SCALES)),
+          el('h2', { class: 'section-title settings-section' }, 'Player'),
+          row('Player', pickRow('playerEngine', 'Player', [{ value: 'direct', label: 'Direct (default)' }, { value: 'embed', label: 'Twitch player' }]), 'Direct plays the stream itself; the official Twitch player is the automatic fallback.'),
+          row('Latency', pickRow('lowLatency', 'Latency', [{ value: true, label: 'Low latency' }, { value: false, label: 'Normal' }])),
+          row('Catch up automatically', toggle('autoCatchUp'), 'Plays slightly faster to stay at the live edge. Far behind? Press X to jump to live.'),
+          row('Video codec', pickRow('videoCodec', 'Video codec', [{ value: 'h264', label: 'H.264 (smoothest)' }, { value: 'best', label: 'Best available' }]), 'H.264 decodes cheaply everywhere. Best available also allows AV1 and H.265 when this device decodes them in hardware. Applies to the next stream you open.'),
+          row('Quality while in the background', pickRow('backgroundQuality', 'Quality while in the background', [{ value: 'same', label: 'Same' }, { value: '720', label: '720p (default)' }, { value: '480', label: '480p' }]), 'After 3 s without focus (e.g. Floater over a game), drop to this quality to leave the game more CPU and GPU. Restores when Lurkbox gets focus.'),
+          row('Hardware video decoding', toggle('hwDecode'), 'VA-API. Takes effect after restarting Lurkbox.'),
+          row('Default quality', qualityBtn),
+          row('Auto-claim bonus points', toggle('autoClaimPoints'), 'Claims the channel-points bonus as soon as it appears, through Twitch\'s chat page in the background. Needs the TV sign-in.'),
+          row('Earn channel points while watching', toggle('earnWatchPoints'), 'With the Direct player, reports the stream you\'re watching once a minute the way Twitch\'s own player does, so watch time earns points. Only while it plays on screen; never for other streams.'),
+          ...chatSettingsRows({ row, rerender, pickRow }),
+          el('h2', { class: 'section-title settings-section' }, 'General'),
+          row('Offline channels sort', pickRow('followSort', 'Offline channels sort', SORTS.map((x) => (x.value === 'recent' ? { ...x, label: `${x.label} (default)` } : x))), 'Order of the Offline section on Following. Y on Following cycles it too.'),
+          row('Refresh live lists', pickRow('refreshInterval', 'Refresh live lists every', [10, 15, 30, 60].map((v) => ({ value: v, label: `${v} s` })))),
+          row('Hide chat and controls when Lurkbox isn\'t focused', toggle('videoOnlyUnfocused'), 'Shows just the video while another app (e.g. a game under Floater) has focus.'),
+          row('Confirm before exiting', toggle('confirmExit'), 'B on the home screen exits Lurkbox.'),
+          row('Navigation sounds', toggle('navSounds'), 'Quiet ticks when you move, select and go back with the controller.'),
+          row('Sound volume', pickRow('navSoundVolume', 'Sound volume', [{ value: 30, label: 'Subtle' }, { value: 60, label: 'Normal' }, { value: 90, label: 'Loud' }])),
+          row('Follow raids', toggle('raidFollow'), 'Switch to the raided channel when the streamer raids.'),
+          row('Raid cancel delay', delayBtn, 'Time to press B before Lurkbox follows a raid.'),
+          row('Skip content warnings', toggle('skipContentGate'), 'Click through the player\'s "Start watching" gate.'),
+          row('Controller input when unfocused', toggle('inputWhenUnfocused'), 'Leave off so a game under Floater does not also drive Lurkbox.'),
+          row('Quit Lurkbox', button('Quit', () => confirmDialog({ title: 'Quit Lurkbox?', message: '', yes: 'Quit', onYes: () => window.lurkbox.quit() })))),
+        el('p', { class: 'hint version' }, `Lurkbox ${state.info.version}`));
+    },
+  };
+}

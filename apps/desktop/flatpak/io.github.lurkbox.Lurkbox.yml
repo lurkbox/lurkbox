@@ -1,0 +1,62 @@
+# DRAFT, not built yet (flatpak-builder isn't installed on the dev laptop).
+#
+# Packages the electron-builder "unpacked" output rather than building from
+# source inside the sandbox; a source build would need
+# org.freedesktop.Sdk.Extension.node* and flatpak-node-generator for offline
+# npm sources. Steps:
+# (from the repo root)
+#   npm ci --ignore-scripts && npm rebuild electron
+#   npm run dist -- --dir                 # -> dist/linux-unpacked/
+#   flatpak-builder --user --install --force-clean apps/desktop/flatpak/build-dir apps/desktop/flatpak/io.github.lurkbox.Lurkbox.yml
+#
+# Electron's sandbox runs through zypak, which the Electron BaseApp provides.
+app-id: io.github.lurkbox.Lurkbox
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+base: org.electronjs.Electron2.BaseApp
+base-version: '24.08'
+command: lurkbox
+separate-locales: false
+finish-args:
+  - --share=network           # Twitch API, embed, chat, EventSub
+  - --share=ipc
+  - --socket=x11              # XWayland under Gamescope, so Steam/Floater can track the window
+  - --socket=pulseaudio       # audio as its own PipeWire stream
+  - --device=all              # gamepads (/dev/input, hidraw) for the Gamepad API
+  - --device=dri
+  - --env=ELECTRON_TRASH=gio
+modules:
+  - name: lurkbox
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: ../../../dist/linux-unpacked
+        dest: app
+      - type: dir
+        path: ../../../assets/icons
+        dest: icons
+      - type: inline
+        dest-filename: lurkbox.sh
+        contents: |
+          #!/bin/sh
+          exec zypak-wrapper /app/lurkbox/lurkbox "$@"
+      - type: inline
+        dest-filename: io.github.lurkbox.Lurkbox.desktop
+        contents: |
+          [Desktop Entry]
+          Type=Application
+          Name=Lurkbox
+          Comment=A couch and controller client for Twitch
+          Exec=lurkbox
+          Icon=io.github.lurkbox.Lurkbox
+          Categories=AudioVideo;Video;Player;
+          StartupWMClass=Lurkbox
+    build-commands:
+      - cp -a app /app/lurkbox
+      - install -Dm755 lurkbox.sh /app/bin/lurkbox
+      - install -Dm644 io.github.lurkbox.Lurkbox.desktop /app/share/applications/io.github.lurkbox.Lurkbox.desktop
+      - |
+        for s in 16 32 48 64 128 256 512; do
+          install -Dm644 icons/${s}x${s}.png /app/share/icons/hicolor/${s}x${s}/apps/io.github.lurkbox.Lurkbox.png
+        done

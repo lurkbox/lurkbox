@@ -1,0 +1,32 @@
+{
+  "name": "lurkbox",
+  "productName": "Lurkbox",
+  "version": "0.1.0",
+  "description": "A couch/controller client for Twitch, made for SteamOS Game Mode",
+  "main": "src/main/main.js",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "author": "aronwk-aaron",
+  "desktopName": "io.github.lurkbox.Lurkbox.desktop",
+  "scripts": {
+    "start": "env -u ELECTRON_RUN_AS_NODE electron .",
+    "dist": "electron-builder --config electron-builder.config.js --linux AppImage --x64",
+    "test": "node --test \"test/unit/**/*.test.mjs\"",
+    "test:smoke": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/smoke.js",
+    "test:play": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/play.js",
+    "test:direct": "env -u ELECTRON_RUN_AS_NODE LURKBOX_TEST_ENGINE=direct electron test/smoke/play.js",
+    "test:vod": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/vod.js",
+    "test:rewind": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/rewind.js",
+    "test:points": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/points.js",
+    "test:chat": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/chat.js",
+    "screenshots": "node scripts/screenshots.mjs"
+  },
+  "dependencies": {
+    "@lurkbox/core": "0.1.0",
+    "qrcode-generator": "^2.0.4"
+  },
+  "devDependencies": {
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
+  }
+}

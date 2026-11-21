@@ -1,0 +1,589 @@
+/* Lurkbox: TV-style layout. Sizes are in rem and scale with the window so the
+   UI stays legible when Floater draws the app at a fraction of the screen. */
+/* ---------- themes ----------
+   Every colour lives here. Component rules below use only these tokens
+   (test/unit/themes.test.mjs checks both). Theme names avoid trademarks. */
+:root {
+  --radius: 0.8rem;
+  --rail-w: 13rem;
+  --chat-w: 26rem;
+  --tchat-w: 340px; /* Twitch chat style panel width; set by applyDisplay() from Settings → Chat → Twitch chat size */
+  --tchat-zoom: 1;
+  --overlay-stop: 20%; /* player scrim: from the bottom, solid-ish to here... */
+  --overlay-fade: 46%; /* ...and clear from here up */
+  --chat-text: 1; /* chat layout (set on #player-screen by the player from the chat settings) */
+  --chat-bg-a: 100%;
+  --chat-over-a: 55%;
+  --ring-w: 0.28rem;
+  --inner-w: 0px;
+  --focus-scale: 1.05;
+  --icon-halo: 0.35;
+  --ui-scale: 1; /* Settings → UI scale */
+  --screen-margin: 0px; /* Settings → Screen margin */
+}
+:root, :root[data-theme="lurkbox"] {
+  color-scheme: dark;
+  --bg: #081719; --bg-top: #123236; --surface: #0f2a2e; --raised: #173a3f;
+  --fg: #ffe3cc; --fg-dim: #c4b2a2;
+  --accent: #ff8a66; --accent-glow: #ffd3a8; --on-accent: #2a0f08;
+  --primary-bg: #ff8a66; --primary-fg: #2a0f08;
+  --live: #e0504a; --on-live: #ffffff; --ok: #3ccf8e; --on-ok: #032b1c; --warn: #ffb547;
+  --ring: #ffd3a8; --ring-glow: rgba(255, 138, 102, 0.6);
+  --focus-bg: #ffe3cc; --focus-fg: #2a0f08;
+  --border: #1d4146; --input-bg: #0b2125; --input-border: #2b5c63;
+  --scrim: rgba(4, 14, 16, 0.82); --overlay-from: rgba(4, 14, 16, 0.7); --overlay-mid: rgba(4, 14, 16, 0.4);
+  --panel-bg: #0a1f22; --chat-bg: #0b2125; --toast-bg: #0f2a2e;
+  --badge-bg: rgba(0, 0, 0, 0.72); --badge-fg: #ffffff; --qr-bg: #ffffff; --video-bg: #000000; --icon-silhouette: #041012; --icon-stroke: rgba(0, 0, 0, 0); --inner-ring: rgba(0, 0, 0, 0);
+  --title-a: #ffd3a8; --title-b: #ff8a66; --shadow: rgba(0, 0, 0, 0.6);
+}
+:root[data-theme="classic-purple"] {
+  color-scheme: dark;
+  --bg: #0e0e10; --bg-top: #0e0e10; --surface: #18181b; --raised: #1f1f23;
+  --fg: #efeff1; --fg-dim: #adadb8;
+  --accent: #9147ff; --accent-glow: #a970ff; --on-accent: #ffffff;
+  --primary-bg: #9147ff; --primary-fg: #ffffff;
+  --live: #eb0400; --on-live: #ffffff; --ok: #2fbf71; --on-ok: #04210f; --warn: #ffb31a;
+  --ring: #a970ff; --ring-glow: rgba(145, 71, 255, 0.55);
+  --focus-bg: #efeff1; --focus-fg: #0e0e10;
+  --border: #2a2a2f; --input-bg: #0e0e10; --input-border: #3d3d45;
+  --scrim: rgba(0, 0, 0, 0.75); --overlay-from: rgba(14, 14, 16, 0.7); --overlay-mid: rgba(14, 14, 16, 0.4);
+  --panel-bg: #18181b; --chat-bg: #18181b; --toast-bg: #1f1f23;
+  --badge-bg: rgba(0, 0, 0, 0.72); --badge-fg: #ffffff; --qr-bg: #ffffff; --video-bg: #000000; --icon-silhouette: #050506; --icon-stroke: rgba(0, 0, 0, 0); --inner-ring: rgba(0, 0, 0, 0);
+  --title-a: #efeff1; --title-b: #a970ff; --shadow: rgba(0, 0, 0, 0.6);
+}
+:root[data-theme="game-mode"] {
+  /* Matches the console-style UI: flatter corners, blue focus with a white inner edge. */
+  color-scheme: dark;
+  --radius: 4px;
+  --ring-w: 0.2rem;
+  --inner-w: 2px;
+  --focus-scale: 1.04;
+  --bg: #0e141b; --bg-top: #1b2838; --surface: #23262e; --raised: #2d3139;
+  --fg: #dcdedf; --fg-dim: #8b929a;
+  --accent: #1a9fff; --accent-glow: #67c1ff; --on-accent: #0e141b;
+  --primary-bg: #1a9fff; --primary-fg: #0e141b;
+  --live: #d94b4b; --on-live: #ffffff; --ok: #5ba32b; --on-ok: #0e141b; --warn: #e5a23a;
+  --ring: #1a9fff; --ring-glow: rgba(26, 159, 255, 0.45);
+  --focus-bg: #dcdedf; --focus-fg: #0e141b;
+  --border: #33373f; --input-bg: #1b1f26; --input-border: #3d434d;
+  --scrim: rgba(14, 20, 27, 0.85); --overlay-from: rgba(14, 20, 27, 0.7); --overlay-mid: rgba(14, 20, 27, 0.4);
+  --panel-bg: #23262e; --chat-bg: #1b1f26; --toast-bg: #2d3139;
+  --badge-bg: rgba(0, 0, 0, 0.72); --badge-fg: #ffffff; --qr-bg: #ffffff; --video-bg: #000000; --icon-silhouette: #070b10; --icon-stroke: rgba(0, 0, 0, 0); --inner-ring: #ffffff;
+  --title-a: #dcdedf; --title-b: #1a9fff; --shadow: rgba(0, 0, 0, 0.6);
+}
+:root[data-theme="oled"] {
+  --icon-halo: 0;
+  /* Pure black, separation by 1px borders, no gradients or large bright areas. */
+  color-scheme: dark;
+  --bg: #000000; --bg-top: #000000; --surface: #000000; --raised: #000000;
+  --fg: #e6e6e6; --fg-dim: #9a9a9a;
+  --accent: #ff8a66; --accent-glow: #ff8a66; --on-accent: #000000;
+  --primary-bg: #000000; --primary-fg: #ff8a66;
+  --live: #b8322d; --on-live: #ffffff; --ok: #000000; --on-ok: #3ccf8e; --warn: #d99a3a;
+  --ring: #ff8a66; --ring-glow: rgba(0, 0, 0, 0);
+  --focus-bg: #000000; --focus-fg: #ff8a66;
+  --border: #1a1a1a; --input-bg: #000000; --input-border: #1a1a1a;
+  --scrim: rgba(0, 0, 0, 0.92); --overlay-from: rgba(0, 0, 0, 0.75); --overlay-mid: rgba(0, 0, 0, 0.5);
+  --panel-bg: #000000; --chat-bg: #000000; --toast-bg: #000000;
+  --badge-bg: #000000; --badge-fg: #e6e6e6; --qr-bg: #ffffff; --video-bg: #000000; --icon-silhouette: #1a1a1a; --icon-stroke: rgba(0, 0, 0, 0); --inner-ring: rgba(0, 0, 0, 0);
+  --title-a: #e6e6e6; --title-b: #e6e6e6; --shadow: rgba(0, 0, 0, 0);
+}
+:root[data-theme="daylight"] {
+  color-scheme: light;
+  --bg: #f4f5f7; --bg-top: #f4f5f7; --surface: #ffffff; --raised: #e9ebef;
+  --fg: #14181f; --fg-dim: #505867;
+  --accent: #d94f3d; --accent-glow: #f2a497; --on-accent: #ffffff;
+  --primary-bg: #d94f3d; --primary-fg: #ffffff;
+  --live: #d4291f; --on-live: #ffffff; --ok: #1d8a52; --on-ok: #ffffff; --warn: #a86400;
+  --ring: #d94f3d; --ring-glow: rgba(217, 79, 61, 0.35);
+  --focus-bg: #14181f; --focus-fg: #ffffff;
+  --border: #d5d9e0; --input-bg: #ffffff; --input-border: #b8bfca;
+  --scrim: rgba(20, 24, 31, 0.45); --overlay-from: rgba(244, 245, 247, 0.72); --overlay-mid: rgba(244, 245, 247, 0.45);
+  --panel-bg: #ffffff; --chat-bg: #ffffff; --toast-bg: #ffffff;
+  --badge-bg: rgba(20, 24, 31, 0.82); --badge-fg: #ffffff; --qr-bg: #ffffff; --video-bg: #000000; --icon-silhouette: #aeb5c0; --icon-stroke: rgba(0, 0, 0, 0); --inner-ring: rgba(0, 0, 0, 0);
+  --title-a: #14181f; --title-b: #d94f3d; --shadow: rgba(20, 24, 31, 0.18);
+}
+:root[data-theme="high-contrast"] {
+  /* Opaque everything, white on black, thick yellow focus ring. */
+  color-scheme: dark;
+  --ring-w: 6px;
+  --overlay-stop: 30%;
+  --overlay-fade: 30%;
+  --bg: #000000; --bg-top: #000000; --surface: #000000; --raised: #000000;
+  --fg: #ffffff; --fg-dim: #ffffff;
+  --accent: #ffd400; --accent-glow: #ffd400; --on-accent: #000000;
+  --primary-bg: #ffd400; --primary-fg: #000000;
+  --live: #d00000; --on-live: #ffffff; --ok: #00d000; --on-ok: #000000; --warn: #ffd400;
+  --ring: #ffd400; --ring-glow: rgba(0, 0, 0, 0);
+  --focus-bg: #ffd400; --focus-fg: #000000;
+  --border: #ffffff; --input-bg: #000000; --input-border: #ffffff;
+  --scrim: #000000; --overlay-from: rgba(0, 0, 0, 0.75); --overlay-mid: rgba(0, 0, 0, 0.55);
+  --panel-bg: #000000; --chat-bg: #000000; --toast-bg: #000000;
+  --badge-bg: #000000; --badge-fg: #ffffff; --qr-bg: #ffffff; --video-bg: #000000; --icon-silhouette: #ffffff; --icon-stroke: #ffffff; --inner-ring: rgba(0, 0, 0, 0);
+  --title-a: #ffffff; --title-b: #ffffff; --shadow: rgba(0, 0, 0, 0);
+}
+
+html { font-size: calc(clamp(16px, 1.45vw, 44px) * var(--ui-scale, 1)); }
+/* TV overscan: padding around the whole shell (Settings → Screen margin). */
+body { padding: var(--screen-margin, 0); box-sizing: border-box; }
+#app { height: 100%; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); }
+body { background: linear-gradient(180deg, var(--bg-top), var(--bg)); }
+body {
+  font-family: "Inter", "Noto Sans", "Cantarell", "DejaVu Sans", system-ui, sans-serif;
+  line-height: 1.3;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+body.cursor-idle, body.cursor-idle * { cursor: none !important; }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; }
+img { display: block; }
+
+/* ---------- focus: one unmistakable ring ---------- */
+.focusable { outline: none; transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease; }
+.focusable:focus, .focusable.is-focused {
+  outline: var(--ring-w) solid var(--ring);
+  outline-offset: 0.18rem;
+  box-shadow: inset 0 0 0 var(--inner-w) var(--inner-ring), 0 0 0 0.6rem var(--ring-glow), 0 0.6rem 2rem var(--shadow);
+  position: relative;
+  z-index: 2;
+}
+.card.focusable:focus, .card.focusable.is-focused { transform: scale(var(--focus-scale)); }
+
+/* ---------- shell ---------- */
+#app { display: flex; height: 100%; }
+#rail {
+  width: var(--rail-w);
+  flex: none;
+  background: linear-gradient(180deg, var(--bg-top), var(--bg));
+  display: flex;
+  flex-direction: column;
+  padding: 1.4rem 0.9rem;
+  gap: 1rem;
+  border-right: 1px solid var(--border);
+}
+.brand { display: flex; align-items: center; gap: 0.6rem; padding: 0 0.5rem 0.8rem; }
+.brand-mark { width: 2.2rem; height: 2.2rem; flex: none; }
+.mascot { display: block; width: 100%; height: 100%; }
+.welcome-mascot { width: 9rem; height: 9rem; }
+.signin-mascot { width: 5rem; height: 5rem; margin-bottom: 0.4rem; }
+.brand-name { font-weight: 800; font-size: 1.35rem; letter-spacing: 0.02em; }
+.rail-items { display: flex; flex-direction: column; gap: 0.5rem; }
+.rail-item {
+  display: flex; align-items: center; gap: 0.8rem;
+  background: transparent; border: 0; border-radius: var(--radius);
+  padding: 0.75rem 0.8rem; font-size: 1.1rem; font-weight: 600; color: var(--fg-dim);
+  text-align: left; cursor: pointer;
+}
+.rail-item.current { color: var(--fg); background: var(--raised); }
+.rail-item.current .rail-icon svg { stroke: var(--accent); }
+.rail-item:focus, .rail-item.is-focused { background: var(--focus-bg); color: var(--focus-fg); }
+.rail-item:focus .rail-icon svg, .rail-item.is-focused .rail-icon svg { stroke: var(--focus-fg); }
+.rail-icon svg { width: 1.5rem; height: 1.5rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
+.rail-user { margin-top: auto; padding: 0 0.5rem; font-size: 0.9rem; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+#content { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 1.6rem 2.2rem 4rem; overscroll-behavior: contain; }
+/* Room for the focus ring and scaled cards so the scroller never clips them. */
+.grid { padding: 0.9rem; margin: -0.9rem; }
+#content::-webkit-scrollbar { width: 0; }
+.view-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.3rem; }
+.view-header h1 { font-size: 2rem; margin: 0; font-weight: 800; }
+.view-header .hint { margin-left: auto; }
+.section-title { font-size: 1.5rem; margin: 2rem 0 1rem; }
+.hint { color: var(--fg-dim); font-size: 0.95rem; }
+
+/* ---------- buttons ---------- */
+.btn {
+  background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 0.75rem 1.3rem; font-size: 1.1rem; font-weight: 700; cursor: pointer;
+  min-height: 3rem; white-space: nowrap;
+}
+.btn.primary { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--accent); }
+.btn.big { font-size: 1.4rem; padding: 1rem 2rem; }
+.btn:focus, .btn.is-focused { background: var(--focus-bg); color: var(--focus-fg); }
+.btn:disabled { opacity: 0.5; }
+.row { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
+
+/* ---------- card grid ---------- */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1.6rem 1.3rem; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0; text-align: left;
+  overflow: hidden; cursor: pointer; display: flex; flex-direction: column;
+}
+.card:focus, .card.is-focused { background: var(--raised); }
+.card-thumb { position: relative; aspect-ratio: 16 / 9; background: var(--raised); }
+.card-thumb.tall { aspect-ratio: 3 / 4; }
+.card-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.thumb-missing { display: grid; place-items: center; height: 100%; color: var(--fg-dim); }
+.badge {
+  position: absolute; padding: 0.15rem 0.5rem; border-radius: 0.35rem; font-size: 0.85rem; font-weight: 800;
+  background: var(--badge-bg); color: var(--badge-fg);
+}
+.badge.live { top: 0.5rem; left: 0.5rem; background: var(--live); color: var(--on-live); }
+.badge.viewers { bottom: 0.5rem; left: 0.5rem; }
+.badge.kind { top: 0.5rem; right: 0.5rem; text-transform: capitalize; }
+.card-body { padding: 0.7rem 0.9rem 0.9rem; display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.card-title { font-weight: 800; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-sub { color: var(--fg); opacity: 0.85; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-meta { color: var(--fg-dim); font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-game .card-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.grid:has(.card-game) { grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); }
+.card-channel { flex-direction: row; align-items: center; gap: 0.4rem; padding: 0.8rem; }
+.card-avatar { position: relative; flex: none; width: 4.5rem; height: 4.5rem; }
+.card-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: var(--raised); }
+.card-avatar .badge.live { top: auto; bottom: -0.3rem; left: 50%; transform: translateX(-50%); font-size: 0.7rem; }
+.card-more { align-items: center; justify-content: center; min-height: 8rem; font-size: 1.2rem; font-weight: 800; }
+
+.loading, .empty { color: var(--fg-dim); font-size: 1.2rem; padding: 2rem 0; }
+.empty h2 { color: var(--fg); font-size: 1.6rem; margin: 0 0 0.5rem; }
+.empty .btn { margin-top: 1rem; }
+
+/* ---------- welcome ---------- */
+.welcome { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; min-height: 80vh; gap: 1rem; max-width: 46rem; }
+.welcome-title { font-size: 4rem; margin: 0; font-weight: 900; background: linear-gradient(90deg, var(--title-a), var(--title-b)); -webkit-background-clip: text; color: transparent; }
+.welcome-sub { font-size: 1.5rem; color: var(--fg-dim); margin: 0 0 1rem; }
+.welcome-actions { display: flex; flex-direction: column; gap: 1rem; align-items: stretch; min-width: 24rem; }
+.welcome-actions .btn { font-size: 1.35rem; padding: 1rem 1.6rem; text-align: left; }
+
+/* ---------- search ---------- */
+.search-bar { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.6rem; }
+.text-input {
+  flex: 1; min-width: 16rem; font: inherit; font-size: 1.3rem; padding: 0.75rem 1rem; border-radius: var(--radius);
+  border: 0.15rem solid var(--input-border); background: var(--input-bg); color: var(--fg); user-select: text;
+}
+.text-input:focus, .text-input.is-focused { border-color: var(--ring); }
+.search-results { margin-top: 1.4rem; }
+
+/* ---------- channel ---------- */
+.channel-header .avatar { width: 4rem; height: 4rem; border-radius: 50%; }
+.live-row { display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start; }
+.live-row .btn { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- settings ---------- */
+.banner { padding: 1rem 1.3rem; border-radius: var(--radius); margin-bottom: 1.2rem; font-size: 1.15rem; font-weight: 600; }
+.banner.warn { background: var(--surface); border: 0.12rem solid var(--warn); }
+.settings { display: flex; flex-direction: column; gap: 0.4rem; max-width: 60rem; }
+.setting-row { display: flex; align-items: center; gap: 1.5rem; padding: 0.9rem 1.1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.settings-section { margin: 1.4rem 0 0.4rem; color: var(--fg-dim); }
+.settings-section:first-child { margin-top: 0; }
+.setting-label { flex: 1; font-size: 1.2rem; font-weight: 700; }
+.setting-help { font-size: 0.9rem; font-weight: 400; color: var(--fg-dim); margin-top: 0.2rem; }
+.setting-control { flex: none; max-width: 60%; }
+.setting-control .text-input { min-width: 18rem; font-size: 1.05rem; }
+.setting-value { font-size: 1.1rem; }
+.setting-value.warn { color: var(--warn); }
+.toggle { min-width: 6rem; }
+.toggle.on { background: var(--ok); color: var(--on-ok); border-color: var(--on-ok); }
+.toggle.on:focus, .toggle.on.is-focused { background: var(--focus-bg); color: var(--focus-fg); }
+.version { margin-top: 1.5rem; }
+
+/* ---------- modals ---------- */
+#modal-root { position: fixed; inset: 0; pointer-events: none; z-index: 50; }
+#modal-root:empty { display: none; } /* never overlap the embed when no modal is open */
+.modal-backdrop { position: absolute; inset: 0; background: var(--scrim); display: grid; place-items: center; pointer-events: auto; }
+.modal { background: var(--panel-bg); border: 1px solid var(--border); border-radius: 1.2rem; padding: 1.6rem 2rem; max-width: 90vw; max-height: 90vh; overflow: auto; box-shadow: 0 1rem 4rem var(--shadow); }
+.modal-title { margin: 0 0 1rem; font-size: 1.7rem; }
+.pick-list { display: flex; flex-direction: column; gap: 0.5rem; min-width: 20rem; }
+.pick-item { text-align: left; }
+.pick-item.selected::after { content: "  \2713"; color: var(--accent); }
+.pick-item.selected:focus::after, .pick-item.selected.is-focused::after { color: var(--focus-fg); }
+.confirm p { font-size: 1.2rem; }
+
+.signin-modal { max-width: 70rem; }
+.signin { display: flex; gap: 3rem; align-items: center; }
+.signin-text { display: flex; flex-direction: column; gap: 0.4rem; }
+.signin-step { font-size: 1.3rem; color: var(--fg-dim); margin: 0.4rem 0 0; }
+.signin-url { font-size: 2.2rem; font-weight: 800; color: var(--accent); }
+.signin-code { font-size: 5rem; font-weight: 900; letter-spacing: 0.25em; font-family: "DejaVu Sans Mono", "Noto Sans Mono", monospace; padding: 0.3rem 0; }
+.signin-status { font-size: 1.15rem; color: var(--fg-dim); margin: 0.6rem 0 1rem; min-height: 1.5em; }
+.signin-qr { flex: none; width: 16rem; text-align: center; }
+.signin-qr svg { width: 16rem; height: 16rem; border-radius: 0.6rem; background: var(--qr-bg); display: block; }
+.signin-qr-caption { font-size: 0.9rem; color: var(--fg-dim); margin-top: 0.6rem; }
+
+.osk { min-width: 50rem; }
+.osk-field { font-size: 1.8rem; background: var(--input-bg); border: 1px solid var(--input-border); border-radius: var(--radius); padding: 0.7rem 1rem; min-height: 3.4rem; margin-bottom: 1rem; word-break: break-all; }
+.osk-caret { display: inline-block; width: 0.12em; height: 1.1em; background: var(--accent); vertical-align: text-bottom; margin-left: 0.05em; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.osk-keys { display: flex; flex-direction: column; gap: 0.5rem; }
+.osk-row { display: flex; gap: 0.5rem; justify-content: center; }
+.osk-key { background: var(--raised); border: 1px solid var(--border); border-radius: 0.6rem; min-width: 3.6rem; height: 3.6rem; font-size: 1.4rem; font-weight: 700; cursor: pointer; }
+.osk-key.wide { min-width: 7rem; font-size: 1.1rem; }
+.osk-key.wider { min-width: 14rem; font-size: 1.1rem; }
+.osk-key.primary { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--accent); }
+.osk-key:focus, .osk-key.is-focused { background: var(--focus-bg); color: var(--focus-fg); }
+.osk .hint { margin-top: 1rem; text-align: center; }
+
+/* ---------- toasts ---------- */
+#toasts { position: fixed; top: 1.4rem; right: 1.4rem; display: flex; flex-direction: column; gap: 0.6rem; z-index: 60; pointer-events: none; align-items: flex-end; }
+.toast { background: var(--toast-bg); color: var(--fg); border: 1px solid var(--border); border-left: 0.35rem solid var(--accent); padding: 0.8rem 1.2rem; border-radius: 0.6rem; font-size: 1.15rem; font-weight: 600; max-width: 34rem; box-shadow: 0 0.5rem 2rem var(--shadow); transition: opacity 300ms, transform 300ms; }
+.toast.ok { border-color: var(--ok); }
+.toast.warn { border-color: var(--warn); }
+.toast.out { opacity: 0; transform: translateY(-0.5rem); }
+
+/* ---------- player ---------- */
+#player-screen { position: fixed; inset: 0; background: var(--video-bg); display: flex; z-index: 20; }
+#player-stage { position: relative; flex: 1; min-width: 0; }
+#player-host, #player-host iframe, .direct-video { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; outline: 0; border-radius: 0; }
+.direct-video { object-fit: contain; background: var(--video-bg); }
+/* The player is full-bleed: the screen margin applies to overlays only. */
+#player-screen { padding: 0; }
+.corner-badge { position: absolute; top: calc(1rem + var(--screen-margin)); right: calc(1rem + var(--screen-margin)); z-index: 2; padding: 0.35rem 0.8rem; border-radius: 0.5rem; font-weight: 800; font-size: 1.1rem; background: var(--badge-bg); color: var(--badge-fg); }
+#ad-badge { left: calc(1rem + var(--screen-margin)); right: auto; background: var(--warn); color: var(--on-accent); }
+/* Nothing may cover the embed (Twitch disables autoplay when the iframe is
+   overlapped), so the iframe itself ignores the pointer instead: hover and
+   clicks land on #player-stage and the embed's native UI never wakes up. */
+#player-host, #player-host iframe { pointer-events: none !important; }
+.play-prompt { position: absolute; inset: 0; display: grid; place-items: center; z-index: 3; }
+#player-status {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  background: var(--panel-bg); color: var(--fg); border: 1px solid var(--border); padding: 1.2rem 2rem; border-radius: 1rem; font-size: 1.6rem; font-weight: 700;
+  white-space: pre-line; text-align: center; max-width: 80%;
+}
+
+#chat { display: none; padding-top: var(--screen-margin); padding-right: var(--screen-margin); padding-bottom: var(--screen-margin); width: calc(var(--chat-w) + var(--screen-margin)); flex: none; background: color-mix(in srgb, var(--chat-bg) var(--chat-bg-a), transparent); color: var(--fg); border-left: 1px solid var(--border); flex-direction: column; }
+#player-screen.chat-on #chat { display: flex; }
+.chat-title { padding: 0.8rem 1rem; font-weight: 800; font-size: 1.1rem; border-bottom: 1px solid var(--border); }
+.chat-list { flex: 1; overflow-y: auto; padding: 0.6rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.chat-list::-webkit-scrollbar { width: 0; }
+.chat-msg { font-size: calc(1.05rem * var(--chat-text)); line-height: 1.35; word-wrap: break-word; }
+.chat-nick { font-weight: 800; }
+.chat-msg.action .chat-text { font-style: italic; }
+.chat-msg.system { color: var(--fg-dim); font-size: 0.95rem; }
+.chat-msg.notice { color: var(--accent); }
+
+
+#raid-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: var(--scrim); z-index: 5; }
+.raid-card { background: var(--panel-bg); color: var(--fg); border: 0.25rem solid var(--accent); border-radius: 1.6rem; padding: 2.2rem 3.4rem; text-align: center; box-shadow: 0 0 4rem var(--ring-glow); }
+.raid-kicker { font-size: 1.5rem; color: var(--fg-dim); }
+.raid-target { font-size: 3.6rem; font-weight: 900; margin: 0.4rem 0; }
+.raid-viewers { font-size: 1.3rem; color: var(--fg-dim); }
+.raid-count { font-size: 6rem; font-weight: 900; color: var(--accent); line-height: 1.1; margin: 0.8rem 0 0.4rem; font-variant-numeric: tabular-nums; }
+
+
+/* ---------- custom theme editor ---------- */
+.custom-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 2rem; align-items: start; }
+.custom-controls { display: flex; flex-direction: column; gap: 0.6rem; }
+.swatch-row { display: flex; align-items: center; gap: 1rem; text-align: left; }
+.swatch { width: 2.4rem; height: 2.4rem; border-radius: calc(var(--radius) * 0.6); border: 0.15rem solid var(--fg); flex: none; }
+.swatch-label { flex: 1; }
+.swatch-hex { font-family: "DejaVu Sans Mono", "Noto Sans Mono", monospace; font-weight: 600; }
+.custom-warnings { display: flex; flex-direction: column; gap: 0.3rem; min-height: 2rem; font-size: 1.05rem; }
+.custom-warning { color: var(--warn); font-weight: 700; }
+.custom-ok { color: var(--fg-dim); }
+.custom-preview { position: sticky; top: 0; display: flex; flex-direction: column; gap: 1.2rem; padding: 1.4rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); }
+.preview-title { font-weight: 800; font-size: 1.2rem; }
+.preview-focus { outline: var(--ring-w) solid var(--ring); outline-offset: 0.18rem; box-shadow: inset 0 0 0 var(--inner-w) var(--inner-ring), 0 0 0 0.6rem var(--ring-glow); transform: scale(var(--focus-scale)); margin: 0.6rem; }
+.preview-chat { background: var(--chat-bg); padding: 0.8rem 1rem; border-radius: var(--radius); font-size: 1.05rem; }
+.preview-btn { display: inline-block; }
+.ce-modal { min-width: 46rem; }
+.ce { display: flex; flex-direction: column; gap: 0.7rem; }
+.ce-top { display: flex; gap: 1.2rem; align-items: center; }
+.ce-swatch { width: 6rem; height: 4rem; border-radius: var(--radius); border: 0.15rem solid var(--fg); flex: none; }
+.ce-hexrow { display: flex; gap: 0.8rem; flex: 1; }
+.ce-hex { min-width: 10rem; font-family: "DejaVu Sans Mono", "Noto Sans Mono", monospace; }
+.ce-slider { display: grid; grid-template-columns: 9rem 1fr 3.5rem; align-items: center; gap: 1rem; padding: 0.6rem 1rem; border-radius: var(--radius); background: var(--raised); border: 1px solid var(--border); }
+.ce-label { font-weight: 700; font-size: 1.1rem; }
+.ce-range { width: 100%; accent-color: var(--accent); height: 1.4rem; cursor: pointer; }
+.ce-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+.ce-presets { display: grid; grid-template-columns: repeat(12, 1fr); gap: 0.5rem; }
+.ce-preset { height: 2.6rem; border-radius: calc(var(--radius) * 0.6); border: 0.12rem solid var(--border); cursor: pointer; }
+@media (max-width: 1100px) { .custom-layout { grid-template-columns: 1fr; } .ce-modal { min-width: 0; } }
+
+kbd.glyph {
+  display: inline-block; min-width: 1.5em; padding: 0.05em 0.4em; margin: 0 0.15em; border-radius: 0.4em;
+  background: var(--raised); color: var(--fg); font: inherit; font-weight: 800; text-align: center; line-height: 1.3;
+  border: 0.08em solid var(--input-border);
+}
+body[data-glyphs="keyboard"] kbd.glyph { font-size: 0.85em; }
+.osk-help { margin-top: 1rem; text-align: center; color: var(--fg-dim); }
+.raid-hint { display: block; color: var(--fg); font-size: 1.4rem; font-weight: 700; margin-top: 0.8rem; }
+.focusable:hover { cursor: pointer; }
+.fatal { color: var(--live); padding: 2rem; white-space: pre-wrap; font-size: 1rem; }
+
+/* Narrow windows (the Deck at 1280 px, or small desktop windows). */
+@media (max-width: 1100px) {
+  :root { --rail-w: 11.5rem; --chat-w: 22rem; }
+  .signin { flex-direction: column; gap: 1.5rem; }
+}
+
+/* Video only while Lurkbox is unfocused (player screen only). The raid banner stays. */
+body.video-only.player-active #chat,
+body.video-only.player-active #player-overlay,
+body.video-only.player-active #toasts,
+body.video-only.player-active .play-prompt { display: none !important; }
+body.video-only.player-active .raid-card { transform: scale(1.3); }
+.exit-modal .row { justify-content: center; }
+
+.refresh-status { margin-left: auto; color: var(--warn); font-weight: 700; font-size: 0.95rem; }
+.card-offline { flex-direction: row; align-items: center; gap: 0.4rem; padding: 0.8rem; opacity: 0.78; }
+.card-offline.is-focused, .card-offline:focus { opacity: 1; }
+.card-offline .card-avatar img { filter: grayscale(0.6); }
+.grid-offline { grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); }
+.offline-title .hint { font-size: 0.9rem; font-weight: 600; margin-left: 0.6rem; }
+.rail-account { margin-bottom: 0.4rem; }
+.acct-avatar { width: 1.8rem; height: 1.8rem; border-radius: 50%; object-fit: cover; flex: none; }
+.acct-initial { display: inline-grid; place-items: center; background: var(--raised); color: var(--fg); font-weight: 800; border: 1px solid var(--border); }
+.accounts-list { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end; }
+.account-row { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; }
+.setting-row:has(.accounts-list) .setting-label { flex: 0 0 auto; }
+.setting-row:has(.accounts-list) .setting-control { flex: 1; max-width: none; }
+.account-row .setting-value { white-space: nowrap; margin-right: auto; }
+.account-row > .row { width: 100%; }
+.account-row > .row { flex-wrap: nowrap; }
+.account-detail { display: flex; align-items: center; gap: 0.6rem; }
+.account-detail:empty { display: none; }
+.signin-hint { font-size: 1.1rem; color: var(--warn); max-width: 40rem; margin: 0 0 0.6rem; }
+.profiles-modal { min-width: 50rem; text-align: center; }
+.profiles { display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap; padding: 1rem; }
+.profile-tile { display: flex; flex-direction: column; align-items: center; gap: 0.8rem; background: transparent; border: 0; border-radius: var(--radius); padding: 1rem; cursor: pointer; color: var(--fg); }
+.profile-avatar { width: 9rem; height: 9rem; border-radius: 50%; object-fit: cover; font-size: 3.5rem; }
+.profile-name { font-size: 1.4rem; font-weight: 800; }
+
+/* Text that doesn't fit scrolls on the focused card (marquee.js animates text-indent). */
+.marquee-on { text-overflow: clip !important; }
+
+/* Seek bar (VODs, and live rewind on the direct engine). */
+.po-seek { display: flex; flex-direction: column; gap: 0.45rem; padding: 0.6rem 0.8rem; border-radius: 0.8rem; outline: none; max-width: 100%; }
+.po-seek.focusable:focus, .po-seek.focusable.is-focused { background: var(--overlay-mid); }
+.po-seek-times { display: flex; gap: 0.8rem; align-items: baseline; font-size: 1.15rem; font-weight: 700; text-shadow: 0 0.1rem 0.45rem var(--overlay-from), 0 0 0.2rem var(--overlay-from); font-variant-numeric: tabular-nums; }
+.po-seek-gap { flex: 1; }
+.po-seek-preview { color: var(--accent); }
+.po-seek-note { color: var(--fg-dim); font-weight: 600; font-size: 1rem; }
+.po-seek-total { color: var(--fg-dim); }
+.po-seek-track { position: relative; height: 0.5rem; border-radius: 0.25rem; background: color-mix(in srgb, var(--fg) 22%, transparent); cursor: pointer; touch-action: none; }
+.po-seek:focus .po-seek-track, .po-seek.is-focused .po-seek-track { height: 0.75rem; }
+.po-seek-buf { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--fg) 40%, transparent); border-radius: inherit; }
+.po-seek-played { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: inherit; }
+.po-seek-head, .po-seek-ghost { position: absolute; top: 50%; width: 1.1rem; height: 1.1rem; margin: -0.55rem 0 0 -0.55rem; border-radius: 50%; background: var(--fg); box-shadow: 0 0 0.4rem var(--shadow); }
+.po-seek-ghost { background: var(--accent); width: 0.35rem; height: 1.6rem; margin: -0.8rem 0 0 -0.175rem; border-radius: 0.2rem; }
+.po-seek-thumb { position: absolute; bottom: 3.4rem; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.3rem; pointer-events: none; }
+.po-seek-thumb-img { border-radius: 0.4rem; border: 0.15rem solid var(--fg); background-repeat: no-repeat; box-shadow: 0 0.3rem 1rem var(--shadow); }
+.po-seek-thumb.no-image .po-seek-thumb-img { display: none; }
+.po-seek-thumb-time { font-weight: 800; font-size: 1.2rem; padding: 0.15rem 0.6rem; border-radius: 0.4rem; background: var(--panel-bg); color: var(--fg); font-variant-numeric: tabular-nums; }
+#live-badge.rewound { background: var(--accent); color: var(--on-accent); }
+
+/* Twitch's embedded chat (channel points). Repositioned with classes only: moving an iframe reloads it. */
+#twitch-chat-host { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; display: flex; }
+#twitch-chat-host iframe { flex: 1; width: 100%; height: 100%; border: 0; background: var(--chat-bg); }
+#twitch-chat-host.tc-hidden { left: -10000px; right: auto; width: 340px; height: 720px; bottom: auto; pointer-events: none; }
+/* Twitch chat style: the side panel is as wide as the zoomed frame needs (--tchat-w, set from Settings → Chat → Twitch chat size). */
+#player-screen.twitch-chat { --chat-w: calc(var(--tchat-w) + var(--screen-margin) + 1px); }
+#twitch-chat-host.tc-panel { width: var(--chat-w); padding: var(--screen-margin) var(--screen-margin) var(--screen-margin) 0; border-left: 1px solid var(--border); background: var(--chat-bg); }
+#twitch-chat-host.tc-expanded { width: min(44rem, 48vw); z-index: 7; box-shadow: -1rem 0 3rem var(--shadow); border-left: 0.25rem solid var(--accent); background: var(--chat-bg); }
+#player-screen.twitch-chat #chat > * { visibility: hidden; }
+.points-hint { position: absolute; left: 50%; bottom: calc(1rem + var(--screen-margin)); transform: translateX(-50%); z-index: 8; padding: 0.5rem 1.1rem; border-radius: 0.6rem; background: var(--panel-bg); color: var(--fg); font-weight: 700; }
+
+/* ---------- player overlay: icon bar, label bubble, pop-overs ----------
+   A translucent scrim over the full-bleed video (never opaque, never resizing it). The overlay itself ignores the
+   pointer so clicks reach the stage; only its controls (.po-ui) take them. */
+#player-overlay {
+  position: absolute; inset: 0; z-index: 3; color: var(--fg); pointer-events: none;
+  background:
+    linear-gradient(180deg, var(--overlay-mid) 0%, transparent 14%),
+    linear-gradient(0deg, var(--overlay-from) 0%, var(--overlay-mid) var(--overlay-stop), transparent var(--overlay-fade));
+}
+#player-overlay .po-ui { pointer-events: auto; }
+.po-panel { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; gap: 0.6rem; padding: 0 calc(2rem + var(--screen-margin)) calc(1.3rem + var(--screen-margin)); }
+.po-top { display: flex; align-items: center; gap: 0.75rem; min-width: 0; padding: 0 0.3rem; text-shadow: 0 0.1rem 0.45rem var(--overlay-from), 0 0 0.2rem var(--overlay-from); }
+.po-avatar { flex: none; width: 2.7rem; height: 2.7rem; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: var(--raised); border: 0.12rem solid var(--fg); }
+.po-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.po-avatar-initial { font-weight: 800; font-size: 1.2rem; text-shadow: none; }
+.po-name { flex: none; max-width: 32%; font-size: 1.5rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.po-live { flex: none; padding: 0.12rem 0.55rem; border-radius: 0.35rem; font-size: 1rem; font-weight: 800; letter-spacing: 0.02em; background: var(--live); color: var(--on-live); text-shadow: none; font-variant-numeric: tabular-nums; }
+.po-live[data-state="behind"] { background: var(--badge-bg); color: var(--badge-fg); }
+.po-live[data-state="rewound"] { background: var(--accent); color: var(--on-accent); }
+.po-title { flex: 1; min-width: 0; font-size: 1.3rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.po-row { display: flex; align-items: center; gap: 0.5rem; }
+.po-icon {
+  position: relative; flex: none; width: 3.3rem; height: 3.3rem; padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; background: transparent; color: var(--fg); cursor: pointer;
+}
+.po-icon[data-key="back"] { margin-left: auto; }
+.po-glyph svg, .po-item-icon svg { display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.po-glyph svg { width: 1.85rem; height: 1.85rem; filter: drop-shadow(0 0 0.12rem var(--overlay-from)) drop-shadow(0 0.05rem 0.35rem var(--overlay-from)); }
+.po-icon[data-icon="play"] svg, .po-icon[data-icon="pause"] svg { stroke-width: 2.4; }
+.po-icon[data-icon="play"] svg path { fill: currentColor; }
+.po-icon.expanded { background: var(--raised); }
+.po-icon:focus, .po-icon.is-focused { background: var(--focus-bg); color: var(--focus-fg); }
+.po-icon:focus svg, .po-icon.is-focused svg { filter: none; }
+@media (hover: hover) { .po-icon:hover:not(:focus):not(.is-focused) { background: var(--overlay-mid); } }
+/* Chat is on: a dot under the icon. */
+.po-icon.on::after { content: ""; position: absolute; bottom: 0.28rem; left: 50%; width: 0.38rem; height: 0.38rem; margin-left: -0.19rem; border-radius: 50%; background: var(--accent); }
+.po-icon.on:focus::after, .po-icon.on.is-focused::after { background: var(--focus-fg); }
+.po-count { position: absolute; top: -0.25rem; right: -0.55rem; min-width: 1.5rem; padding: 0.05rem 0.35rem; border-radius: 0.75rem; background: var(--accent); color: var(--on-accent); font-size: 0.85rem; font-weight: 800; line-height: 1.25; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* The focused (hovered, long-pressed) control's label. */
+.po-tip {
+  position: absolute; z-index: 6; display: flex; align-items: center; gap: 0.5rem; pointer-events: none;
+  padding: 0.4rem 0.85rem; border-radius: 0.6rem; background: var(--toast-bg); color: var(--fg); border: 1px solid var(--border);
+  font-size: 1.15rem; font-weight: 700; white-space: nowrap; box-shadow: 0 0.4rem 1.4rem var(--shadow);
+}
+.po-tip .po-tip-glyph { display: contents; }
+.po-tip kbd.glyph { margin: 0; }
+
+/* Pop-overs, anchored above their button (player.placePopover). */
+.po-pop {
+  position: absolute; z-index: 5; display: flex; flex-direction: column; gap: 0.5rem; min-width: 17rem; max-width: calc(100% - 24px);
+  padding: 0.8rem; overflow-y: auto; overscroll-behavior: contain;
+  background: var(--panel-bg); color: var(--fg); border: 1px solid var(--border); border-radius: calc(var(--radius) + 0.3rem);
+  box-shadow: 0 0.8rem 2.4rem var(--shadow);
+}
+.po-pop::-webkit-scrollbar { width: 0; }
+.po-pop.pop-chat { width: 27rem; }
+.po-pop.pop-volume { width: 21rem; }
+.po-pop-title { padding: 0 0.4rem; font-size: 0.95rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-dim); }
+.po-pop-body { display: flex; flex-direction: column; gap: 0.35rem; }
+.po-item {
+  display: flex; align-items: center; gap: 0.7rem; width: 100%; min-height: 2.6rem; padding: 0.4rem 0.8rem;
+  border: 0; border-radius: var(--radius); background: transparent; color: var(--fg); font-size: 1.15rem; font-weight: 700; text-align: left; cursor: pointer;
+}
+.po-item.selected { color: var(--accent); }
+.po-item:focus, .po-item.is-focused { background: var(--focus-bg); color: var(--focus-fg); }
+.po-item-icon { flex: none; width: 1.4rem; height: 1.4rem; }
+.po-item-icon svg { width: 1.4rem; height: 1.4rem; }
+.po-pop-note { padding: 0.1rem 0.4rem; font-size: 0.95rem; color: var(--fg-dim); }
+.po-pop-info { padding: 0.1rem 0.4rem; font-size: 1.05rem; font-weight: 700; }
+.po-pop-big { display: flex; align-items: center; gap: 0.6rem; padding: 0.2rem 0.5rem 0.4rem; font-size: 1.7rem; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.po-pop-big .po-item-icon, .po-pop-big .po-item-icon svg { width: 1.7rem; height: 1.7rem; }
+.po-pop-big.dim { font-size: 1.05rem; color: var(--fg-dim); }
+
+/* Chat controls (chat pop-over and Settings → Chat). */
+.cc-item { display: flex; flex-direction: column; gap: 0.1rem; }
+.cc-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; min-height: 2.6rem; padding: 0 0.3rem 0 0.4rem; }
+.cc-label { font-size: 1.1rem; font-weight: 700; }
+.cc-choices { display: flex; gap: 0.4rem; }
+.btn.cc-choice, .btn.cc-toggle, .btn.cc-auto { min-height: 2.5rem; padding: 0.3rem 0.9rem; font-size: 1.05rem; }
+.btn.cc-toggle { min-width: 4.6rem; }
+.btn.cc-choice.selected { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--accent); }
+.btn.cc-toggle.on { background: var(--ok); color: var(--on-ok); border-color: var(--on-ok); }
+.btn.cc-choice:focus, .btn.cc-choice.is-focused, .btn.cc-toggle:focus, .btn.cc-toggle.is-focused { background: var(--focus-bg); color: var(--focus-fg); }
+.cc-note { padding: 0 0.4rem 0.2rem; font-size: 0.95rem; line-height: 1.25; color: var(--fg-dim); }
+.setting-control .cc-label, .setting-control .slider-label { display: none; }
+.setting-control .cc-row { padding: 0; min-height: 0; }
+.setting-control .slider { width: 20rem; }
+.setting-control .slider-head { justify-content: flex-end; }
+.cc-setting { flex-wrap: nowrap; }
+
+/* Slider: D-pad left/right (hold to go faster), drag with the mouse or a finger. */
+.slider { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.35rem 0.6rem 0.25rem; border-radius: var(--radius); }
+.slider.focusable:focus, .slider.focusable.is-focused { background: var(--raised); }
+.slider.disabled { opacity: 0.45; }
+.slider-head { display: flex; justify-content: space-between; gap: 0.8rem; font-size: 1.1rem; font-weight: 700; }
+.slider-value { font-variant-numeric: tabular-nums; color: var(--accent); }
+.slider-track { position: relative; height: 1.7rem; margin: 0 0.5rem; cursor: pointer; touch-action: none; }
+.slider-track::before, .slider-fill { content: ""; position: absolute; left: 0; top: 50%; height: 0.45rem; margin-top: -0.225rem; border-radius: 0.25rem; }
+.slider-track::before { right: 0; background: var(--border); }
+.slider-fill { background: var(--accent); }
+.slider-knob { position: absolute; top: 50%; width: 1.25rem; height: 1.25rem; margin: -0.625rem 0 0 -0.625rem; border-radius: 50%; background: var(--fg); border: 0.15rem solid var(--accent); box-shadow: 0 0.1rem 0.4rem var(--shadow); }
+.slider.focusable:focus .slider-knob, .slider.focusable.is-focused .slider-knob { width: 1.5rem; height: 1.5rem; margin: -0.75rem 0 0 -0.75rem; }
+
+/* Chat side and "over the video" (applyChatLayout). */
+#player-screen.chat-left #chat { order: -1; border-left: 0; border-right: 1px solid var(--border); padding-right: 0; padding-left: var(--screen-margin); }
+#player-screen.chat-left #twitch-chat-host.tc-panel { left: 0; right: auto; padding: var(--screen-margin) 0 var(--screen-margin) var(--screen-margin); border-left: 0; border-right: 1px solid var(--border); }
+#player-screen.chat-over #chat { position: absolute; top: 0; bottom: 0; right: 0; z-index: 2; border: 0; background: color-mix(in srgb, var(--chat-bg) var(--chat-over-a), transparent); }
+#player-screen.chat-over.chat-left #chat { left: 0; right: auto; }
+#player-screen.chat-over .chat-title { border-bottom: 0; }
+#player-screen.chat-over .chat-msg, #player-screen.chat-over .chat-title { text-shadow: 0 0 0.25rem var(--overlay-from), 0 0.05rem 0.15rem var(--overlay-from); }

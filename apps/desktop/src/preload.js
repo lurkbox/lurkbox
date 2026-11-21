@@ -1,0 +1,59 @@
+'use strict';
+// Minimal, explicit API surface for the renderer (contextIsolation on, sandboxed).
+const { contextBridge, ipcRenderer } = require('electron');
+
+function on(channel) {
+  return (cb) => {
+    const fn = (_e, payload) => cb(payload);
+    ipcRenderer.on(channel, fn);
+    return () => ipcRenderer.removeListener(channel, fn);
+  };
+}
+
+contextBridge.exposeInMainWorld('lurkbox', {
+  appInfo: () => ipcRenderer.invoke('app:info'),
+  quit: () => ipcRenderer.invoke('app:quit'),
+  toggleFullscreen: () => ipcRenderer.invoke('window:toggleFullscreen'),
+  setWindowIcon: (pngDataUrl) => ipcRenderer.invoke('window:setIcon', pngDataUrl),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  onSettingsChanged: on('settings:changed'),
+  authState: () => ipcRenderer.invoke('auth:state'),
+  authStart: () => ipcRenderer.invoke('auth:start'),
+  authCancel: () => ipcRenderer.invoke('auth:cancel'),
+  signOut: (id) => ipcRenderer.invoke('auth:signOut', id),
+  tvSignIn: (opts) => ipcRenderer.invoke('auth:tvSignIn', opts),
+  accountsStatus: () => ipcRenderer.invoke('accounts:status'),
+  switchAccount: (id) => ipcRenderer.invoke('auth:switch', id),
+  removeAccount: (id) => ipcRenderer.invoke('auth:remove', id),
+  onAuthState: on('auth:state'),
+  onAuthEvent: on('auth:event'),
+  helix: (req) => ipcRenderer.invoke('helix', req),
+  qrSvg: (text) => ipcRenderer.invoke('qr:svg', text),
+  dismissPlayerGate: (opts) => ipcRenderer.invoke('player:dismissGate', opts),
+  log: (line) => ipcRenderer.invoke('log:write', line),
+  playerSessionStatus: () => ipcRenderer.invoke('player-session:status'),
+  playerSessionLogin: () => ipcRenderer.invoke('player-session:login'),
+  playerSessionSignOut: () => ipcRenderer.invoke('player-session:signOut'),
+  probePlayer: () => ipcRenderer.invoke('player:probe'),
+  directMaster: (req) => ipcRenderer.invoke('direct:master', req),
+  pointsWatch: (login) => ipcRenderer.invoke('points:watch', login),
+  pointsOpenPanel: (opts) => ipcRenderer.invoke('points:openPanel', opts),
+  pointsPad: (key) => ipcRenderer.invoke('points:pad', key),
+  pointsClosePanel: () => ipcRenderer.invoke('points:closePanel'),
+  onPointsState: on('points:state'),
+  onPointsEvent: on('points:event'),
+  watchMinute: (info) => ipcRenderer.invoke('points:minute', info),
+  liveInfo: (login) => ipcRenderer.invoke('direct:liveInfo', login),
+  storyboard: (vodId) => ipcRenderer.invoke('direct:storyboard', vodId),
+  resumeGet: (videoId) => ipcRenderer.invoke('resume:get', videoId),
+  resumeSet: (videoId, position, duration) => ipcRenderer.invoke('resume:set', videoId, position, duration),
+  onWindowFocus: on('window:focus'),
+  onJoydevPad: on('joydev:pad'),
+  steamArtApply: (pngs) => ipcRenderer.invoke('steam-art:apply', pngs),
+  steamArtRestore: () => ipcRenderer.invoke('steam-art:restore'),
+  openReady: () => ipcRenderer.invoke('open:ready'),
+  chatExtensionsStatus: () => ipcRenderer.invoke('chatext:status'),
+  chatExtensionsUpdate: () => ipcRenderer.invoke('chatext:update'),
+  onOpenChannel: on('open:channel'),
+});

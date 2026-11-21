@@ -1,0 +1,25 @@
+{
+  "name": "lurkbox-monorepo",
+  "version": "0.1.0",
+  "description": "Lurkbox: a couch/controller client for Twitch. Monorepo for the shared core and the platform apps.",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "author": "aronwk-aaron",
+  "workspaces": [
+    "packages/core",
+    "apps/desktop"
+  ],
+  "scripts": {
+    "start": "npm run start -w apps/desktop --",
+    "dist": "npm run dist -w apps/desktop --",
+    "test": "npm test --workspaces --if-present",
+    "test:smoke": "npm run test:smoke -w apps/desktop --",
+    "test:play": "npm run test:play -w apps/desktop --",
+    "test:direct": "npm run test:direct -w apps/desktop --",
+    "test:vod": "npm run test:vod -w apps/desktop --",
+    "test:rewind": "npm run test:rewind -w apps/desktop --",
+    "test:points": "npm run test:points -w apps/desktop --",
+    "test:chat": "npm run test:chat -w apps/desktop --",
+    "screenshots": "npm run screenshots -w apps/desktop --"
+  }
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.AppImage
+.flatpak-builder/
+apps/desktop/flatpak/build-dir/
+# never commit tokens or local settings
+tokens.json
+settings.json
+.env
+
+# Local deploy settings and backups
+apps/desktop/scripts/deploy.local.env
+.deploy-backups/
+HANDOFF.local.md
+__pycache__/
+*.pyc

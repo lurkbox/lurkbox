@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>chat fixture</title></head>
+<body>
+<!-- Shaped like twitch.tv's embedded chat (2026-11): pinned prediction highlight, chat input row with the points summary. -->
+<div class="community-highlight-stack">
+  <div class="community-highlight prediction-highlight-root">
+    <p data-test-selector="community-prediction-highlight-header">Prediction</p>
+    <p>Will he finish the mission? 1:59 left</p>
+  </div>
+</div>
+<div class="chat-input">
+  <textarea data-a-target="chat-input" placeholder="Send a message"></textarea>
+  <div data-test-selector="community-points-summary" class="community-points-summary">
+    <button aria-label="Points Balance" id="balance-btn" onclick="document.getElementById('popover').style.display='flex'">
+      <span data-test-selector="copo-balance-string">12.3K</span><span data-test-selector="bits-balance-string">40</span>
+    </button>
+    <div class="claimable-bonus">
+      <button aria-label="Claim Bonus" id="claim" onclick="window.claims=(window.claims||0)+1; this.remove(); setTimeout(() => { document.querySelector('[data-test-selector=copo-balance-string]').textContent='12,350'; }, 50)">
+        <span class="claimable-bonus__icon"></span>
+      </button>
+    </div>
+  </div>
+</div>
+<div role="dialog" id="popover" class="reward-center__content" style="display:none;flex-direction:column;gap:8px;width:300px">
+  <button id="r1" onclick="window.picked='r1'">Highlight my message</button>
+  <button id="r2" onclick="window.picked='r2'">Unlock a random emote</button>
+  <input type="text" id="r3" aria-label="Message">
+</div>
+</body></html>

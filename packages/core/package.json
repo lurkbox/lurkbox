@@ -1,0 +1,20 @@
+{
+  "name": "@lurkbox/core",
+  "version": "0.1.0",
+  "description": "Lurkbox's platform-neutral app: the TV UI, Twitch logic, chat and themes. It talks to its host only through window.lurkbox.",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "author": "aronwk-aaron",
+  "type": "module",
+  "files": [
+    "src",
+    "!src/platform-check.js"
+  ],
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\""
+  },
+  "dependencies": {
+    "hls.js": "^1.7.4"
+  },
+  "types": "src/platform.d.ts"
+}

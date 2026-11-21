@@ -1,0 +1,60 @@
+/* Colour emoji everywhere, and the Lurkbox chat panel's emotes, badges and 7TV name paints. Loaded after app.css. */
+
+/* Noto Color Emoji (COLRv1, SIL OFL 1.1: fonts/OFL-NotoColorEmoji.txt). SteamOS Game Mode may have no colour emoji
+   font. The unicode-range keeps it to emoji code points, so digits, '#', '*', '©' and '™' stay in the text font. */
+@font-face {
+  font-family: "Lurkbox Emoji";
+  src: url("../fonts/NotoColorEmoji-COLRv1.woff2") format("woff2");
+  font-display: swap;
+  unicode-range: U+200D, U+20E3, U+2194-2199, U+21A9-21AA, U+231A-231B, U+2328, U+23CF, U+23E9-23F3, U+23F8-23FA,
+    U+24C2, U+25AA-25AB, U+25B6, U+25C0, U+25FB-25FE, U+2600-27BF, U+2934-2935, U+2B05-2B07, U+2B1B-2B1C, U+2B50,
+    U+2B55, U+3030, U+303D, U+3297, U+3299, U+FE0F, U+1F000-1FAFF, U+E0020-E007F;
+}
+
+body {
+  font-family: "Lurkbox Emoji", "Inter", "Noto Sans", "Cantarell", "DejaVu Sans", system-ui, sans-serif;
+}
+
+/* ---- chat panel ---- */
+.chat-msg { --emote-h: 2em; }
+.chat-msg .emote {
+  display: inline-block;
+  height: var(--emote-h);
+  width: auto;
+  vertical-align: middle;
+  margin: -0.25em 0.05em;
+  object-fit: contain;
+}
+.emote-stack { position: relative; display: inline-grid; vertical-align: middle; margin: -0.25em 0.05em; }
+.emote-stack > .emote { grid-area: 1 / 1; margin: 0; justify-self: center; align-self: center; }
+.emote-stack > .emote.zw { pointer-events: none; }
+.chat-badges { display: inline-flex; gap: 0.2em; margin-right: 0.3em; vertical-align: middle; }
+.chat-badge { display: inline-block; height: 1.15em; width: auto; vertical-align: middle; border-radius: 0.1em; }
+
+/* 7TV paints: the rule per paint is added at run time (background-clip: text). */
+.chat-nick.paint { background-color: currentColor; }
+
+/* Emote effects (BetterTTV "h! v! w! ..." text modifiers and FrankerFaceZ modifier emotes). */
+.fx-flip-x { transform: scaleX(-1); }
+.fx-flip-y { transform: scaleY(-1); }
+.fx-flip-x.fx-flip-y { transform: scale(-1, -1); }
+.emote.fx-wide, .emote-stack.fx-wide > .emote { aspect-ratio: auto !important; width: calc(var(--emote-h) * 2.5); object-fit: fill; }
+.fx-rotate-l { transform: rotate(-90deg); }
+.fx-rotate-r { transform: rotate(90deg); }
+.fx-cursed { filter: grayscale(1) brightness(0.7) contrast(2.5); }
+.fx-party { animation: emote-party 1.5s linear infinite; }
+.fx-spin { animation: emote-spin 2s linear infinite; }
+.fx-shake { animation: emote-shake 0.3s linear infinite; }
+@keyframes emote-party { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(360deg); } }
+@keyframes emote-spin { to { transform: rotate(360deg); } }
+@keyframes emote-shake { 0%, 100% { translate: 0 0; } 25% { translate: -2px 1px; } 75% { translate: 2px -1px; } }
+@media (prefers-reduced-motion: reduce) { .fx-party, .fx-spin, .fx-shake { animation: none; } }
+
+/* Emote/badge name on tap, long-press or click (works without hover, for touch screens). */
+.chat-tip {
+  position: fixed; z-index: 20; pointer-events: none; max-width: min(22rem, 80vw);
+  padding: 0.35rem 0.7rem; border-radius: var(--radius, 0.4rem); background: var(--toast-bg, #222); color: var(--fg, #fff);
+  border: 1px solid var(--border, #444); box-shadow: 0 0.3rem 1rem var(--shadow, #0008); font-size: 1rem; font-weight: 700;
+  transform: translate(-50%, calc(-100% - 0.4rem));
+}
+.chat-tip small { display: block; font-weight: 500; color: var(--fg-dim, #aaa); }

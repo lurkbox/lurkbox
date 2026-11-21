@@ -1,0 +1,1583 @@
+// Player screen: Twitch embed, info overlay, chat panel and raid following.
+import { el, button, toast, loadScript, fmtViewers, fmtUptime, fmtDate } from './ui.js';
+import { A, B, X, Y, LB, RB, START, UP, DOWN, LEFT, RIGHT, DIRECTIONS, hint } from './input.js';
+import { Scrubber, seekJump, fmtTime, resumeDecision, storyboardFrame, parseHelixDuration, matchArchive, rewindGeometry, rewindTarget } from './seek.js';
+import { SeekBar } from './seekbar.js';
+import { TwitchChatFrame } from './twitch-chat.js';
+import { StartTimeline } from './start-timeline.js';
+import { helix } from './api.js';
+import { moveFocus, focusFirst, focusEl, focusables } from './focus.js';
+import { snapshotFocus, restoreFocus, focusKey } from './focus-keep.js';
+import { pickFromList } from './modal.js';
+import { state, onState, saveSettings, previewSettings } from './state.js';
+import { tw, followedLive, usersByIds } from './api.js';
+import { icon } from './icons.js';
+import { overlayControls, POPOVER_CONTROLS, controlIcon, controlLabel, shortCount, liveLabel, anchorPopover, OVERLAY_HIDE_MS, POPOVER_HIDE_MS } from './player-ui.js';
+import { Popover } from './popover.js';
+import { Slider, handleSliderAction } from './slider.js';
+import { ChatControls } from './chat-controls.js';
+import { chatEnv } from './views/settings-chat.js';
+import { marqueeLine } from './marquee.js';
+import { chatLayout, chatOverActive, chatPanelWidth } from '../shared/chat-layout.js';
+import { twitchChatZoom } from '../shared/tv-zoom.js';
+
+/** Player log line: console plus userData/lurkbox.log (readable over SSH). */
+function plog(msg) {
+  console.log(`[player] ${msg}`);
+  try { if (window.lurkbox.log) window.lurkbox.log(`[player] ${msg}`); } catch { /* ignore */ }
+}
+
+/** A finished VOD start timeline line ("[vod] ..."), to the console and lurkbox.log. */
+function vlog(line) {
+  if (!line) return;
+  console.log(line);
+  try { if (window.lurkbox.log) window.lurkbox.log(line); } catch { /* ignore */ }
+}
+import { Chat } from './chat.js';
+import { RaidCountdown } from './raid.js';
+import { DirectEngine, EVENTS as DIRECT_EVENTS } from './direct-engine.js';
+import { liveBadge, catchUpDecision, backgroundCap } from './hls-util.js';
+
+const EMBED_URL = 'https://player.twitch.tv/js/embed/v1.js';
+const EMBED_PARENT = ['localhost']; // must match the host the UI is served from
+/** Every control the bar can show, in order (overlayControls() picks the ones for what is playing). */
+const ALL_CONTROLS = ['play', 'volume', 'quality', 'chat', 'live', 'points', 'channel', 'more', 'back'];
+const LONG_PRESS_MS = 450;
+
+const RAID_STATUS_TEXT = {
+  off: 'Raid follow: idle',
+  connecting: 'Raid follow: connecting…',
+  active: 'Raid follow: watching for raids',
+  reconnecting: 'Raid follow: reconnecting…',
+  error: 'Raid follow: error, retrying',
+  'signed-out': 'Raid follow needs sign-in',
+};
+
+function qualityHeight(q) {
+  const m = /(\d{3,4})p(\d+)?/.exec(q || '');
+  return m ? [Number(m[1]), Number(m[2] || 30)] : null;
+}
+
+export class Player {
+  constructor({ nav, watcher }) {
+    this.nav = nav;
+    this.watcher = watcher;
+    this.screen = document.getElementById('player-screen');
+    this.host = document.getElementById('player-host');
+    this.overlay = document.getElementById('player-overlay');
+    this.raidEl = document.getElementById('raid-overlay');
+    this.statusEl = document.getElementById('player-status');
+    this.chatPanel = document.getElementById('chat');
+    this.chat = new Chat(this.chatPanel);
+    this.embed = null;
+    this.current = null; // { kind: 'live'|'video', login, name, userId, stream, videoId, title }
+    this.playlist = [];
+    this.active = false;
+    document.body.classList.remove('player-active');
+    this.chatOn = null;
+    this.raid = new RaidCountdown({
+      onShow: (r) => this.renderRaid(r),
+      onTick: (left) => { const c = this.raidEl.querySelector('.raid-count'); if (c) c.textContent = String(left); },
+      onFollow: (ev) => this.followRaid(ev),
+      onEnd: (reason) => { this.hideRaid(); if (reason === 'cancelled') toast('Raid cancelled. Staying here.', 2500); },
+    });
+    this.gateTimer = null;
+    this.overlayTimer = null;
+    this.resumeTimer = null;
+    this.qualityApplied = false;
+    this.raidStatus = 'off';
+
+    // The iframe ignores the pointer (CSS), so the stage receives all mouse input.
+    const stage = document.getElementById('player-stage');
+    stage.addEventListener('click', (e) => {
+      if (e.target.closest('button, .po-ui, .play-prompt')) return;
+      if (this.pop.isOpen) { this.pop.close(); this.bumpOverlay(); return; } // a click outside closes the pop-over
+      if (this.overlayVisible()) this.hideOverlay(); else this.showOverlay();
+    });
+    stage.addEventListener('dblclick', (e) => {
+      if (e.target.closest('button, .po-ui')) return;
+      if (window.lurkbox.toggleFullscreen) window.lurkbox.toggleFullscreen();
+    });
+    stage.addEventListener('wheel', (e) => {
+      if (e.target.closest('#chat, .po-pop')) return;
+      e.preventDefault();
+      this.changeVolume(e.deltaY < 0 ? 0.05 : -0.05);
+    }, { passive: false });
+    // Touch and pen on the controls (dragging a slider, say) keep them up too.
+    stage.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse' && this.overlayVisible()) this.bumpOverlay(); });
+    stage.addEventListener('pointermove', (e) => { if (e.pointerType !== 'mouse' && e.buttons && this.overlayVisible()) this.bumpOverlay(); });
+    // Moving the mouse brings the controls back (and keeps them up); they hide again after a few idle seconds.
+    stage.addEventListener('mousemove', (e) => {
+      // Only a real move: the first event just records where the pointer is (a window appearing under a resting
+      // pointer sends one), and a few px of jitter don't count.
+      const last = this.lastMouse;
+      this.lastMouse = { x: e.screenX, y: e.screenY };
+      if (last.x < 0 || Math.abs(e.screenX - last.x) + Math.abs(e.screenY - last.y) <= 4) { if (last.x >= 0) this.lastMouse = last; return; }
+      if (!this.active || !document.body.classList.contains('input-mouse')) return;
+      if (this.overlayVisible()) this.bumpOverlay(); else this.showOverlay();
+    });
+    this.lastMouse = { x: -1, y: -1 };
+
+    // Seek bar + hold-to-scrub (VODs, and live rewind through the archive VOD on the direct engine).
+    this.seekBar = new SeekBar({ onSeek: (t) => this.seekTo(t), onPreview: () => this.bumpOverlay() });
+    this.scrubber = new Scrubber({
+      position: () => { const m = this.seekModel(); return m ? m.pos : 0; },
+      bounds: () => { const m = this.seekModel(); return m ? [m.min, m.max] : [0, 0]; },
+      onPreview: (t) => { this.seekBar.preview = t; this.renderSeek(); },
+      onCommit: (t) => { this.seekBar.preview = null; this.seekTo(t); },
+    });
+    this.rewind = null; // { id, since } while a live channel plays from its archive VOD
+    this.archive = undefined; // the live stream's archive VOD: undefined = not looked up, false = none
+    this.storyboard = null;
+
+    // Channel points: Twitch's own chat page (hidden, or the chat panel in "Twitch chat" style).
+    this.tchat = new TwitchChatFrame(this.screen);
+    this.points = { signedIn: false, balance: null };
+    this.pointsPanel = false;
+    this.pointsOfferUntil = 0;
+    if (window.lurkbox.onPointsState) {
+      window.lurkbox.onPointsState((st) => {
+        if (!this.current || st.login !== this.current.login) return;
+        const changed = st.balance !== this.points.balance || st.signedIn !== this.points.signedIn;
+        this.points = st;
+        if (changed && this.overlayVisible()) this.renderOverlay(true);
+      });
+      window.lurkbox.onPointsEvent((ev) => {
+        if (!this.active || !this.current || ev.login !== this.current.login || this.raid.active) return;
+        const what = ev.type === 'prediction' ? 'Prediction' : 'Poll';
+        this.pointsOfferUntil = performance.now() + 12000;
+        toast(`${what}: ${ev.title || 'open now'}, press ${this.glyph('Y')} to open`, 12000);
+      });
+    }
+    this.lastMinute = { at: 0, t: null };
+
+    setInterval(() => this.tickLive(), 1000);
+
+    watcher.addEventListener('raid', (e) => this.onRaid(e.detail));
+    watcher.addEventListener('status', (e) => {
+      this.raidStatus = e.detail.status;
+      if (this.pop.key === 'more') this.pop.update();
+    });
+
+    // Overlay: built once and updated in place, so the focused control keeps its node.
+    this.pop = new Popover({
+      scope: this.overlay,
+      focus: (n) => focusEl(n, { instant: true }),
+      move: (dir, scope) => moveFocus(dir, scope),
+      active: () => document.activeElement,
+      mount: (node, opener) => { this.overlay.append(node); this.placePopover(node, opener); },
+    });
+    this.lastFocusKey = null;
+    this.buildOverlay();
+
+    // Chat layout: the chat pop-over and Settings → Chat change the same settings; apply them live.
+    this.appliedStyle = state.settings.chatStyle;
+    onState((what) => {
+      if (what !== 'settings') return;
+      if (this.active && this.current && this.current.kind === 'live' && state.settings.chatStyle !== this.appliedStyle) {
+        this.appliedStyle = state.settings.chatStyle;
+        this.openTwitchChat(this.current.login); // the style switches live, not only for the next channel
+      }
+      this.appliedStyle = state.settings.chatStyle;
+      this.applyChatLayout();
+      if (this.pop.isOpen) this.pop.update();
+    });
+    window.addEventListener('resize', () => { this.applyChatLayout(); if (this.pop.isOpen) this.pop.update(); });
+  }
+
+  raidStatusText() {
+    if (!state.settings.raidFollow) return 'Raid follow: off (offer only)';
+    if (this.current && this.current.kind !== 'live') return 'Raid follow: not for videos';
+    return RAID_STATUS_TEXT[this.raidStatus] || `Raid follow: ${this.raidStatus}`;
+  }
+
+  // ---------- opening / switching ----------
+
+  async openLive({ login, name, userId, stream }, playlist) {
+    login = String(login).toLowerCase();
+    if (this.vodTimeline) { vlog(this.vodTimeline.finish('left before PLAYING')); this.vodTimeline = null; }
+    if (this.embedOnly && this.embedOnly !== login) this.embedOnly = null;
+    if (Array.isArray(playlist) && playlist.length) this.playlist = playlist;
+    this.current = { kind: 'live', login, name: name || login, userId: userId || (stream && stream.user_id) || null, stream: stream || null };
+    this.resetSeek();
+    this.show();
+    this.cancelRaid();
+    this.setStatus('');
+    this.qualityApplied = false;
+    try {
+      await this.ensureEmbed({ channel: login });
+    } catch (e) {
+      this.setStatus(`Could not load the Twitch player. Check the network.\n${e.message}`);
+      return;
+    }
+    this.startGateLoop();
+    this.openTwitchChat(login);
+    this.applyLayout();
+    this.resolveChannel(this.current);
+    if (!state.auth.signedIn && window.lurkbox.liveInfo) this.loadLiveInfo(this.current);
+  }
+
+  async openVideo(video) {
+    if (this.current && this.current.kind === 'video') this.saveResume();
+    const cur = { kind: 'video', login: video.user_login, name: video.user_name, userId: video.user_id, videoId: video.id, title: video.title, video };
+    if (this.vodTimeline) vlog(this.vodTimeline.finish('left before PLAYING'));
+    this.vodTimeline = new StartTimeline(video.id);
+    this.current = cur;
+    this.resetSeek();
+    this.show();
+    this.cancelRaid();
+    this.setStatus('');
+    this.qualityApplied = false;
+    this.watcher.watch(null); // raids only matter for live channels
+    this.closePointsPanel();
+    this.tchat.close();
+    if (window.lurkbox.storyboard) window.lurkbox.storyboard(video.id).then((sb) => { if (cur === this.current) this.storyboard = sb; }).catch(() => {});
+    let startAt = 0;
+    const saved = window.lurkbox.resumeGet ? await window.lurkbox.resumeGet(video.id).catch(() => null) : null;
+    if (cur !== this.current) return;
+    if (saved && resumeDecision({ position: saved.position, duration: saved.duration || parseHelixDuration(video.duration) }) === 'ask') {
+      this.vodMark('resume prompt shown');
+      startAt = await this.askResume(saved.position);
+      this.vodMark('answered', startAt ? `resume at ${fmtTime(startAt)}` : 'start over');
+      if (cur !== this.current) return;
+    }
+    if (startAt) plog(`video ${video.id}: resuming at ${fmtTime(startAt)}`);
+    try {
+      await this.ensureEmbed({ video: `v${video.id}`, startAt });
+    } catch (e) {
+      this.setStatus(`Could not load the Twitch player. Check the network.\n${e.message}`);
+      return;
+    }
+    this.startGateLoop();
+    if (this.chatOn) this.chat.leave(); // live chat doesn't match a VOD
+  }
+
+  /** Looks up the broadcaster id (needed for EventSub) and fresh stream info. */
+  async resolveChannel(cur) {
+    if (!state.auth.signedIn) {
+      this.watcher.watch(null);
+      this.raidStatus = 'signed-out';
+      return;
+    }
+    try {
+      if (!cur.stream) cur.stream = await tw.streamByLogin(cur.login);
+      if (!cur.userId) cur.userId = cur.stream ? cur.stream.user_id : (await tw.userByLogin(cur.login) || {}).id;
+      if (cur.stream) cur.name = cur.stream.user_name || cur.name;
+    } catch (e) {
+      console.warn('[player] channel lookup failed', e.message);
+    }
+    if (cur !== this.current) return; // switched meanwhile
+    this.watcher.watch(cur.userId ? { id: cur.userId, login: cur.login } : null);
+    if (this.overlayVisible()) this.renderOverlay();
+  }
+
+  async ensureEmbed(opts) {
+    const wantDirect = state.settings.playerEngine !== 'embed' && !this.embedOnly;
+    if (this.embed && this.embed.isDirect !== wantDirect) this.destroyEngine();
+    let switching = false;
+    if (!this.embed && wantDirect) {
+      this.embed = new DirectEngine(this.host, {
+        log: plog,
+        lowLatency: state.settings.lowLatency !== false,
+        autoCatchUp: state.settings.autoCatchUp !== false,
+        codecPref: () => state.settings.videoCodec || 'h264',
+        onFallback: (reason) => this.fallbackToEmbed(reason),
+        onAd: (ad) => this.showAd(ad),
+        onMilestone: (step, note) => this.vodMark(step, note),
+      });
+      this.embed.isDirect = true;
+      this.applyBackground();
+      this.bindEngineEvents(DIRECT_EVENTS);
+      this.embed.load(opts.channel ? { channel: opts.channel } : { video: opts.video, startAt: opts.startAt || 0 });
+      this.armPlayWatchdog();
+      return;
+    }
+    if (!wantDirect) await loadScript(EMBED_URL);
+    const T = window.Twitch;
+    if (!this.embed) {
+      this.host.replaceChildren();
+      const { startAt, ...embedOpts } = opts;
+      if (startAt) embedOpts.time = `${Math.floor(startAt / 3600)}h${Math.floor((startAt % 3600) / 60)}m${Math.floor(startAt % 60)}s`;
+      this.embed = new T.Player('player-host', {
+        width: '100%',
+        height: '100%',
+        parent: EMBED_PARENT,
+        autoplay: true,
+        muted: false,
+        controls: false, // no native controls/info overlay; Lurkbox's overlay is the only UI
+        ...embedOpts,
+      });
+      this.embed.isDirect = false;
+      document.body.classList.add('embed-active');
+      this.bindEngineEvents(T.Player);
+    } else if (opts.channel) {
+      switching = true;
+      this.embed.setChannel(opts.channel);
+      this.kickPlayback('switch');
+    } else if (opts.video) {
+      switching = true;
+      this.embed.setVideo(opts.video, opts.startAt || 0);
+      this.kickPlayback('switch');
+    }
+    this.playingSeen = false;
+    if (switching) this.armPlayWatchdog();
+  }
+
+  /** Same handlers for both engines. P = event-name constants. */
+  bindEngineEvents(P) {
+    {
+      this.embed.addEventListener(P.READY, () => {
+        const f = this.host.querySelector('iframe');
+        if (f) f.setAttribute('tabindex', '-1');
+        plog('READY');
+        this.kickPlayback('ready');
+        if (!this.playingSeen) this.armPlayWatchdog(); // time the checks from READY, not from open
+      });
+      this.embed.addEventListener(P.PLAYING, () => this.onPlaying());
+      this.embed.addEventListener(P.PAUSE, () => this.onPaused());
+      this.embed.addEventListener(P.OFFLINE, () => {
+        if (this.current && this.current.kind === 'live' && !this.raid.active) this.setStatus(`${this.current.name} is offline`);
+      });
+      this.embed.addEventListener(P.ONLINE, () => this.setStatus(''));
+      this.embed.addEventListener(P.ENDED, () => {
+        if (this.current && this.current.kind === 'live' && this.rewind) { this.goLive('caught up'); return; }
+        if (this.current && this.current.kind === 'video') {
+          if (window.lurkbox.resumeSet) window.lurkbox.resumeSet(this.current.videoId, 0).catch(() => {}); // watched to the end
+          this.setStatus('Video ended. B to go back.');
+        }
+      });
+      if (P.PLAYBACK_BLOCKED) {
+        this.embed.addEventListener(P.PLAYBACK_BLOCKED, () => {
+          this.blockedCount = (this.blockedCount || 0) + 1;
+          this.lastStall = 'blocked';
+          plog(`PLAYBACK_BLOCKED #${this.blockedCount}`);
+          if (this.blockedCount === 1) { this.kickPlayback('blocked'); return; }
+          this.embed.setMuted(true); // last resort: muted playback is allowed everywhere
+          this.embed.play();
+          toast('Autoplay was blocked, playing muted. Unmute from the overlay.', 5000, 'warn');
+        });
+      }
+    }
+  }
+
+  destroyEngine() {
+    document.body.classList.remove('embed-active');
+    if (this.embed && this.embed.destroy) this.embed.destroy();
+    this.embed = null;
+    this.host.replaceChildren();
+  }
+
+  fallbackToEmbed(reason) {
+    this.vodMark('fallback to the Twitch player', reason);
+    plog(`direct engine -> Twitch player: ${reason}`);
+    toast('Using the Twitch player', 3000);
+    this.embedOnly = this.current ? this.current.login || true : true;
+    this.rewind = null;
+    this.destroyEngine();
+    const c = this.current;
+    if (!c) return;
+    if (c.kind === 'live') this.ensureEmbed({ channel: c.login });
+    else this.ensureEmbed({ video: `v${c.videoId}` });
+  }
+
+  showAd(ad) {
+    const b = document.getElementById('ad-badge');
+    if (!b) return;
+    b.hidden = !ad.inAd;
+    if (ad.inAd) b.textContent = ad.secondsLeft != null ? `Ad \u00B7 ${Math.floor(ad.secondsLeft / 60)}:${String(ad.secondsLeft % 60).padStart(2, '0')}` : 'Ad';
+  }
+
+  /** Window unfocused for a while (Floater over a game): cap the direct engine's quality; restore on focus. */
+  setBackground(on) {
+    this.background = !!on;
+    this.applyBackground();
+  }
+
+  applyBackground() {
+    if (!this.embed || !this.embed.isDirect) return;
+    this.embed.setBackgroundCap(this.background ? backgroundCap(state.settings.backgroundQuality || '720') : null);
+  }
+
+  latency() { return this.embed && this.embed.isDirect ? this.embed.latency() : null; }
+
+  jumpToLive() {
+    if (!this.current || this.current.kind !== 'live') return;
+    this.behindOffered = false;
+    if (this.rewind) { this.goLive('jump'); return; }
+    if (this.embed && this.embed.isDirect) { this.embed.jumpToLive(); toast('Jumped to live', 1500); }
+    else this.openLive({ login: this.current.login, name: this.current.name, userId: this.current.userId, stream: this.current.stream }); // embed: reload
+  }
+
+  /** Corner badge, the overlay's live badge and the catch-up offer, once a second. */
+  tickLive() {
+    this.tickSeek();
+    const badge = document.getElementById('live-badge');
+    if (!badge) return;
+    const lat = this.active && this.current && this.current.kind === 'live' ? this.latency() : null;
+    const b = liveBadge(lat);
+    let rewoundBy = null;
+    if (this.rewind && this.active) {
+      const m = this.seekModel();
+      rewoundBy = m ? m.max - m.pos : 0;
+      badge.hidden = this.overlayVisible();
+      badge.textContent = `Rewound \u2212${fmtTime(rewoundBy)} \u00B7 ${this.glyphX()} to go live`;
+      badge.classList.add('rewound');
+    } else {
+      badge.classList.remove('rewound');
+      badge.hidden = !(this.active && this.current && this.current.kind === 'live' && !b.live && !this.overlayVisible());
+      badge.textContent = b.text;
+      const decision = catchUpDecision(lat, { autoCatchUp: state.settings.autoCatchUp !== false });
+      if (decision === 'offer' && !this.behindOffered && !this.raid.active) {
+        this.behindOffered = true;
+        toast(`You're ${b.text.replace('\u2212', '').replace(' behind', '')} behind. Press ${this.glyphX()} to jump to live.`, 6000);
+      }
+      if (decision === 'none') this.behindOffered = false;
+    }
+    this.liveState = { rewound: rewoundBy != null, behind: !b.live && !!(this.embed && this.embed.isDirect) };
+    const live = this.ui && this.ui.badge;
+    if (!live || !this.current) return;
+    const l = liveLabel({ kind: this.current.kind, rewoundBy, badge: b, direct: !!(this.embed && this.embed.isDirect) });
+    live.hidden = !l;
+    if (l) {
+      if (live.textContent !== l.text) live.textContent = l.text;
+      live.dataset.state = l.state;
+      live.classList.toggle('behind', l.state !== 'live');
+    }
+    if (this.tipFor && this.tipFor.dataset.key === 'live') this.showTip(this.tipFor, { refresh: true });
+  }
+
+  /** Unmute, restore volume and play. Safe to call repeatedly. */
+  kickPlayback(why) {
+    if (!this.embed) return;
+    try {
+      this.embed.setMuted(false);
+      this.embed.setVolume(this.volume());
+      this.embed.play();
+      plog(`play() (${why})`);
+    } catch (e) {
+      plog(`play() failed (${why}): ${e.message}`);
+    }
+  }
+
+  volume() {
+    const v = Number(state.settings.volume);
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+  }
+
+  /** If PLAYING doesn't arrive within 8 s: try gates and play again, then offer "Press A to play". */
+  armPlayWatchdog() {
+    clearTimeout(this.playTimer);
+    this.loadedAt = performance.now();
+    this.userPaused = false;
+    this.lastStall = '';
+    this.hidePlayPrompt();
+    // play() through the JS API is ignored when Twitch decides autoplay isn't
+    // allowed ("style visibility"), but its own play overlay works. Click it early.
+    clearTimeout(this.earlyTimer1);
+    clearTimeout(this.earlyTimer2);
+    const early = async (label) => {
+      if (!this.active || this.playingSeen) return;
+      const clicked = await window.lurkbox.dismissPlayerGate({ play: true });
+      if (clicked) { this.lastStall = `autoplay refused, clicked ${clicked}`; plog(`${label}: clicked ${clicked}`); }
+    };
+    this.earlyTimer1 = setTimeout(() => early('1.5 s check'), 1500);
+    this.earlyTimer2 = setTimeout(() => early('4 s check'), 4000);
+    this.playTimer = setTimeout(async () => {
+      if (!this.active || this.playingSeen) return;
+      const clicked = await window.lurkbox.dismissPlayerGate({ play: true });
+      const reason = clicked ? `gate (${clicked})` : (this.lastStall || 'no PLAYING event');
+      plog(`no playback after 8 s: ${reason}; paused=${this.safe(() => this.embed.isPaused())} muted=${this.safe(() => this.embed.getMuted())}`);
+      this.kickPlayback('watchdog');
+      setTimeout(() => { if (this.active && !this.playingSeen) this.showPlayPrompt(); }, 1500);
+    }, 8000);
+  }
+
+  safe(fn) { try { return fn(); } catch { return '?'; } }
+
+  showPlayPrompt() {
+    this.playPrompt.hidden = false;
+    focusEl(this.playPrompt.querySelector('button'), { instant: true });
+  }
+
+  hidePlayPrompt() { if (this.playPrompt) this.playPrompt.hidden = true; }
+
+  togglePause() {
+    if (!this.embed) return;
+    if (this.embed.isPaused()) {
+      this.userPaused = false;
+      if (this.embed.isDirect && this.current && this.current.kind === 'live') {
+        // The paused spot may have left Twitch's short live window: the engine jumps to live if so.
+        this.embed.setMuted(false);
+        this.embed.setVolume(this.volume());
+        this.embed.resume();
+        this.behindOffered = false;
+        this.tickLive();
+      } else this.kickPlayback('user');
+    }
+    else { this.userPaused = true; this.embed.pause(); }
+    if (this.overlayVisible()) this.renderOverlay(true);
+  }
+
+  changeVolume(delta) {
+    this.setVolume(this.volume() + delta);
+  }
+
+  /** Sets the volume (0..1), unmutes, saves it shortly after; quiet = no toast (the volume pop-over shows it). */
+  setVolume(value, { quiet = false } = {}) {
+    if (!this.embed) return;
+    const v = Math.round(Math.min(1, Math.max(0, value)) * 100) / 100;
+    state.settings.volume = v; // immediate; persisted below
+    this.embed.setMuted(false);
+    this.embed.setVolume(v);
+    if (!quiet && !(this.pop.key === 'volume')) toast(`Volume ${Math.round(v * 100)}%`, 1200);
+    clearTimeout(this.volTimer);
+    this.volTimer = setTimeout(() => saveSettings({ volume: v }), 800);
+    if (this.overlayVisible()) this.renderOverlay(true);
+  }
+
+  toggleMute({ quiet = false } = {}) {
+    if (!this.embed) return;
+    const m = !this.embed.getMuted();
+    this.embed.setMuted(m);
+    if (!quiet) toast(m ? 'Muted' : 'Unmuted', 1200);
+    if (this.overlayVisible()) this.renderOverlay(true);
+  }
+
+  /** A step of the current VOD's start timeline (ignored for live channels and once it played). */
+  vodMark(step, note) {
+    if (this.vodTimeline && this.current && this.current.kind === 'video' && String(this.current.videoId) === this.vodTimeline.id) this.vodTimeline.mark(step, note);
+  }
+
+  onPlaying() {
+    if (this.vodTimeline && this.current && this.current.kind === 'video') { vlog(this.vodTimeline.finish('PLAYING', this.embed && !this.embed.isDirect ? 'Twitch player' : '')); this.vodTimeline = null; }
+    if (!this.playingSeen) {
+      plog(`PLAYING after ${Math.round(performance.now() - (this.loadedAt || 0))} ms`);
+      setTimeout(() => { if (this.active && window.lurkbox.probePlayer) window.lurkbox.probePlayer().catch(() => {}); }, 5000);
+    }
+    this.playingSeen = true;
+    clearTimeout(this.playTimer);
+    this.hidePlayPrompt();
+    this.stopGateLoop();
+    clearTimeout(this.resumeTimer);
+    this.setStatus('');
+    if (!this.qualityApplied) {
+      this.qualityApplied = true;
+      // Qualities are only known once playback starts.
+      setTimeout(() => this.applyDefaultQuality(), 500);
+    }
+  }
+
+  // The app never pauses on its own; if the embed paused itself, resume.
+  onPaused() {
+    clearTimeout(this.resumeTimer);
+    if (!this.active || this.userPaused) return;
+    if (performance.now() - (this.loadedAt || 0) < 5000) {
+      this.lastStall = 'paused right after load';
+      plog('PAUSE within 5 s of load; retrying play()');
+      this.kickPlayback('early-pause');
+      return;
+    }
+    this.resumeTimer = setTimeout(() => {
+      if (this.active && this.embed && this.embed.isPaused && this.embed.isPaused()) {
+        console.log('[player] resuming after unexpected pause');
+        this.embed.play();
+      }
+    }, 1500);
+  }
+
+  applyDefaultQuality() {
+    const want = state.settings.defaultQuality || 'auto';
+    if (!this.embed || want === 'auto') return;
+    const qs = (this.embed.getQualities() || []).filter((q) => q.group && q.group !== 'auto');
+    if (!qs.length) return;
+    let pick = qs.find((q) => q.group === want);
+    if (!pick && want === 'chunked') pick = qs[0];
+    if (!pick) {
+      const [wh, wf] = qualityHeight(want) || [720, 30];
+      const scored = qs.map((q) => ({ q, hf: qualityHeight(q.name || q.group) }))
+        .filter((x) => x.hf && (x.hf[0] < wh || (x.hf[0] === wh && x.hf[1] <= wf)))
+        .sort((a, b) => b.hf[0] - a.hf[0] || b.hf[1] - a.hf[1]);
+      pick = scored.length ? scored[0].q : qs[qs.length - 1];
+    }
+    console.log(`[player] quality -> ${pick.name} (${pick.group})`);
+    this.embed.setQuality(pick.group);
+  }
+
+  startGateLoop() {
+    this.stopGateLoop();
+    if (!state.settings.skipContentGate) return;
+    let n = 0;
+    this.gateTimer = setInterval(async () => {
+      if (++n > 15 || !this.active) return this.stopGateLoop();
+      if (await window.lurkbox.dismissPlayerGate()) console.log('[player] dismissed a content gate');
+    }, 1500);
+  }
+
+  stopGateLoop() {
+    clearInterval(this.gateTimer);
+    this.gateTimer = null;
+  }
+
+  show() {
+    if (!this.playPrompt) {
+      this.playPrompt = el('div', { class: 'play-prompt', hidden: true },
+        button('Press A to play', () => { this.hidePlayPrompt(); window.lurkbox.dismissPlayerGate({ play: true }); this.kickPlayback('prompt'); this.armPlayWatchdog(); }, { class: 'primary big' }));
+      document.getElementById('player-stage').append(this.playPrompt);
+    }
+    if (this.chatOn === null) this.chatOn = !!state.settings.chatDefault;
+    this.active = true;
+    document.body.classList.add('player-active');
+    this.screen.hidden = false;
+    document.getElementById('app').inert = true;
+    this.applyLayout();
+  }
+
+  close() {
+    if (this.vodTimeline) { vlog(this.vodTimeline.finish('left before PLAYING')); this.vodTimeline = null; }
+    this.saveResume();
+    this.scrubber.cancel();
+    this.active = false;
+    this.cancelRaid();
+    this.hideOverlay();
+    this.stopGateLoop();
+    clearTimeout(this.resumeTimer);
+    clearTimeout(this.playTimer);
+    clearTimeout(this.earlyTimer1);
+    clearTimeout(this.earlyTimer2);
+    this.hidePlayPrompt();
+    this.watcher.watch(null);
+    this.chat.leave();
+    this.closePointsPanel();
+    this.tchat.close();
+    this.destroyEngine(); // removes the iframe/video and stops playback
+    this.showAd({ inAd: false });
+    this.current = null;
+    this.screen.hidden = true;
+    document.getElementById('app').inert = false;
+  }
+
+  setStatus(text) {
+    this.statusEl.textContent = text;
+    this.statusEl.hidden = !text;
+  }
+
+  /**
+   * The chat layout settings on the player screen: width (the video shrinks beside the panel; over the video the chat
+   * floats on top), side, text size and background opacity. Safe to call at any time.
+   */
+  applyChatLayout() {
+    const s = state.settings;
+    const L = chatLayout(s);
+    const style = s.chatStyle === 'twitch' ? 'twitch' : 'lurkbox';
+    const direct = this.embed ? !!this.embed.isDirect : (s.playerEngine !== 'embed' && !this.embedOnly);
+    const over = chatOverActive({ layout: L, style, direct });
+    const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const zoom = twitchChatZoom(s, window.screen && window.screen.height);
+    const px = chatPanelWidth({ style, chatWidth: L.chatWidth, windowWidth: window.innerWidth, zoom, remPx });
+    const st = this.screen.style;
+    if (style === 'twitch') { st.removeProperty('--chat-w'); st.setProperty('--tchat-w', `${px}px`); } else { st.setProperty('--chat-w', `${px}px`); st.removeProperty('--tchat-w'); }
+    st.setProperty('--chat-text', String(L.chatTextSize / 100));
+    st.setProperty('--chat-bg-a', `${L.chatBgOpacity}%`);
+    st.setProperty('--chat-over-a', `${L.chatOverlayOpacity}%`);
+    this.screen.classList.toggle('chat-left', L.chatSide === 'left');
+    this.screen.classList.toggle('chat-over', over);
+  }
+
+  applyLayout() {
+    this.applyChatLayout();
+    const chatVisible = this.chatOn && this.current && this.current.kind === 'live';
+    this.screen.classList.toggle('chat-on', !!chatVisible);
+    const twitchStyle = state.settings.chatStyle === 'twitch';
+    this.screen.classList.toggle('twitch-chat', !!(chatVisible && twitchStyle));
+    if (!this.pointsPanel) this.tchat.setMode(chatVisible && twitchStyle && this.tchat.login ? 'panel' : 'hidden');
+    if (chatVisible && twitchStyle) {
+      this.chat.leave(); // Twitch's chat replaces the IRC panel
+    } else if (chatVisible && this.current) {
+      this.chat.join(this.current.login);
+      requestAnimationFrame(() => { const l = this.chatPanel.querySelector('.chat-list'); if (l) l.scrollTop = l.scrollHeight; });
+    } else {
+      this.chat.leave();
+    }
+  }
+
+  toggleChat() {
+    if (this.current && this.current.kind !== 'live') {
+      toast('Chat is only available for live channels', 2500);
+      return;
+    }
+    this.chatOn = !this.chatOn;
+    this.applyLayout();
+    if (this.overlayVisible()) this.renderOverlay();
+  }
+
+  async step(dir) {
+    if (!this.current) return;
+    if (this.pop.isOpen) this.pop.close(); // its contents belong to the channel being left
+    let list = [];
+    try { list = state.auth.signedIn ? await followedLive() : this.playlist; } catch { list = this.playlist; }
+    if (!list.length) list = this.playlist;
+    if (!list.length) { toast('No other live channels to switch to', 2500); return; }
+    const idx = list.findIndex((s) => s.user_login === this.current.login);
+    const next = list[(idx + dir + list.length) % list.length];
+    if (!next || next.user_login === this.current.login) { toast('No other live channels', 2000); return; }
+    toast(`${dir > 0 ? 'Next' : 'Previous'}: ${next.user_name}`, 2000);
+    this.openLive({ login: next.user_login, name: next.user_name, userId: next.user_id, stream: next }, list);
+    if (this.overlayVisible()) this.renderOverlay();
+  }
+
+  // ---------- overlay ----------
+  // A translucent scrim over the full-size video: a top line (avatar, name, live badge, scrolling title), the seek
+  // bar, and one row of icon buttons. The focused (or hovered, or long-pressed) button shows its label in a bubble;
+  // quality, volume, chat, channel points and "more" open small pop-overs above their button.
+
+  overlayVisible() { return !this.overlay.hidden; }
+
+  buildOverlay() {
+    const ui = {};
+    ui.avatar = el('span', { class: 'po-avatar' });
+    ui.name = el('span', { class: 'po-name' });
+    ui.badge = el('span', { class: 'po-live', hidden: true });
+    ui.title = el('span', { class: 'po-title marquee-line' });
+    ui.top = el('div', { class: 'po-top' }, ui.avatar, ui.name, ui.badge, ui.title);
+    ui.buttons = {};
+    for (const key of ALL_CONTROLS) {
+      const b = el('button', {
+        type: 'button', class: `po-icon focusable${key === 'play' ? ' po-default' : ''}`,
+        dataset: { key, focusKey: `po-${key}` }, 'aria-haspopup': POPOVER_CONTROLS.has(key) ? 'dialog' : null,
+      }, icon(controlIcon(key, {})), key === 'points' ? el('span', { class: 'po-count', hidden: true }) : null);
+      b.dataset.icon = controlIcon(key, {});
+      b.addEventListener('click', () => {
+        if (this.longPressed === b) { this.longPressed = null; return; } // a long-press only shows the label
+        this.bumpOverlay();
+        this.onControl(key, b);
+      });
+      this.installTip(b);
+      ui.buttons[key] = b;
+    }
+    ui.row = el('div', { class: 'po-row' }, ALL_CONTROLS.map((k) => ui.buttons[k]));
+    ui.panel = el('div', { class: 'po-panel po-ui' }, ui.top, ui.row);
+    ui.tip = el('div', { class: 'po-tip', role: 'tooltip', hidden: true });
+    this.overlay.replaceChildren(ui.panel, ui.tip);
+    this.overlay.addEventListener('focusin', (e) => {
+      const b = e.target.closest && e.target.closest('.po-icon');
+      if (b && !document.body.classList.contains('input-mouse')) this.showTip(b);
+      else if (!b) this.hideTip();
+    });
+    this.ui = ui;
+  }
+
+  /** Hover (mouse) and long-press (touch) show the same label bubble as focus. */
+  installTip(b) {
+    b.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse' && !this.pop.isOpen) this.showTip(b); });
+    b.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && this.tipFor === b) this.hideTip(); });
+    let timer = null;
+    b.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch') return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        this.longPressed = b;
+        focusEl(b, { instant: true });
+        this.showTip(b, { touch: true });
+        this.bumpOverlay();
+        clearTimeout(this.tipTimer);
+        this.tipTimer = setTimeout(() => { if (this.tipFor === b) this.hideTip(); }, 2500);
+      }, LONG_PRESS_MS);
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => clearTimeout(timer));
+    b.addEventListener('contextmenu', (e) => { if (this.longPressed === b) e.preventDefault(); });
+  }
+
+  /** What the labels and icons say right now. */
+  labelCtx() {
+    const cur = this.current || {};
+    let quality = 'Auto';
+    try {
+      const q = this.embed && this.embed.getQuality();
+      const found = q && (this.embed.getQualities() || []).find((x) => x.group === q);
+      quality = found ? found.name : (q && q !== 'auto' ? q : 'Auto');
+    } catch { /* not ready */ }
+    const ls = this.liveState || {};
+    return {
+      paused: this.safe(() => this.embed.isPaused()) === true,
+      muted: this.safe(() => this.embed.getMuted()) === true,
+      volume: this.volume(),
+      quality,
+      chatOn: !!this.chatOn,
+      rewound: !!ls.rewound,
+      behind: !!ls.behind,
+      points: this.points.signedIn && Number.isFinite(this.points.balance) ? this.points.balance : null,
+      name: cur.name || cur.login || '',
+    };
+  }
+
+  showTip(b, { touch = false, refresh = false } = {}) {
+    if (!b || b.hidden || this.pop.isOpen || !this.overlayVisible()) return;
+    if (refresh && this.tipFor !== b) return;
+    const tip = this.ui.tip;
+    const text = controlLabel(b.dataset.key, this.labelCtx());
+    // The activate glyph only inside the focused label (controller/keyboard), never for mouse or touch.
+    const glyph = !touch && !document.body.classList.contains('input-mouse') && document.activeElement === b;
+    const sig = `${text}|${glyph}`;
+    if (tip.dataset.sig !== sig) {
+      tip.dataset.sig = sig;
+      tip.replaceChildren(...(glyph ? [hint('{A}', 'po-tip-glyph')] : []), el('span', { class: 'po-tip-text' }, text));
+    }
+    this.tipFor = b;
+    tip.hidden = false;
+    const box = this.overlay.getBoundingClientRect();
+    const r = b.getBoundingClientRect();
+    const w = tip.offsetWidth;
+    const margin = 8;
+    const left = Math.min(Math.max(margin, (r.left + r.right) / 2 - box.left - w / 2), Math.max(margin, box.width - w - margin));
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.bottom = `${Math.round(box.bottom - r.top + 10)}px`;
+  }
+
+  hideTip() {
+    this.tipFor = null;
+    if (this.ui) this.ui.tip.hidden = true;
+  }
+
+  /** The current focus target to come back to (the pop-over's button while one is open). */
+  overlayFocusKey() {
+    const a = document.activeElement;
+    if (this.pop.isOpen && this.pop.cur.opener) return focusKey(this.pop.cur.opener);
+    return a && this.overlay.contains(a) ? focusKey(a) : null;
+  }
+
+  /**
+   * Shows the controls. Focus comes back to the control used last (same channel), else Play/Pause. In mouse mode
+   * nothing gets the focus ring until the pointer moves onto a control.
+   */
+  showOverlay() {
+    const was = this.overlayVisible();
+    this.overlay.hidden = false;
+    document.body.classList.add('overlay-open');
+    this.renderOverlay();
+    if (!was) {
+      const mouse = document.body.classList.contains('input-mouse');
+      const back = this.lastFocusKey && focusables(this.overlay).find((n) => focusKey(n) === this.lastFocusKey);
+      if (back) focusEl(back, { instant: true });
+      else focusFirst(this.overlay, '.po-default');
+      if (mouse) this.hideTip(); else this.syncTip();
+    }
+    this.bumpOverlay();
+    // Refresh title/viewers in the background.
+    const cur = this.current;
+    if (!was && cur && cur.kind === 'live' && state.auth.signedIn) {
+      tw.streamByLogin(cur.login).then((s) => {
+        if (cur === this.current && s) { cur.stream = s; if (this.overlayVisible()) this.renderOverlay(true); }
+      }).catch(() => {});
+    }
+  }
+
+  hideOverlay() {
+    clearTimeout(this.overlayTimer);
+    if (this.scrubber && this.scrubber.active) this.scrubber.commit();
+    const wasOpen = !this.overlay.hidden;
+    if (wasOpen) this.lastFocusKey = this.overlayFocusKey() || this.lastFocusKey;
+    this.pop.close({ returnFocus: false });
+    this.hideTip();
+    const a = document.activeElement;
+    if (a && this.overlay.contains(a)) a.blur();
+    this.overlay.hidden = true;
+    document.body.classList.remove('overlay-open');
+    // The embed may pause itself while covered (Twitch's visibility check); resume it.
+    if (wasOpen && this.active && this.embed && !this.embed.isDirect && !this.userPaused) {
+      setTimeout(() => { if (this.safe(() => this.embed.isPaused()) === true && !this.userPaused) { plog('resuming after the overlay closed'); this.kickPlayback('overlay-closed'); } }, 300);
+    }
+  }
+
+  /** Auto-hide after a few seconds without input (longer with a pop-over open). */
+  bumpOverlay() {
+    clearTimeout(this.overlayTimer);
+    this.overlayTimer = setTimeout(() => {
+      // Never while the pointer rests on the controls or a slider is being dragged.
+      if (this.overlay.querySelector('.po-ui:hover') && document.body.classList.contains('input-mouse')) { this.bumpOverlay(); return; }
+      this.hideOverlay();
+    }, this.pop.isOpen ? POPOVER_HIDE_MS : OVERLAY_HIDE_MS);
+  }
+
+  /** Updates the overlay in place: which controls exist, their icons and labels, the top line, the seek bar. */
+  renderOverlay(_keepFocus = false) {
+    const cur = this.current;
+    if (!cur || !this.ui) return;
+    const ui = this.ui;
+    const snap = snapshotFocus(this.overlay, focusables(this.overlay));
+    const ctx = this.labelCtx();
+    const shown = new Set(overlayControls({ kind: cur.kind, points: !!this.tchat.login }));
+    for (const key of ALL_CONTROLS) {
+      const b = ui.buttons[key];
+      b.hidden = !shown.has(key);
+      const name = controlIcon(key, ctx);
+      if (b.dataset.icon !== name) { b.dataset.icon = name; b.firstElementChild.replaceWith(icon(name)); }
+      b.setAttribute('aria-label', controlLabel(key, ctx));
+      b.classList.toggle('on', key === 'chat' && ctx.chatOn);
+      b.setAttribute('aria-expanded', this.pop.key === key ? 'true' : 'false');
+    }
+    const count = ui.buttons.points.querySelector('.po-count');
+    count.hidden = ctx.points == null;
+    count.textContent = ctx.points == null ? '' : shortCount(ctx.points);
+    // Top line.
+    const s = cur.stream;
+    const name = cur.name || cur.login || '';
+    if (ui.name.textContent !== name) ui.name.textContent = name;
+    const title = cur.kind === 'video' ? (cur.title || '') : ((s && s.title) || '');
+    if (ui.title.textContent !== title) { ui.title.textContent = title; requestAnimationFrame(() => marqueeLine(ui.title)); }
+    this.renderAvatar(cur);
+    // The seek bar is one persistent node (it keeps focus and drag state), between the top line and the buttons.
+    const seekable = !!this.seekModel();
+    const bar = this.seekBar.node;
+    if (seekable && bar.parentNode !== ui.panel) ui.panel.insertBefore(bar, ui.row);
+    if (!seekable && bar.parentNode) bar.remove();
+    this.renderSeek();
+    restoreFocus(this.overlay, snap, focusables(this.overlay), (n) => focusEl(n, { instant: true }));
+    this.tickLive(); // the live/behind badge is owned by tickLive
+    if (this.tipFor) { if (this.tipFor.hidden) this.hideTip(); else this.showTip(this.tipFor, { refresh: true }); }
+    this.pop.update();
+  }
+
+  /** The channel's avatar (Helix, cached), else its initial. */
+  renderAvatar(cur) {
+    const a = this.ui.avatar;
+    const key = cur.userId || cur.login;
+    if (a.dataset.for === key) return;
+    a.dataset.for = key;
+    a.replaceChildren(el('span', { class: 'po-avatar-initial' }, (cur.name || cur.login || '?').slice(0, 1).toUpperCase()));
+    if (!cur.userId || !state.auth.signedIn) return;
+    usersByIds([cur.userId]).then((m) => {
+      const u = m.get(cur.userId);
+      if (u && u.profile_image_url && a.dataset.for === key) a.replaceChildren(el('img', { src: u.profile_image_url, alt: '' }));
+    }).catch(() => {});
+  }
+
+  /** A press on a bar button. */
+  onControl(key, b) {
+    const cur = this.current;
+    if (!cur) return;
+    switch (key) {
+      case 'play': this.togglePause(); break;
+      case 'live': this.jumpToLive(); break;
+      case 'channel': {
+        const c = { login: cur.login, id: cur.userId, name: cur.name };
+        this.nav.closePlayer();
+        this.nav.openChannel(c);
+        break;
+      }
+      case 'back': this.nav.closePlayer(); break;
+      default:
+        if (POPOVER_CONTROLS.has(key)) this.openPopover(key, b);
+    }
+  }
+
+  // ---------- pop-overs ----------
+
+  /** Opens the pop-over for a bar button (pressing its button again closes it). */
+  openPopover(key, opener = this.ui.buttons[key]) {
+    if (this.pop.key === key) { this.pop.close(); this.bumpOverlay(); return; }
+    const built = { volume: () => this.volumePop(), quality: () => this.qualityPop(), chat: () => this.chatPop(), points: () => this.pointsPop(), more: () => this.morePop() }[key];
+    if (!built) return;
+    const { body, initial, update, title } = built();
+    const node = el('div', { class: `po-pop po-ui pop-${key}`, role: 'dialog', 'aria-label': title },
+      el('div', { class: 'po-pop-title' }, title), body);
+    this.hideTip();
+    this.pop.open({
+      key, node, opener, initial: initial && initial(),
+      update: () => { if (update) update(); this.placePopover(node, opener); },
+      onClose: () => { if (this.ui) this.renderButtonsExpanded(); },
+    });
+    this.renderButtonsExpanded();
+    this.bumpOverlay();
+  }
+
+  renderButtonsExpanded() {
+    for (const [k, b] of Object.entries(this.ui.buttons)) {
+      b.setAttribute('aria-expanded', this.pop.key === k ? 'true' : 'false');
+      b.classList.toggle('expanded', this.pop.key === k);
+    }
+  }
+
+  placePopover(node, opener) {
+    if (!node.isConnected || !opener) return;
+    const box = this.overlay.getBoundingClientRect();
+    const r = opener.getBoundingClientRect();
+    const { left, bottom } = anchorPopover(r, { width: node.offsetWidth, height: node.offsetHeight }, box, { margin: 12, gap: 14 });
+    node.style.left = `${left}px`;
+    node.style.bottom = `${bottom}px`;
+    node.style.maxHeight = `${Math.max(160, box.height - bottom - 12)}px`;
+  }
+
+  volumePop() {
+    const fmt = (v) => (this.safe(() => this.embed.getMuted()) === true ? 'Muted' : `${v}%`);
+    const slider = new Slider({
+      key: 'pop-volume', label: 'Level', min: 0, max: 100, step: 5, value: Math.round(this.volume() * 100),
+      format: fmt, onInput: (v) => this.setVolume(v / 100, { quiet: true }),
+    });
+    const mute = button('', () => this.toggleMute({ quiet: true }), { class: 'po-item', dataset: { focusKey: 'pop-mute' } });
+    const update = () => {
+      slider.setValue(Math.round(this.volume() * 100));
+      slider.render();
+      const m = this.safe(() => this.embed.getMuted()) === true;
+      mute.replaceChildren(icon(m ? 'volume' : 'volume-muted', 'po-item-icon'), el('span', {}, m ? 'Unmute' : 'Mute'));
+    };
+    update();
+    return { title: 'Volume', body: el('div', { class: 'po-pop-body' }, slider.node, mute), initial: () => slider.node, update };
+  }
+
+  qualityPop() {
+    const list = el('div', { class: 'po-pop-body po-list' });
+    const update = () => {
+      const qs = (this.safe(() => this.embed.getQualities()) || []).filter((q) => q && q.group);
+      const curQ = this.safe(() => this.embed.getQuality());
+      if (!qs.length) { list.replaceChildren(el('div', { class: 'po-pop-note' }, 'Qualities appear once the stream is playing.')); return; }
+      const items = [{ value: 'auto', label: 'Auto' }, ...qs.filter((q) => q.group !== 'auto').map((q) => ({ value: q.group, label: q.name }))];
+      const sig = items.map((i) => i.value).join(',') + `|${curQ}`;
+      if (list.dataset.sig === sig) return;
+      list.dataset.sig = sig;
+      const snap = snapshotFocus(list, focusables(list));
+      list.replaceChildren(...items.map((it) => button([icon(it.value === curQ || (it.value === 'auto' && (!curQ || curQ === 'auto')) ? 'check' : '', 'po-item-icon'), el('span', {}, it.label)], () => {
+        this.embed.setQuality(it.value);
+        this.pop.close();
+        setTimeout(() => this.overlayVisible() && this.renderOverlay(true), 300);
+      }, { class: `po-item${it.value === curQ ? ' selected' : ''}`, dataset: { focusKey: `pop-q-${it.value}` } })));
+      restoreFocus(list, snap, focusables(list), (n) => focusEl(n, { instant: true }));
+    };
+    update();
+    return { title: 'Quality', body: list, initial: () => list.querySelector('.po-item.selected') || list.querySelector('.po-item'), update };
+  }
+
+  chatPop() {
+    const onoff = button('', () => this.toggleChat(), { class: 'cc-toggle', dataset: { focusKey: 'pop-chat-on' } });
+    const head = el('div', { class: 'cc-row' }, el('span', { class: 'cc-label' }, 'Chat'), onoff);
+    const controls = new ChatControls({
+      settings: state.settings,
+      env: () => chatEnv(this.embed ? !!this.embed.isDirect : state.settings.playerEngine !== 'embed'),
+      onChange: (patch, { live }) => {
+        if (!this.chatOn) { this.chatOn = true; this.applyLayout(); } // show what is being changed
+        if (live) previewSettings(patch); else saveSettings(patch);
+        this.bumpOverlay();
+      },
+    });
+    const update = () => {
+      onoff.textContent = this.chatOn ? 'On' : 'Off';
+      onoff.classList.toggle('on', !!this.chatOn);
+      controls.update(state.settings);
+    };
+    update();
+    return { title: 'Chat', body: el('div', { class: 'po-pop-body po-chat' }, head, ...controls.nodes), initial: () => onoff, update };
+  }
+
+  pointsPop() {
+    const bal = el('div', { class: 'po-pop-big' });
+    const update = () => {
+      const p = this.labelCtx().points;
+      bal.replaceChildren(icon('points', 'po-item-icon'), el('span', {}, p == null ? 'Balance not available yet' : p.toLocaleString('en-US')));
+      bal.classList.toggle('dim', p == null);
+    };
+    update();
+    const rewards = button([icon('gift', 'po-item-icon'), el('span', {}, 'Rewards')], () => this.openPointsPanel({ rewards: true }), { class: 'po-item', dataset: { focusKey: 'pop-rewards' } });
+    const preds = button([icon('poll', 'po-item-icon'), el('span', {}, 'Predictions & polls')], () => this.openPointsPanel({ rewards: false }), { class: 'po-item', dataset: { focusKey: 'pop-predictions' } });
+    return { title: 'Channel points', body: el('div', { class: 'po-pop-body po-list' }, bal, rewards, preds), initial: () => rewards, update };
+  }
+
+  morePop() {
+    const info = el('div', { class: 'po-pop-info' });
+    const raid = el('div', { class: 'po-pop-note' });
+    const engine = button('', () => this.switchEngine(), { class: 'po-item', dataset: { focusKey: 'pop-engine' } });
+    const items = [
+      button([icon('reload', 'po-item-icon'), el('span', {}, 'Reload')], () => { this.pop.close({ returnFocus: false }); this.reload(); }, { class: 'po-item', dataset: { focusKey: 'pop-reload' } }),
+      engine,
+      window.lurkbox.toggleFullscreen ? button([icon('fullscreen', 'po-item-icon'), el('span', {}, 'Fullscreen')], () => window.lurkbox.toggleFullscreen(), { class: 'po-item', dataset: { focusKey: 'pop-fullscreen' } }) : null,
+    ];
+    const update = () => {
+      const cur = this.current;
+      if (!cur) return;
+      const s = cur.stream;
+      const meta = cur.kind === 'video'
+        ? ['Video', cur.video && cur.video.created_at ? fmtDate(cur.video.created_at) : null]
+        : s ? [s.game_name, s.viewer_count != null ? `${fmtViewers(s.viewer_count)} watching` : null, s.started_at ? `up ${fmtUptime(s.started_at)}` : null] : ['Live'];
+      info.textContent = meta.filter(Boolean).join(' · ');
+      raid.textContent = cur.kind === 'live' ? this.raidStatusText() : '';
+      raid.hidden = cur.kind !== 'live';
+      const direct = !!(this.embed && this.embed.isDirect);
+      engine.replaceChildren(icon('engine', 'po-item-icon'), el('span', {}, direct ? 'Use the Twitch player' : this.embedOnly ? 'Try the Lurkbox player again' : 'Use the Lurkbox player'));
+    };
+    update();
+    return { title: 'More', body: el('div', { class: 'po-pop-body po-list' }, info, raid, ...items.filter(Boolean)), initial: () => items[0], update };
+  }
+
+  /** Reloads what is playing (More → Reload). */
+  reload() {
+    const cur = this.current;
+    if (!cur) return;
+    if (cur.kind === 'live') this.openLive({ login: cur.login, name: cur.name, userId: cur.userId, stream: cur.stream });
+    else if (cur.video) { this.saveResume(true); this.openVideo(cur.video); }
+  }
+
+  /** More → switch between the Lurkbox (direct) player and the Twitch player, saved as the Player setting. */
+  async switchEngine() {
+    const direct = !!(this.embed && this.embed.isDirect);
+    this.pop.close({ returnFocus: false });
+    this.embedOnly = null;
+    await saveSettings({ playerEngine: direct ? 'embed' : 'direct' });
+    toast(direct ? 'Twitch player' : 'Lurkbox player', 2000);
+    this.reload();
+  }
+
+  // ---------- raids ----------
+
+  onRaid(ev) {
+    if (!this.active || !this.current || this.current.kind !== 'live') return;
+    if (ev.from_broadcaster_user_id !== this.current.userId) return;
+    this.raid.start(ev, { follow: !!state.settings.raidFollow, delaySec: state.settings.raidDelay });
+  }
+
+  renderRaid({ ev, mode, left }) {
+    this.raidEl.replaceChildren(el('div', { class: 'raid-card' },
+      el('div', { class: 'raid-kicker' }, `${ev.from_broadcaster_user_name} is raiding`),
+      el('div', { class: 'raid-target' }, mode === 'countdown' ? `Raiding ${ev.to_broadcaster_user_name}` : ev.to_broadcaster_user_name),
+      el('div', { class: 'raid-viewers' }, `with ${fmtViewers(ev.viewers)} viewers`),
+      mode === 'countdown' ? el('div', { class: 'raid-count' }, String(left)) : null,
+      hint(mode === 'countdown' ? '{B} cancel · {A} go now' : '{A} follow raid · {B} dismiss', 'raid-hint')));
+    this.raidEl.hidden = false;
+    document.body.classList.add('raid-open');
+  }
+
+  hideRaid() {
+    document.body.classList.remove('raid-open');
+    this.raidEl.hidden = true;
+    this.raidEl.replaceChildren();
+  }
+
+  cancelRaid() {
+    this.raid.clear();
+    this.hideRaid();
+  }
+
+  followRaid(ev) {
+    this.hideRaid();
+    toast(`Following raid to ${ev.to_broadcaster_user_name}`, 3500, 'ok');
+    this.openLive({ login: ev.to_broadcaster_user_login, name: ev.to_broadcaster_user_name, userId: ev.to_broadcaster_user_id });
+    if (this.overlayVisible()) this.renderOverlay();
+  }
+
+  // ---------- channel points ----------
+
+  glyph(act) { const g = document.querySelector(`kbd.glyph[data-act="${act}"]`); return g ? g.textContent : act; }
+
+  /** Twitch's chat frame for this channel: always in "Twitch chat" style, otherwise only with a twitch.tv session. */
+  openTwitchChat(login) {
+    this.points = { signedIn: false, balance: null };
+    if (state.settings.chatStyle === 'twitch') { this.tchat.open(login); return; }
+    const cur = this.current;
+    this.tchat.close();
+    if (!window.lurkbox.playerSessionStatus) return;
+    window.lurkbox.playerSessionStatus().then((st) => {
+      if (cur !== this.current || !this.active) return;
+      if (st && st.signedIn) { this.tchat.open(login); this.applyLayout(); } else plog('channel points: no twitch.tv session; the chat frame is not loaded');
+    }).catch(() => {});
+  }
+
+  /** Twitch's rewards popover (rewards: true) or its chat with the prediction/poll, large and controller-driven. */
+  async openPointsPanel({ rewards }) {
+    if (!this.tchat.login) return;
+    this.hideOverlay();
+    this.pointsPanel = true;
+    this.tchat.setMode('expanded');
+    if (!this.pointsHint) { this.pointsHint = hint('D-pad move \u00B7 {A} select \u00B7 {B} close', 'points-hint'); this.screen.append(this.pointsHint); }
+    this.pointsHint.hidden = false;
+    const r = await window.lurkbox.pointsOpenPanel({ rewards });
+    if (r && !r.ok) toast(`Channel points: ${r.reason}`, 3000, 'warn');
+    else if (rewards && r && !r.opened) toast('No channel points here (signed out, or the channel has none)', 3500);
+  }
+
+  closePointsPanel() {
+    if (!this.pointsPanel) return;
+    this.pointsPanel = false;
+    if (this.pointsHint) this.pointsHint.hidden = true;
+    window.lurkbox.pointsClosePanel();
+    this.applyLayout();
+  }
+
+  /** Once a minute on the direct engine: tell the platform layer what is on screen (it decides whether to report). */
+  tickWatchMinute() {
+    const cur = this.current;
+    const now = performance.now();
+    if (now - this.lastMinute.at < 60000) return;
+    const t = this.safe(() => this.embed.getCurrentTime());
+    const advanced = typeof t === 'number' && this.lastMinute.t != null && t !== this.lastMinute.t;
+    const first = this.lastMinute.at === 0;
+    this.lastMinute = { at: now, t: typeof t === 'number' ? t : null };
+    if (first || !window.lurkbox.watchMinute || !cur || cur.kind !== 'live' || !this.embed || !this.embed.isDirect) return;
+    if (!cur.userId || !cur.stream || !cur.stream.id) return;
+    window.lurkbox.watchMinute({
+      login: cur.login, channelId: cur.userId, broadcastId: cur.stream.id,
+      direct: true, live: true, rewound: !!this.rewind,
+      playing: advanced && this.safe(() => this.embed.isPaused()) === false,
+    }).catch(() => {});
+  }
+
+  // ---------- seeking ----------
+
+  resetSeek() {
+    if (this.scrubber) this.scrubber.cancel();
+    this.rewind = null;
+    this.archive = undefined;
+    this.archiveFor = null;
+    this.storyboard = null;
+    this.noRewindToast = false;
+    this.lastResumeSave = 0;
+    this.lastMinute = { at: 0, t: null };
+    if (this.seekBar) this.seekBar.preview = null;
+  }
+
+  glyphX() { const g = document.querySelector('kbd.glyph[data-act="X"]'); return g ? g.textContent : 'X'; }
+
+  /**
+   * What the seek bar shows, in one coordinate system:
+   *   video: seconds into the video;
+   *   live: seconds since the stream started (the right end is the live edge, uptime).
+   * null when there is nothing to seek (embed live, unknown duration, no start time).
+   */
+  seekModel() {
+    const e = this.embed;
+    const cur = this.current;
+    if (!e || !cur || !this.active) return null;
+    const num = (f) => { const v = this.safe(f); return typeof v === 'number' && Number.isFinite(v) ? v : 0; };
+    if (cur.kind === 'video') {
+      const dur = num(() => e.getDuration());
+      if (!(dur > 0)) return null;
+      const sb = this.storyboard;
+      return {
+        min: 0, max: dur, pos: Math.min(dur, num(() => e.getCurrentTime())),
+        buffered: e.getBuffered ? e.getBuffered() : [],
+        label: fmtTime, total: fmtTime(dur), note: '',
+        thumb: sb ? (t) => storyboardFrame(sb, t) : null,
+      };
+    }
+    if (!e.isDirect || !cur.stream || !cur.stream.started_at) return null;
+    const nowSec = Date.now() / 1000;
+    const startSec = Date.parse(cur.stream.started_at) / 1000;
+    if (!Number.isFinite(startSec)) return null;
+    const uptime = Math.max(1, nowSec - startSec);
+    let pos;
+    let min;
+    let buffered = [];
+    let note = '';
+    let thumb = null;
+    const g = this.archive ? this.rewindGeo(nowSec) : null;
+    if (this.rewind && g) {
+      pos = uptime - g.offsetOf(num(() => e.getCurrentTime()));
+      min = Math.max(0, uptime - g.maxOffset);
+      buffered = e.getBuffered().map(([a, b]) => [uptime - g.offsetOf(a), uptime - g.offsetOf(b)]);
+      note = g.minOffset > 15 ? `available up to \u2212${fmtTime(g.minOffset)}` : '';
+    } else {
+      const w = e.liveWindow();
+      const sync = Number.isFinite(w.liveSync) ? w.liveSync : num(() => e.getCurrentTime());
+      const win = Number.isFinite(w.windowStart) ? Math.max(0, sync - w.windowStart) : 20;
+      pos = uptime - (this.latency() || 0);
+      min = this.archive === false ? Math.max(0, uptime - win) : 0;
+      buffered = e.getBuffered().map(([a, b]) => [uptime - (sync - a), uptime - (sync - b)]);
+      if (this.archive === false) note = 'not saved: no rewind';
+      else if (g && g.minOffset > 15) note = `rewind up to \u2212${fmtTime(g.minOffset)}`;
+    }
+    if (g && this.storyboard) {
+      const sb = this.storyboard;
+      thumb = (t) => storyboardFrame(sb, g.vodPosition(uptime - t));
+    }
+    return {
+      min, max: uptime, pos: Math.min(uptime, Math.max(min, pos)), buffered,
+      label: (t) => { const off = uptime - t; return off < 3 ? 'LIVE' : `\u2212${fmtTime(off)}`; },
+      total: `uptime ${fmtTime(uptime)}`, note, thumb,
+    };
+  }
+
+  /** Rewind geometry for the current live stream's archive VOD. */
+  rewindGeo(nowSec = Date.now() / 1000) {
+    const cur = this.current;
+    const a = this.archive;
+    if (!a || !cur || !cur.stream) return null;
+    const engineDur = this.rewind && this.embed && this.embed.getDuration ? this.safe(() => this.embed.getDuration()) : 0;
+    const helixDur = parseHelixDuration(a.duration);
+    const available = Math.max(Number.isFinite(engineDur) ? engineDur : 0, Number.isFinite(helixDur) ? helixDur : 0);
+    return rewindGeometry({ nowSec, streamStartSec: Date.parse(cur.stream.started_at) / 1000, vodStartSec: Date.parse(a.created_at) / 1000, available });
+  }
+
+  /** Looks up the live stream's archive VOD once per stream (Helix /videos, matched by stream_id). */
+  async ensureArchive() {
+    const cur = this.current;
+    if (!cur || cur.kind !== 'live') return null;
+    if (!cur.stream && state.auth.signedIn) { try { cur.stream = await tw.streamByLogin(cur.login); } catch { /* below */ } }
+    if (!cur.stream && window.lurkbox.liveInfo) await this.loadLiveInfo(cur);
+    const s = cur.stream;
+    if (!s || !s.id) return null;
+    if (this.archiveFor === s.id && this.archive !== undefined) return this.archive || null;
+    let found = null;
+    try {
+      if (state.auth.signedIn) {
+        const uid = cur.userId || s.user_id;
+        const r = await helix('/videos', { user_id: uid, type: 'archive', first: 5 });
+        found = matchArchive(s, r.data || []);
+      } else {
+        const info = await window.lurkbox.liveInfo(cur.login); // signed out: Twitch's web GQL
+        found = info && info.stream && String(info.stream.id) === String(s.id) ? info.archive : null;
+      }
+    } catch (e) {
+      plog(`archive lookup failed: ${e.message}`);
+      return null; // unknown: try again next time
+    }
+    if (cur !== this.current) return null;
+    this.archiveFor = s.id;
+    this.archive = found || false;
+    plog(found ? `live rewind: archive ${found.id} (Helix duration ${found.duration})` : `live rewind: no archive for stream ${s.id}`);
+    if (found && window.lurkbox.storyboard) window.lurkbox.storyboard(found.id).then((sb) => { if (cur === this.current) this.storyboard = sb; }).catch(() => {});
+    return found;
+  }
+
+  /** Signed out there is no Helix: the stream's id and start time come from Twitch's web GQL. */
+  async loadLiveInfo(cur) {
+    try {
+      const info = await window.lurkbox.liveInfo(cur.login);
+      if (cur === this.current && info && info.stream && !cur.stream) {
+        cur.stream = info.stream;
+        if (!cur.userId && info.stream.user_id) cur.userId = info.stream.user_id;
+        if (info.archive) { this.archiveFor = info.stream.id; this.archive = info.archive; }
+      }
+    } catch { /* no rewind */ }
+  }
+
+  canSeek() { return !!this.seekModel(); }
+
+  /** Seek input. Returns true when consumed. */
+  handleSeek(action) {
+    if (!this.current || !this.embed) return false;
+    const onBar = this.overlayVisible() && document.activeElement === this.seekBar.node;
+    const dir = action === LEFT ? -1 : action === RIGHT ? 1 : 0;
+    if (onBar && dir) { this.bumpOverlay(); this.scrubber.press(dir); return true; }
+    const j = seekJump(action, { onBar });
+    // A plain direction with the overlay closed starts a scrub on a VOD (the bar opens focused).
+    const startScrub = !this.overlayVisible() && dir && this.current.kind === 'video';
+    if (!j && !startScrub) return false;
+    const m = this.seekModel();
+    if (!m) {
+      if (j && this.current.kind === 'live' && !this.embed.isDirect && ['LT', 'RT'].includes(action)) toast('Rewind needs the Lurkbox player (Settings \u2192 Player)', 2500);
+      return !!j && action !== 'LB' && action !== 'RB';
+    }
+    if (!this.overlayVisible()) { this.showOverlay(); focusEl(this.seekBar.node, { instant: true }); }
+    this.bumpOverlay();
+    if (startScrub) { this.scrubber.press(dir); return true; }
+    if (j.delta) this.scrubber.nudge(j.delta);
+    else this.scrubber.setTarget(j.to === 'start' ? m.min : m.max);
+    return true;
+  }
+
+  /** A direction was let go: a running scrub applies now. */
+  release(action) {
+    if ((action === LEFT || action === RIGHT) && this.scrubber.active && this.scrubber.dir) this.scrubber.release();
+  }
+
+  seekTo(t) {
+    const cur = this.current;
+    if (!cur || !this.embed) return;
+    if (cur.kind === 'video') {
+      plog(`seek to ${fmtTime(t)}`);
+      this.safe(() => this.embed.seek(t));
+      if (this.embed.isPaused && this.safe(() => this.embed.isPaused()) === true && !this.userPaused) this.kickPlayback('seek');
+      setTimeout(() => this.saveResume(true), 1500);
+    } else {
+      this.liveSeekTo(t).catch((e) => plog(`live seek failed: ${e.message}`));
+    }
+    this.renderSeek();
+  }
+
+  /** Live seek to t (seconds since the stream started): inside the live window, or into the archive VOD. */
+  async liveSeekTo(t) {
+    const cur = this.current;
+    const e = this.embed;
+    if (!cur || cur.kind !== 'live' || !e || !e.isDirect || !cur.stream) return;
+    const nowSec = Date.now() / 1000;
+    const uptime = nowSec - Date.parse(cur.stream.started_at) / 1000;
+    const offset = Math.max(0, uptime - t);
+    let win = 20;
+    let w = null;
+    if (!this.rewind) {
+      w = e.liveWindow();
+      if (Number.isFinite(w.windowStart) && Number.isFinite(w.liveSync)) win = Math.max(4, w.liveSync - w.windowStart - 2);
+    }
+    if (offset <= win) {
+      if (this.rewind) { this.goLive('scrubbed to live'); return; }
+      if (offset < 3) { e.jumpToLive(); return; }
+      e.v.currentTime = Math.max(w.windowStart, w.liveSync - offset);
+      return;
+    }
+    const archive = await this.ensureArchive();
+    if (cur !== this.current || this.embed !== e) return;
+    const target = rewindTarget({ offset, liveWindow: win, archive, geometry: archive ? this.rewindGeo() : null });
+    if (target.mode === 'none') {
+      if (!this.noRewindToast) { this.noRewindToast = true; toast("This channel doesn't save broadcasts, so you can't rewind.", 4000); }
+      if (!this.rewind && w && Number.isFinite(w.windowStart)) e.v.currentTime = Math.max(w.windowStart, w.liveSync - target.offset);
+      this.renderSeek();
+      return;
+    }
+    if (target.mode === 'live') { if (this.rewind) this.goLive('scrubbed to live'); return; }
+    if (target.clamped) toast(`The saved broadcast reaches \u2212${fmtTime(target.offset)} for now`, 2500);
+    if (this.rewind && this.rewind.id === archive.id) {
+      e.seek(target.position);
+    } else {
+      plog(`live rewind: ${cur.login} -> archive ${archive.id} at ${fmtTime(target.position)} (\u2212${fmtTime(target.offset)})`);
+      this.rewind = { id: archive.id, since: performance.now() };
+      e.load({ video: archive.id, startAt: target.position });
+      this.armPlayWatchdog();
+    }
+    this.renderSeek();
+  }
+
+  /** Back from the archive VOD to the live stream. */
+  goLive(why) {
+    const cur = this.current;
+    if (!cur || !this.rewind || !this.embed) return;
+    plog(`live rewind: back to live (${why})`);
+    this.rewind = null;
+    this.embed.load({ channel: cur.login });
+    this.armPlayWatchdog();
+    toast(why === 'caught up' ? 'Caught up: back to live' : 'Back to live', 1800);
+    this.renderSeek();
+  }
+
+  renderSeek() {
+    if (!this.overlayVisible()) return;
+    this.seekBar.update(this.seekModel());
+  }
+
+  /** Once a second: refresh the bar, save the VOD position every 10 s, leave a caught-up rewind. */
+  tickSeek() {
+    if (!this.active || !this.current || !this.embed) return;
+    this.tickWatchMinute();
+    if (this.overlayVisible() && !this.seekBar.node.matches('.scrubbing:active')) this.renderSeek();
+    const now = performance.now();
+    if (this.current.kind === 'video' && this.playingSeen && now - (this.lastResumeSave || 0) > 10000) this.saveResume();
+    if (this.rewind && now - this.rewind.since > 8000 && this.safe(() => this.embed.isPaused()) === false) {
+      const d = this.safe(() => this.embed.getDuration());
+      const p = this.safe(() => this.embed.getCurrentTime());
+      if (typeof d === 'number' && d > 0 && d - p < 4) this.goLive('caught up');
+    }
+  }
+
+  /** Stores where this VOD is (per account). */
+  saveResume(force = false) {
+    const cur = this.current;
+    if (!cur || cur.kind !== 'video' || !this.embed || !window.lurkbox.resumeSet) return;
+    if (!this.playingSeen && !force) return;
+    const pos = this.safe(() => this.embed.getCurrentTime());
+    const dur = this.safe(() => this.embed.getDuration());
+    if (typeof pos !== 'number' || !Number.isFinite(pos) || pos <= 0) return;
+    this.lastResumeSave = performance.now();
+    const done = typeof dur === 'number' && dur > 0 && resumeDecision({ position: pos, duration: dur }) === 'start' && pos > 30;
+    window.lurkbox.resumeSet(cur.videoId, done ? 0 : pos, dur).catch(() => {});
+  }
+
+  /** "Resume at 1:23:45 / Start over". Resolves with the start position (B = resume). */
+  askResume(position) {
+    return new Promise((resolve) => {
+      pickFromList({
+        title: 'Continue watching?',
+        items: [{ value: 'resume', label: `Resume at ${fmtTime(position)}` }, { value: 'start', label: 'Start over' }],
+        current: 'resume',
+        onPick: (v) => resolve(v === 'resume' ? position : 0),
+        onCancel: () => resolve(position),
+      });
+    });
+  }
+
+  // ---------- input ----------
+
+  handle(action) {
+    const r = this.handleAction(action);
+    if (this.overlayVisible()) this.syncTip();
+    return r;
+  }
+
+  /**
+   * The label bubble follows the focused icon. Called after every input as well as on focusin, because DOM focus
+   * events are deferred while the window lacks OS focus (Gamescope).
+   */
+  syncTip() {
+    if (document.body.classList.contains('input-mouse')) return; // the mouse: hover shows it
+    const a = document.activeElement;
+    if (a && a.classList && a.classList.contains('po-icon') && this.overlay.contains(a) && !this.pop.isOpen) this.showTip(a);
+    else this.hideTip();
+  }
+
+  handleAction(action) {
+    if (this.pointsPanel) {
+      if (action === B || action === START) { this.closePointsPanel(); return true; }
+      const key = { UP: 'up', DOWN: 'down', LEFT: 'left', RIGHT: 'right', A: 'a' }[action];
+      if (key) window.lurkbox.pointsPad(key);
+      return true;
+    }
+    if (action === Y && this.pointsOfferUntil > performance.now() && this.tchat.login) {
+      this.pointsOfferUntil = 0;
+      this.openPointsPanel({ rewards: false });
+      return true;
+    }
+    if (this.raid.active) {
+      if (action === B) { this.raid.cancel(); return true; }
+      if (action === A) { this.raid.followNow(); return true; }
+    }
+    if (this.playPrompt && !this.playPrompt.hidden && action === A) {
+      this.playPrompt.querySelector('button').click();
+      return true;
+    }
+    if (this.overlayVisible() && this.pop.isOpen) {
+      this.bumpOverlay();
+      if (handleSliderAction(action)) return true; // LEFT/RIGHT on a slider (hold accelerates)
+      if (action === START) { this.hideOverlay(); return true; }
+      if (this.pop.handle(action)) return true; // B closes it (focus back to its button), A, D-pad inside it
+      // Anything else (Y, X, LB/RB, triggers) keeps its usual meaning below.
+      if (['LT', 'RT', 'SHIFT_LEFT', 'SHIFT_RIGHT', 'HOME', 'END'].includes(action)) this.pop.close();
+    }
+    if (this.handleSeek(action)) return true;
+    if (this.overlayVisible()) {
+      this.bumpOverlay();
+      if (DIRECTIONS.includes(action)) {
+        if (!this.overlay.contains(document.activeElement)) focusFirst(this.overlay, '.po-default');
+        else moveFocus(action, this.overlay);
+        return true;
+      }
+      if (action === A) {
+        const a = document.activeElement;
+        if (a && this.overlay.contains(a)) a.click();
+        else focusFirst(this.overlay, '.po-default');
+        return true;
+      }
+      if (action === B || action === START) { this.hideOverlay(); return true; }
+    }
+    switch (action) {
+      case A:
+      case START:
+        this.showOverlay();
+        return true;
+      case B:
+        this.nav.closePlayer();
+        return true;
+      case Y: this.toggleChat(); return true;
+      case X: this.jumpToLive(); return true;
+      case LB: this.step(-1); return true;
+      case RB: this.step(1); return true;
+      case UP:
+      case DOWN: {
+        // With Lurkbox chat showing, up/down scroll it; otherwise they bring the controls back.
+        const l = this.chatPanel.querySelector('.chat-list');
+        if (l && this.screen.classList.contains('chat-on') && !this.screen.classList.contains('twitch-chat')) l.scrollBy({ top: action === UP ? -200 : 200, behavior: 'smooth' });
+        else this.showOverlay();
+        return true;
+      }
+      case LEFT:
+      case RIGHT:
+        this.showOverlay(); // (on videos, left/right scrub instead: handleSeek)
+        return true;
+      default:
+        return true;
+    }
+  }
+}

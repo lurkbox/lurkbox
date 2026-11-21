@@ -1,0 +1,184 @@
+// Demo mode, renderer side. Runs only when the host says so (appInfo.demo, desktop: LURKBOX_DEMO=1). It pins the
+// clock to DEMO_NOW and replaces the page's fetch and WebSocket with local fakes that answer the third-party emote
+// APIs (7TV, FrankerFaceZ; BetterTTV answers "no emotes"), Twitch chat (IRC), EventSub and the 7TV EventAPI from
+// the demo data. Anything else is refused: demo mode never touches the network. Same-origin requests (the page's
+// own files) still go to the host.
+import { DEMO_NOW, EMOTES, buildDemoData } from './data.js';
+import { joinLines, chatLine, PAINTED } from './chat-feed.js';
+
+const BLOCKED = 'Lurkbox demo mode: network access is blocked';
+
+/** Pins Date to DEMO_NOW at install time; it keeps ticking from there. */
+export function installClock(win, now = DEMO_NOW) {
+  const Real = win.Date;
+  const offset = now - Real.now();
+  class DemoDate extends Real {
+    constructor(...a) { if (a.length) super(...a); else super(Real.now() + offset); }
+    static now() { return Real.now() + offset; }
+  }
+  win.Date = DemoDate;
+  return () => { win.Date = Real; };
+}
+
+const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+/** The emote sets, in each provider's own response format. */
+export function emoteResponses(media) {
+  const of = (provider, zw = null) => EMOTES.filter(([, p, z]) => p === provider && (zw === null || z === zw));
+  const stv = (list) => list.map(([name, , zw]) => ({
+    id: `demo-${name}`, name, flags: zw ? 1 : 0,
+    data: { id: `demo-${name}`, name, animated: false, flags: zw ? 256 : 0, host: { url: media('img/emote'), files: [{ name: `${name}.svg`, format: 'WEBP', width: 32, height: 32 }] } },
+  }));
+  const ffz = (list) => list.map(([name], i) => ({ id: 900 + i, name, width: 32, height: 32, urls: { 1: media(`img/emote/${name}.svg`), 2: media(`img/emote/${name}.svg`) } }));
+  const seven = of('7tv');
+  return {
+    '7tv:global': { id: 'demo-global', name: 'Demo global', emotes: stv(seven.slice(0, 3)) },
+    '7tv:channel': (id) => ({ id: `demo-user-${id}`, emote_set_id: `demo-set-${id}`, emote_set: { id: `demo-set-${id}`, name: 'Demo channel', emotes: stv(seven.slice(3)) } }),
+    'ffz:global': { default_sets: [3], sets: { 3: { id: 3, emoticons: ffz(of('ffz').slice(0, 2)) } } },
+    'ffz:channel': { room: {}, sets: { 77: { id: 77, emoticons: ffz(of('ffz').slice(2)) } } },
+  };
+}
+
+/** A fetch that answers the emote APIs from the demo data and refuses every other remote URL. */
+export function demoFetch({ realFetch, origin, media, log = () => {} }) {
+  const r = emoteResponses(media);
+  return async (input, init) => {
+    const url = String(input && input.url ? input.url : input);
+    let u;
+    try { u = new URL(url, origin); } catch { throw new TypeError(BLOCKED); }
+    if (u.origin === origin && realFetch) return realFetch(input, init);
+    let m;
+    if (u.host === '7tv.io') {
+      if (u.pathname === '/v3/emote-sets/global') return json(r['7tv:global']);
+      if ((m = /^\/v3\/users\/twitch\/(\d+)$/.exec(u.pathname))) return json(r['7tv:channel'](m[1]));
+    }
+    if (u.host === 'api.betterttv.net') return u.pathname.endsWith('/emotes/global') ? json([]) : new Response('', { status: 404 });
+    if (u.host === 'api.frankerfacez.com') {
+      if (u.pathname === '/v1/set/global') return json(r['ffz:global']);
+      if (/^\/v1\/room\/id\/\d+$/.test(u.pathname)) return json(r['ffz:channel']);
+    }
+    log(`[demo] blocked fetch ${u.origin}${u.pathname}`);
+    throw new TypeError(BLOCKED);
+  };
+}
+
+/** 7TV paint and entitlement dispatches for the painted demo chatters. */
+function paintDispatches() {
+  const c = (hex) => parseInt(`${hex}ff`, 16) | 0; // 7TV colours: signed 32-bit RGBA
+  const paints = [
+    { id: 'demo-paint-sunset', name: 'Sunset', function: 'LINEAR_GRADIENT', angle: 90, repeat: false, stops: [{ at: 0, color: c('ffd34d') }, { at: 0.5, color: c('ff8a66') }, { at: 1, color: c('e44fa8') }], shadows: [] },
+    { id: 'demo-paint-lagoon', name: 'Lagoon', function: 'LINEAR_GRADIENT', angle: 90, repeat: false, stops: [{ at: 0, color: c('6dffcf') }, { at: 1, color: c('5fa8ff') }], shadows: [] },
+  ];
+  const out = [];
+  PAINTED.forEach((uid, i) => {
+    const p = paints[i % paints.length];
+    out.push({ type: 'cosmetic.create', body: { object: { id: p.id, kind: 'PAINT', data: p } } });
+    out.push({ type: 'entitlement.create', body: { object: { id: `demo-ent-${uid}`, kind: 'PAINT', ref_id: p.id, user: { connections: [{ platform: 'TWITCH', id: uid }] } } } });
+  });
+  return out;
+}
+
+/**
+ * A WebSocket stand-in for the three sockets the core opens (Twitch IRC, EventSub, 7TV EventAPI). Other URLs fail
+ * like an unreachable server. ctx: { roomIdOf(login), chat: { paused, intervalMs }, setTimer, clearTimer, log }.
+ */
+export function demoWebSocket(ctx) {
+  const { setTimer = (f, ms) => setTimeout(f, ms), clearTimer = (t) => clearTimeout(t) } = ctx;
+  return class DemoWebSocket {
+    static CONNECTING = 0; static OPEN = 1; static CLOSING = 2; static CLOSED = 3;
+    constructor(url) {
+      this.url = String(url);
+      this.readyState = 0;
+      this.timers = new Set();
+      this.onopen = null; this.onmessage = null; this.onclose = null; this.onerror = null;
+      let host = '';
+      try { host = new URL(this.url).host; } catch { /* bad URL */ }
+      this.kind = { 'irc-ws.chat.twitch.tv:443': 'irc', 'irc-ws.chat.twitch.tv': 'irc', 'eventsub.wss.twitch.tv': 'eventsub', 'events.7tv.io': '7tv' }[host] || null;
+      if (!this.kind) {
+        if (ctx.log) ctx.log(`[demo] blocked WebSocket ${this.url.split('?')[0]}`);
+        this.later(() => { this.readyState = 3; this.fire('onerror', {}); this.fire('onclose', { code: 1006, reason: 'demo mode' }); }, 0);
+        return;
+      }
+      this.later(() => {
+        this.readyState = 1;
+        this.fire('onopen', {});
+        if (this.kind === 'eventsub') this.startEventSub();
+        if (this.kind === '7tv') this.start7tv();
+      }, 10);
+    }
+
+    later(fn, ms) { const t = setTimer(() => { this.timers.delete(t); if (this.readyState !== 3 || this.kind === null) fn(); }, ms); this.timers.add(t); return t; }
+    fire(name, ev) { const f = this[name]; if (typeof f === 'function') { try { f.call(this, ev); } catch (e) { console.error(e); } } }
+    emit(data) { if (this.readyState === 1) this.fire('onmessage', { data: typeof data === 'string' ? data : JSON.stringify(data) }); }
+
+    send(data) {
+      if (this.readyState !== 1) return;
+      const s = String(data);
+      if (this.kind === 'irc') {
+        const m = /^JOIN #([a-z0-9_]+)/i.exec(s);
+        if (m) this.startIrc(m[1].toLowerCase());
+        else if (/^PING/.test(s)) this.emit(`PONG :tmi.twitch.tv`);
+      }
+    }
+
+    close(code = 1000, reason = '') {
+      if (this.readyState === 3) return;
+      this.readyState = 3;
+      for (const t of this.timers) clearTimer(t);
+      this.timers.clear();
+      this.fire('onclose', { code, reason });
+    }
+
+    startIrc(channel) {
+      const roomId = ctx.roomIdOf(channel) || '0';
+      const [join, room, ...backlog] = joinLines(channel, roomId);
+      this.emit(join);
+      this.emit(room);
+      // The backlog waits a moment, so the emote sets (loaded on ROOMSTATE) are in place when it is drawn.
+      this.later(() => this.emit(backlog.join('\r\n')), 700);
+      let n = backlog.length;
+      const tick = () => {
+        if (!ctx.chat.paused) this.emit(chatLine(channel, roomId, n++));
+        this.later(tick, ctx.chat.intervalMs);
+      };
+      this.later(tick, 700 + ctx.chat.intervalMs);
+    }
+
+    startEventSub() {
+      const meta = (type) => ({ message_id: `demo-${type}-${Date.now()}`, message_type: type, message_timestamp: new Date().toISOString() });
+      this.emit({ metadata: meta('session_welcome'), payload: { session: { id: 'demo-session', status: 'connected', keepalive_timeout_seconds: 30, reconnect_url: null } } });
+      const keep = () => { this.emit({ metadata: meta('session_keepalive'), payload: {} }); this.later(keep, 20000); };
+      this.later(keep, 20000);
+    }
+
+    start7tv() {
+      this.emit({ op: 1, d: { heartbeat_interval: 25000, session_id: 'demo', subscription_limit: 500 } });
+      this.later(() => { for (const d of paintDispatches()) this.emit({ op: 0, d }); }, 300);
+    }
+  };
+}
+
+/**
+ * Installs demo mode in the page: the clock, fetch and WebSocket. info = appInfo.demo ({ mediaBase }).
+ * Exposes window.__lurkboxDemo (chat pause/resume, for the screenshot script). Returns that control object.
+ */
+export function installDemo(win, info = {}) {
+  const base = String(info.mediaBase || 'demo-media/');
+  const media = (p) => `${base}${p}`;
+  const db = buildDemoData({ media });
+  const log = (line) => { try { console.log(line); } catch { /* ignore */ } };
+  installClock(win, info.now || DEMO_NOW);
+  const realFetch = win.fetch ? win.fetch.bind(win) : null;
+  win.fetch = demoFetch({ realFetch, origin: win.location.origin, media, log });
+  const chat = { paused: false, intervalMs: 1200 };
+  const ids = new Map(db.users.map((u) => [u.login, u.id]));
+  win.WebSocket = demoWebSocket({ roomIdOf: (l) => ids.get(l), chat, log });
+  const control = {
+    db,
+    pauseChat() { chat.paused = true; },
+    resumeChat() { chat.paused = false; },
+  };
+  win.__lurkboxDemo = control;
+  log('[demo] demo mode: fake data, network blocked');
+  return control;
+}

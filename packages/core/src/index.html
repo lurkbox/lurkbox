@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lurkbox</title>
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/chat.css">
+</head>
+<body>
+  <div id="app">
+    <nav id="rail" aria-label="Sections"></nav>
+    <main id="content"></main>
+  </div>
+
+  <div id="player-screen" hidden>
+    <div id="player-stage">
+      <div id="player-host"></div>
+      <div id="player-status" hidden></div>
+      <div id="ad-badge" class="corner-badge" hidden>Ad</div>
+      <div id="live-badge" class="corner-badge behind" hidden></div>
+      <div id="player-overlay" hidden></div>
+    </div>
+    <aside id="chat" aria-label="Chat"></aside>
+    <div id="raid-overlay" hidden></div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toasts" aria-live="polite"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
