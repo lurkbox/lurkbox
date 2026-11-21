@@ -18,7 +18,7 @@ const { Twitch } = require('./twitch');
 const { startServer } = require('./server');
 const { fetchMaster } = require('./direct');
 const hlsProxy = require('./hls-proxy');
-const { navSource, pressSource } = require('./frame-nav');
+const { navSource, pressSource, backSource } = require('./frame-nav');
 const points = require('./channel-points');
 const { WatchMinutes } = require('./watch-minutes');
 const { ResumeStore } = require('./resume');
@@ -530,32 +530,40 @@ function registerIpc() {
     pointsTimer = l ? setInterval(() => scanPoints().catch(() => {}), 4000) : null;
     return true;
   });
-  // The rewards popover (or just the chat with a prediction pinned), driven by the controller through frame-nav.
+  // The rewards view: the renderer shows the chat frame as a large modal; here the rewards popover (or just the chat
+  // with the prediction/poll pinned) is opened, fitted to the whole frame and driven by the controller (frame-nav).
   ipcMain.handle('points:openPanel', async (_e, opts = {}) => {
     const frame = pointsLogin && chatFrames(pointsLogin)[0];
     if (!frame) return { ok: false, reason: 'chat not loaded' };
     try {
-      await frame.executeJavaScript(navSource({ scopeSelector: '[role=dialog], .reward-center__content, [data-test-selector="community-points-summary"] ~ *' }));
+      await frame.executeJavaScript(navSource(points.NAV_OPTIONS));
       const opened = opts.rewards ? await frame.executeJavaScript(points.openRewardsSource()) : false;
-      setTimeout(() => frame.executeJavaScript('window.__lbNav && window.__lbNav.start()').catch(() => {}), 600);
+      await frame.executeJavaScript(points.fitRewardsSource());
+      // The popover renders after the click; start the focus on its first target once there is one.
+      let tries = 0;
+      const startNav = () => frame.executeJavaScript('window.__lbFit && window.__lbFit.run(), window.__lbNav ? window.__lbNav.start() : true')
+        .then((ok) => { if (!ok && ++tries < 10) setTimeout(startNav, 300); }).catch(() => {});
+      setTimeout(startNav, 300);
       appLog(`[points] ${pointsLogin}: panel opened${opts.rewards ? (opened ? ' (rewards)' : ' (rewards button not found)') : ''}`);
       return { ok: true, opened };
     } catch (e) { return { ok: false, reason: e.message }; }
   });
+  // D-pad/A go to the page; B returns 'back' when it closed a reward's sub-view, 'close' when the view should close.
   ipcMain.handle('points:pad', async (_e, key) => {
     const frame = pointsLogin && chatFrames(pointsLogin)[0];
-    const src = pressSource(String(key));
-    if (!frame || !src) return null;
+    const k = String(key);
+    const src = k === 'b' ? backSource() : pressSource(k);
+    if (!src) return null;
+    if (!frame) return k === 'b' ? 'close' : null;
     try {
       const r = await frame.executeJavaScript(src);
       if (r === 'keyboard') openSteamKeyboard(appLog);
       return r;
-    } catch { return null; }
+    } catch { return k === 'b' ? 'close' : null; }
   });
   ipcMain.handle('points:closePanel', async () => {
     const frame = pointsLogin && chatFrames(pointsLogin)[0];
-    // Escape closes Twitch's popovers.
-    if (frame) await frame.executeJavaScript("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); window.__lbNav && window.__lbNav.reset(); true").catch(() => {});
+    if (frame) await frame.executeJavaScript(points.closeRewardsSource()).catch(() => {});
     return true;
   });
 

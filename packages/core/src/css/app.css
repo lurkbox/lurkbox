@@ -471,9 +471,13 @@ body.video-only.player-active .raid-card { transform: scale(1.3); }
 /* Twitch chat style: the side panel is as wide as the zoomed frame needs (--tchat-w, set from Settings → Chat → Twitch chat size). */
 #player-screen.twitch-chat { --chat-w: calc(var(--tchat-w) + var(--screen-margin) + 1px); }
 #twitch-chat-host.tc-panel { width: var(--chat-w); padding: var(--screen-margin) var(--screen-margin) var(--screen-margin) 0; border-left: 1px solid var(--border); background: var(--chat-bg); }
-#twitch-chat-host.tc-expanded { width: min(44rem, 48vw); z-index: 7; box-shadow: -1rem 0 3rem var(--shadow); border-left: 0.25rem solid var(--accent); background: var(--chat-bg); }
+/* The rewards view (channel points, predictions, polls): the same frame, moved by CSS only (moving an iframe reloads it)
+   into a large modal; the hint sits in the strip below it, never over the page. */
+#twitch-chat-host.tc-modal { top: 3vh; left: 15vw; right: auto; bottom: auto; width: 70vw; height: 85vh; z-index: 9; box-sizing: border-box; border: 0.2rem solid var(--accent); border-radius: 0.8rem; overflow: hidden; box-shadow: 0 1rem 4rem var(--shadow); background: var(--chat-bg); }
+.points-backdrop { position: absolute; inset: 0; z-index: 8; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 2.5vh; background: var(--scrim); }
+.points-backdrop[hidden] { display: none; }
 #player-screen.twitch-chat #chat > * { visibility: hidden; }
-.points-hint { position: absolute; left: 50%; bottom: calc(1rem + var(--screen-margin)); transform: translateX(-50%); z-index: 8; padding: 0.5rem 1.1rem; border-radius: 0.6rem; background: var(--panel-bg); color: var(--fg); font-weight: 700; }
+.points-hint { padding: 0.45rem 1.1rem; border-radius: 0.6rem; background: var(--panel-bg); color: var(--fg); font-weight: 700; }
 
 /* ---------- player overlay: icon bar, label bubble, pop-overs ----------
    A translucent scrim over the full-bleed video (never opaque, never resizing it). The overlay itself ignores the

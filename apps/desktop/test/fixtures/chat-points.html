@@ -1,29 +1,112 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>chat fixture</title></head>
+<html><head><meta charset="utf-8"><title>chat fixture</title>
+<style>
+  /* Shaped and sized like twitch.tv's embedded chat (2026-11), dark popout. Made-up content. */
+  html, body { margin: 0; height: 100%; background: #18181b; color: #efeff1; font: 13px/1.5 system-ui, sans-serif; overflow: hidden; }
+  button { font: inherit; color: inherit; background: #2f2f35; border: 0; border-radius: 4px; padding: 5px 10px; cursor: pointer; }
+  .chat-room { display: flex; flex-direction: column; height: 100%; }
+  .community-highlight-stack { padding: 6px 10px; }
+  .community-highlight { display: block; width: 100%; text-align: left; background: #26262c; padding: 8px 10px; border-radius: 6px; }
+  .community-highlight p { margin: 0; }
+  .chat-scrollable-area__message-container { flex: 1; overflow-y: auto; padding: 6px 10px; }
+  .chat-line__message { padding: 3px 0; }
+  .chat-author__display-name { font-weight: 700; color: #9ad0ff; }
+  /* Twitch wraps the whole input area in one focusable box: the old navigation outlined all of it. */
+  .chat-input { padding: 10px; }
+  .chat-input textarea { box-sizing: border-box; width: 100%; height: 38px; resize: none; background: #2f2f35; color: inherit; border: 2px solid #464649; border-radius: 6px; padding: 8px; font: inherit; }
+  .chat-input__buttons-container { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+  .community-points-summary { display: flex; align-items: center; gap: 4px; }
+  /* The balloon is anchored above the chat input with a desktop max-height and a transform (as Twitch's is). */
+  .tw-balloon { position: absolute; right: 10px; bottom: 96px; width: 320px; transform: translateY(0); z-index: 10; }
+  .reward-center__content { display: flex; flex-direction: column; max-height: 520px; background: #1f1f23; border-radius: 6px; box-shadow: 0 4px 16px #000c; }
+  .reward-center__header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid #333; font-weight: 700; }
+  .reward-center__tabs { display: flex; gap: 6px; padding: 6px 10px; }
+  .reward-center__tabs [aria-selected=true] { background: #9147ff; }
+  .reward-center-body { overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
+  .simplebar-scroll-content { overflow-y: scroll; max-height: 420px; }
+  .simplebar-content { padding: 8px 10px 14px; }
+  .section-title { font-weight: 700; margin: 10px 0 6px; }
+  .rewards-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .reward-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; min-height: 86px; padding: 8px 4px; }
+  .reward-tile .icon { width: 28px; height: 28px; border-radius: 6px; background: #9147ff; }
+  .reward-tile .cost { font-size: 12px; opacity: .8; }
+  .watch-streak-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #2b2540; padding: 10px; border-radius: 6px; }
+  .reward-detail { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .reward-detail textarea { box-sizing: border-box; width: 100%; height: 64px; background: #2f2f35; color: inherit; border: 2px solid #464649; border-radius: 6px; }
+</style></head>
 <body>
-<!-- Shaped like twitch.tv's embedded chat (2026-11): pinned prediction highlight, chat input row with the points summary. -->
-<div class="community-highlight-stack">
-  <div class="community-highlight prediction-highlight-root">
-    <p data-test-selector="community-prediction-highlight-header">Prediction</p>
-    <p>Will he finish the mission? 1:59 left</p>
-  </div>
-</div>
-<div class="chat-input">
-  <textarea data-a-target="chat-input" placeholder="Send a message"></textarea>
-  <div data-test-selector="community-points-summary" class="community-points-summary">
-    <button aria-label="Points Balance" id="balance-btn" onclick="document.getElementById('popover').style.display='flex'">
-      <span data-test-selector="copo-balance-string">12.3K</span><span data-test-selector="bits-balance-string">40</span>
+<div class="chat-room">
+  <div class="community-highlight-stack">
+    <button class="community-highlight prediction-highlight-root" id="prediction" onclick="openRewards('prediction')">
+      <p data-test-selector="community-prediction-highlight-header">Prediction</p>
+      <p>Will he finish the mission? 1:59 left</p>
     </button>
-    <div class="claimable-bonus">
-      <button aria-label="Claim Bonus" id="claim" onclick="window.claims=(window.claims||0)+1; this.remove(); setTimeout(() => { document.querySelector('[data-test-selector=copo-balance-string]').textContent='12,350'; }, 50)">
-        <span class="claimable-bonus__icon"></span>
-      </button>
+  </div>
+  <div class="chat-scrollable-area__message-container">
+    <div class="chat-line__message"><span class="chat-author__display-name" role="button" tabindex="0">pebble_fox</span>: that jump was clean</div>
+    <div class="chat-line__message"><span class="chat-author__display-name" role="button" tabindex="0">lantern_owl</span>: hi chat</div>
+    <div class="chat-line__message"><span class="chat-author__display-name" role="button" tabindex="0">mossy_otter</span>: gg</div>
+  </div>
+  <div class="chat-input" tabindex="0" id="input-wrapper">
+    <textarea data-a-target="chat-input" placeholder="Send a message"></textarea>
+    <div class="chat-input__buttons-container">
+      <div data-test-selector="community-points-summary" class="community-points-summary">
+        <button aria-label="Bits and Points Balances" id="balance-btn" onclick="toggleRewards()">
+          <span data-test-selector="copo-balance-string">12.3K</span> · <span data-test-selector="bits-balance-string">40</span>
+        </button>
+        <div class="claimable-bonus">
+          <button aria-label="Claim Bonus" id="claim" onclick="window.claims=(window.claims||0)+1; this.remove(); setTimeout(() => { document.querySelector('[data-test-selector=copo-balance-string]').textContent='12,350'; }, 50)">
+            <span class="claimable-bonus__icon">+</span>
+          </button>
+        </div>
+      </div>
+      <button data-a-target="chat-send-button">Chat</button>
     </div>
   </div>
 </div>
-<div role="dialog" id="popover" class="reward-center__content" style="display:none;flex-direction:column;gap:8px;width:300px">
-  <button id="r1" onclick="window.picked='r1'">Highlight my message</button>
-  <button id="r2" onclick="window.picked='r2'">Unlock a random emote</button>
-  <input type="text" id="r3" aria-label="Message">
+
+<div class="tw-balloon" id="balloon" style="display:none">
+  <div role="dialog" class="reward-center__content" id="popover"></div>
 </div>
+
+<script>
+  const POWER_UPS = [['pu-highlight', 'Highlight My Message', 50], ['pu-emote', 'Unlock a Random Sub Emote', 240], ['pu-modify', 'Modify a Single Emote', 360],
+    ['pu-choose', 'Choose an Emote to Unlock', 1440], ['pu-effect', 'Message Effects', 200], ['pu-giant', 'Gigantify an Emote', 300]];
+  const REWARDS = [['cr-hydrate', 'Hydrate!', 500], ['cr-song', 'Pick the next song', 2000], ['cr-message', 'Send a message to stream', 1000, true],
+    ['cr-pushups', '10 push-ups', 3000], ['cr-accent', 'Talk in an accent', 4000], ['cr-map', 'Choose the map', 5000],
+    ['cr-hat', 'Wear the silly hat', 6000], ['cr-dance', 'Victory dance', 8000]];
+  const tile = ([id, title, cost]) => `<div class="reward-list-item"><button class="reward-tile" id="${id}" aria-label="${title}, ${cost} points" onclick="pick('${id}')"><span class="icon"></span><span>${title}</span><span class="cost">${cost}</span></button></div>`;
+  function header(back) {
+    return `<div class="reward-center__header">${back ? '<button aria-label="Back" id="back">‹</button>' : '<span></span>'}<span>Power-ups &amp; Rewards</span><button aria-label="Close" id="close" onclick="closeRewards()">✕</button></div>`;
+  }
+  function main() {
+    return header(false) +
+      '<div class="reward-center__tabs" role="tablist"><button role="tab" id="tab-rewards" aria-selected="true">Rewards</button><button role="tab" id="tab-predictions" aria-selected="false" onclick="openRewards(\'prediction\')">Predictions</button></div>' +
+      '<div class="reward-center-body"><div class="scrollable-area" data-simplebar><div class="simplebar-scroll-content" id="scroller"><div class="simplebar-content">' +
+      '<div class="watch-streak-card" id="streak"><span>Watch streak: 4 streams</span><button id="streak-share">Share</button></div>' +
+      '<div class="section-title">Power-ups</div><div class="rewards-grid" tabindex="0" id="powerups">' + POWER_UPS.map(tile).join('') + '</div>' +
+      '<div class="section-title">Channel rewards</div><div class="rewards-grid" id="rewards">' + REWARDS.map(tile).join('') + '</div>' +
+      '</div></div></div></div>';
+  }
+  function detail(id) {
+    const r = [...POWER_UPS, ...REWARDS].find((x) => x[0] === id);
+    return header(true) + `<div class="reward-detail" id="detail"><div>${r[1]}</div><div>${r[2]} points</div>` +
+      (r[3] ? '<textarea id="reward-text" aria-label="Message"></textarea>' : '') +
+      `<button id="redeem" onclick="window.redeemed='${id}'">Redeem</button></div>`;
+  }
+  function prediction() {
+    return header(true) + '<div class="reward-detail" id="prediction-detail"><div>Will he finish the mission?</div><button id="pred-yes">Yes</button><button id="pred-no">No</button></div>';
+  }
+  const pop = () => document.getElementById('popover');
+  function render(html) {
+    pop().innerHTML = html;
+    const b = document.getElementById('back');
+    if (b) b.onclick = () => render(main());
+  }
+  function openRewards(view) { document.getElementById('balloon').style.display = 'block'; render(view === 'prediction' ? prediction() : main()); }
+  function closeRewards() { document.getElementById('balloon').style.display = 'none'; pop().innerHTML = ''; }
+  function toggleRewards() { if (document.getElementById('balloon').style.display === 'none') openRewards(); else closeRewards(); }
+  function pick(id) { window.picked = id; render(detail(id)); }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRewards(); });
+</script>
 </body></html>

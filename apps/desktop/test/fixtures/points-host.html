@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>player fixture</title>
+<!-- The player screen in "Twitch chat" style, as the core builds it (the smoke test links the core's app.css). -->
+<style>#player-host { position: absolute; inset: 0; background: linear-gradient(135deg, #1b3b40, #3b1f2b); } #player-screen { display: flex; }</style>
+</head>
+<body>
+  <div id="player-screen" class="chat-on twitch-chat" style="--tchat-w: 446px">
+    <div id="player-stage"><div id="player-host"></div></div>
+    <aside id="chat" aria-label="Chat"></aside>
+    <div id="twitch-chat-host" class="tc-panel"><iframe src="chat-points.html" title="Twitch chat" tabindex="-1"></iframe></div>
+    <div class="points-backdrop" hidden><span class="points-hint">D-pad move · <kbd class="glyph" data-act="A">A</kbd> select · <kbd class="glyph" data-act="B">B</kbd> back / close</span></div>
+  </div>
+</body></html>

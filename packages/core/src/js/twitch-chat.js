@@ -41,11 +41,11 @@ export class TwitchChatFrame {
     this.setMode('hidden');
   }
 
-  /** 'hidden' (off-screen, still running), 'panel' (the chat panel), 'expanded' (large, for rewards/predictions). */
+  /** 'hidden' (off-screen, still running), 'panel' (the chat panel), 'modal' (the large rewards/predictions view). */
   setMode(mode) {
     this.mode = mode;
     this.host.className = `tc-${mode}`;
     this.host.setAttribute('aria-hidden', mode === 'hidden' ? 'true' : 'false');
-    if (mode === 'expanded' && this.frame) this.frame.focus();
+    if (mode === 'modal' && this.frame) this.frame.focus();
   }
 }

@@ -42,7 +42,7 @@ npm run test:play      # embed engine plays a live channel (network; LURKBOX_TES
 npm run test:direct    # direct engine plays a live channel
 npm run test:vod       # direct engine plays a VOD (LURKBOX_TEST_VOD or LURKBOX_TEST_VOD_CHANNELS)
 npm run test:rewind    # live rewind into the archive VOD
-npm run test:points    # channel-points scanning against test/fixtures/chat-points.html
+npm run test:points    # channel points against test/fixtures/chat-points.html in a 1280x800 player (LURKBOX_SHOT_DIR=<dir> saves points-*.png)
 npm run test:chat      # Lurkbox chat on a busy channel (LURKBOX_SHOT=x.png; LURKBOX_CHAT_STYLE=twitch for Twitch chat style and its TV zoom; LURKBOX_CHAT_EXT=1 for the real extensions)
 npm run screenshots    # README screenshots in demo mode (below)
 node packages/core/src/platform-check.js   # the platform interface check on its own, with a readable report
