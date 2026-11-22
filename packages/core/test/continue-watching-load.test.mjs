@@ -65,3 +65,26 @@ test('the setting turns the row off; Remove forgets the position', async () => {
   await removeFromContinueWatching('7');
   assert.deepEqual(calls.set, [['7', 0]]);
 });
+
+test('Remove with Undo: hidden at once, forgotten only after the toast; Undo keeps the position; exit flushes', async () => {
+  const { scheduleRemoval, undoRemoval, flushRemovals, isPendingRemoval } = await import('../src/js/continue-watching.js');
+  resetContinueWatchingChecks();
+  helixAnswer = () => ({ ok: true, status: 200, data: { data: [] } });
+  entries = [e('11', 1000), e('12', 2000)];
+  helixAnswer = () => ({ ok: true, status: 200, data: { data: [{ id: '11' }, { id: '12' }] } });
+  calls.set.length = 0;
+  scheduleRemoval('11', 40);
+  assert.equal(isPendingRemoval('11'), true);
+  assert.deepEqual((await loadContinueWatching({ account: '42', now: NOW })).map((r) => r.id), ['12'], 'left out while pending');
+  assert.equal(undoRemoval('11'), true);
+  assert.equal(undoRemoval('11'), false, 'nothing left to undo');
+  await new Promise((r) => setTimeout(r, 60));
+  assert.deepEqual(calls.set, [], 'undone: the position stays');
+  assert.deepEqual((await loadContinueWatching({ account: '42', now: NOW })).map((r) => r.id), ['11', '12'], 'back where it was');
+  scheduleRemoval('12', 30);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(calls.set, [['12', 0]], 'forgotten when the time is up');
+  scheduleRemoval('11', 60000);
+  flushRemovals();
+  assert.deepEqual(calls.set, [['12', 0], ['11', 0]], 'exit forgets pending removals at once');
+});

@@ -2,7 +2,8 @@
 // Continue watching smoke test, offline, in demo mode (LURKBOX_DEMO=1: made-up data, no network): the seeded row is at
 // the top of Following (above Live, newest first, the deleted VOD dropped after its Helix 404); D-pad RIGHT scrolls the
 // row; A plays a VOD from its saved position without the "Continue watching?" question; back in Following the row
-// is refreshed with that VOD first; X → "Remove from Continue watching" removes it with the focus kept in the row;
+// is refreshed with that VOD first; X removes a card (focus kept in the row) and Y on the Undo toast brings it back;
+// the card's ✕ removes it for good once the toast is gone;
 // the setting hides the row and Settings → Clear watch history empties it. LURKBOX_SHOT_DIR=<dir> saves cw-*.png.
 // Exits 0 on success.
 const fs = require('fs');
@@ -119,20 +120,24 @@ app.on('browser-window-created', (_e, win) => {
       if (t !== null) await waitFor('the row refreshed (just watched: first)', `document.querySelector('.cw-row .card') && document.querySelector('.cw-row .card').dataset.cwId === ${JSON.stringify(pick)}`, 2500);
       log(t !== null ? `played ${pick} from ${t.toFixed(0)} s (saved ${saved.position} s), first in the row again` : `no demo video (ffmpeg missing?): skipped the position check`);
 
-      // X → Remove from Continue watching: one card fewer, focus stays in the row.
+      // The header's chip and the focused card both say "X remove".
       await js("document.querySelector('.cw-row .card').focus(); true");
+      if (!(await js("/remove/.test(document.querySelector('.cw-title .cw-chip').textContent) && getComputedStyle(document.activeElement.querySelector('.cw-hint')).display !== 'none'"))) throw new Error('no X remove hint on the header chip or the focused card');
+      // X removes the focused card at once (focus stays in the row); Y on the Undo toast brings it back.
       const gone = await js('document.activeElement.dataset.cwId');
       await press('X');
-      await waitFor('the menu', "[...document.querySelectorAll('.modal .pick-item')].some((b) => /Remove from Continue watching/.test(b.textContent))");
-      // The modal focuses its first item on the next animation frame, which xvfb doesn't always run: a D-pad press does it too.
-      const inMenu = "!!(document.activeElement && document.activeElement.closest('.modal'))";
-      if (!(await waitFor('the focus in the menu', inMenu, 1500).catch(() => false))) await press('DOWN');
-      await waitFor('the focus on Remove', "!!(document.activeElement && document.activeElement.closest('.modal') && /Remove from/.test(document.activeElement.textContent))");
-      await shot('menu');
-      await press('A');
       await waitFor('one card fewer', `document.querySelectorAll('.cw-row .card').length === 5 && !document.querySelector('.cw-row [data-cw-id="${gone}"]')`);
       if (!(await js("!!document.activeElement.closest('.cw-row')"))) throw new Error('the focus left the row after Remove');
-      if (await js(`window.lurkbox.resumeGet(${JSON.stringify(gone)})`)) throw new Error('the removed VOD kept its position');
+      await waitFor('the Undo toast', "!!document.querySelector('#toasts .undo-toast .undo-toast-btn')");
+      await shot('undo');
+      await press('Y');
+      await waitFor('the card back', `document.querySelectorAll('.cw-row .card').length === 6 && document.querySelector('.cw-row .card').dataset.cwId === "${gone}"`);
+      if (!(await js(`window.lurkbox.resumeGet(${JSON.stringify(gone)})`))) throw new Error('Undo lost the position');
+      // Remove again (the card's ✕ this time) and let the toast run out: the position is forgotten.
+      await js(`document.querySelector('.cw-row [data-cw-id="${gone}"] .cw-x').click(); true`);
+      await waitFor('one card fewer', `document.querySelectorAll('.cw-row .card').length === 5`);
+      await waitFor('the position forgotten', `window.lurkbox.resumeGet(${JSON.stringify(gone)}).then((r) => !r)`, 10000);
+      if (await js(`!!document.querySelector('.cw-row [data-cw-id="${gone}"]')`)) throw new Error('the removed card came back');
 
       // The setting hides the row; Clear watch history empties it.
       await js("window.__lurkbox.nav.goTop('settings'); true");
@@ -145,7 +150,7 @@ app.on('browser-window-created', (_e, win) => {
       await waitFor('Following', "document.querySelectorAll('[data-view=following] .grid-live .card').length >= 5");
       await sleep(600);
       if (!(await js("document.querySelector('.cw-row').hidden && document.querySelector('.cw-title').hidden"))) throw new Error('the row shows after Clear watch history');
-      finish(0, `row of ${ids.length} above Live (deleted VOD dropped), D-pad scroll, played without the question, refreshed after the player, X → Remove, Clear watch history`);
+      finish(0, `row of ${ids.length} above Live (deleted VOD dropped), D-pad scroll, played without the question, refreshed after the player, X → Remove → Y undo, ✕ → forgotten after the toast, Clear watch history`);
     } catch (e) {
       await shot('FAILED').catch(() => {});
       finish(1, e.message);
