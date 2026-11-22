@@ -196,7 +196,7 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(SHOTS, `drops-${name}.png`), (await win.webContents.capturePage()).toPNG());
   };
   await scanReady(js);
-  const zoom = await js(zoomFrameSource(ZOOM));
+  const zoom = (await js(zoomFrameSource(ZOOM))).zoom;
   if (Number(zoom) !== ZOOM) return fail(`zoom ${zoom}`);
   // The frame is large and the hint is below it, never over the page.
   const layout = await host(`(() => {
