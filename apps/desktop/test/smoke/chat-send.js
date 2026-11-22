@@ -96,7 +96,10 @@ app.on('browser-window-created', (_e, win) => {
       await js("document.querySelector('[data-view=following] .grid-live .card').focus(); true");
       await press('A');
       await waitFor('the player', "!document.getElementById('player-screen').hidden");
-      await waitFor('chat messages', "document.querySelectorAll('#chat .chat-msg:not(.system)').length >= 10");
+      await waitFor('chat messages', "document.querySelectorAll('#chat .chat-msg:not(.system)').length >= 10", 25000).catch(async (e) => {
+        const d = await js("({ msgs: document.querySelectorAll('#chat .chat-msg').length, real: document.querySelectorAll('#chat .chat-msg:not(.system)').length, chatHidden: !!(document.getElementById('chat') && document.getElementById('chat').hidden), cur: window.__lurkbox.player.current && { kind: window.__lurkbox.player.current.kind, login: window.__lurkbox.player.current.login }, chatOn: window.__lurkbox.player.chatOn, sys: [...document.querySelectorAll('#chat .chat-msg.system')].map((n) => n.textContent.slice(0, 80)), modal: !!document.querySelector('.modal') })").catch((x) => String(x));
+        throw new Error(`${e.message}: ${JSON.stringify(d)}`);
+      });
       await waitFor('the composer', "(() => { const c = document.querySelector('#chat .chat-composer'); return c && !c.hidden; })()");
       // Overlay → "Send a message" → the on-screen keyboard.
       await press('A');
