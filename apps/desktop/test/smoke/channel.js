@@ -2,7 +2,8 @@
 // Channel page smoke test, offline, in demo mode (LURKBOX_DEMO=1: made-up data, no network): X on a live card in
 // Following opens the channel page; its header (followers, LIVE card, Follow), then every tab with the virtual gamepad:
 // Home (live, next stream, highlights, clips), Videos (the Highlights filter, Y sort), Clips (a period filter, Y sort),
-// Schedule (times in the local zone) and About; RB wraps around, B goes back to Following with the focus where it was.
+// Schedule (times in the local zone) and About; a clip plays in the player (qualities, seek bar, next-clip
+// autoplay, "Watch from here" opens its broadcast at vod_offset); RB wraps around, B goes back to Following with the focus where it was.
 // LURKBOX_SHOT_DIR=<dir> saves channel-*.png. Exits 0 on success.
 const fs = require('fs');
 const os = require('os');
@@ -111,6 +112,48 @@ app.on('browser-window-created', (_e, win) => {
       await waitFor('the clip sort', "/Newest/.test(document.querySelector('.channel-toolbar .sort-chip').textContent)", 3000);
       await shot('clips');
 
+      // A on a clip plays it in the player: the overlay's CLIP line, qualities, next-clip autoplay, "Watch from here".
+      await js("document.querySelector('.channel-body .card-clip').focus(); true");
+      const firstClip = await js("document.activeElement.dataset.focusKey.replace(/^clip-/, '')");
+      await press('A');
+      await waitFor('the clip in the player', `!document.getElementById('player-screen').hidden && window.__lurkbox.player.current && window.__lurkbox.player.current.kind === 'clip' && window.__lurkbox.player.current.clip.id === ${JSON.stringify(firstClip)}`);
+      await waitFor('the clip engine', '!!window.__lurkbox.player.embed', 8000);
+      const direct = await js('!!(window.__lurkbox.player.embed && window.__lurkbox.player.embed.isDirect)');
+      if (direct) {
+        await waitFor('the clip playing', "(() => { const v = document.querySelector('#player-host video'); return !!(v && v.readyState >= 3 && !v.paused && v.currentTime > 1); })()", 20000);
+        if (!/clip\d+\.mp4/.test(await js("document.querySelector('#player-host video').currentSrc"))) throw new Error('not the clip MP4');
+      } else log('note: no demo video (ffmpeg missing?), the clip embed was used');
+      await press('A');
+      await waitFor('the overlay with the clip line', "(() => { const c = document.querySelector('#player-overlay .po-clip'); return !document.getElementById('player-overlay').hidden && c && !c.hidden && /CLIP/.test(c.textContent) && /Clipped by .* views/.test(c.textContent); })()");
+      const controls = await js("[...document.querySelectorAll('#player-overlay .po-icon')].filter((b) => !b.hidden).map((b) => b.dataset.key).join(',')");
+      log(`clip controls: ${controls}`);
+      if (!/^play,volume,quality,next,vod,/.test(controls)) throw new Error(`clip controls: ${controls}`);
+      if (direct) {
+        for (let i = 0; i < 6 && !(await js("document.activeElement && document.activeElement.dataset.key === 'quality'")); i++) await press('RIGHT');
+        await press('A');
+        await waitFor('the clip qualities', "document.querySelectorAll('#player-overlay .pop-quality .po-item').length === 5 && /1080p60/.test(document.querySelector('#player-overlay .pop-quality').textContent)", 5000);
+        await shot('clip-quality');
+        await press('B');
+        // The seek bar works on a clip; near the end, the next clip of the list starts by itself.
+        if (!(await js("!!document.querySelector('#player-overlay [data-key=seek]')"))) throw new Error('no seek bar on the clip');
+        await js('(() => { const e = window.__lurkbox.player.embed; e.seek(e.getDuration() - 1.5); return true; })()');
+        await waitFor('the next clip', `window.__lurkbox.player.current && window.__lurkbox.player.current.kind === 'clip' && window.__lurkbox.player.current.clip.id !== ${JSON.stringify(firstClip)}`, 15000);
+        log(`autoplay: next clip ${await js('window.__lurkbox.player.current.clip.id')}`);
+      }
+      // "Watch from here": the clip's broadcast at vod_offset.
+      const offset = await js('window.__lurkbox.player.current.clip.vod_offset');
+      if (!(await js("!document.getElementById('player-overlay').hidden"))) await press('A');
+      for (let i = 0; i < 8 && !(await js("document.activeElement && document.activeElement.dataset.key === 'vod'")); i++) await press('RIGHT');
+      if (!(await js("document.activeElement && document.activeElement.dataset.key === 'vod'"))) throw new Error('no "Watch from here" control');
+      await press('A');
+      await waitFor('the broadcast', "window.__lurkbox.player.current && window.__lurkbox.player.current.kind === 'video'", 8000);
+      if (direct) {
+        await waitFor('the broadcast at the clip', `(() => { const v = document.querySelector('#player-host video'); return !!(v && v.readyState >= 2 && Math.abs(v.currentTime - ${Number(offset) || 0}) < 15); })()`, 20000);
+        log(`watch from here: at ${await js("Math.round(document.querySelector('#player-host video').currentTime)")} s (clip vod_offset ${offset})`);
+      }
+      for (let i = 0; i < 3 && !(await js("document.getElementById('player-screen').hidden")); i++) await press('B'); // the overlay, then the player
+      await waitFor('back on the channel page', "document.getElementById('player-screen').hidden && document.querySelector('.channel-body').dataset.tab === 'clips'", 5000);
+
       // RB → Schedule.
       await press('RB');
       await waitFor('the schedule', "document.querySelector('.channel-body').dataset.tab === 'schedule' && document.querySelectorAll('.channel-body .schedule-row').length >= 1 || !!document.querySelector('.channel-body .schedule-list .empty')");
@@ -129,7 +172,7 @@ app.on('browser-window-created', (_e, win) => {
       // B → Following, focus back on the card.
       await press('B');
       await waitFor('Following again', "!document.querySelector('[data-view^=\"channel:\"]') && document.activeElement && document.activeElement.dataset.channelLogin === " + JSON.stringify(login));
-      finish(0, `channel page of ${login}: header, all five tabs, filters, sorts, LB/RB wrap, back to the same card`);
+      finish(0, `channel page of ${login}: header, all five tabs, filters, sorts, a clip played (qualities, autoplay, watch from here), LB/RB wrap, back to the same card`);
     } catch (e) {
       await shot('FAILED').catch(() => {});
       finish(1, e.message);

@@ -17,6 +17,7 @@ const { JsonFile, DEFAULT_SETTINGS, sanitizeSettings } = require('./store');
 const { Twitch } = require('./twitch');
 const { startServer } = require('./server');
 const { fetchMaster } = require('./direct');
+const { fetchClipSources } = require('./clips');
 const hlsProxy = require('./hls-proxy');
 const { navSource, pressSource, backSource } = require('./frame-nav');
 const points = require('./channel-points');
@@ -457,6 +458,14 @@ function registerIpc() {
         images: pick.images.filter((i) => /^[\w.-]+\.jpg$/.test(i)).map((i) => new URL(i, url).href),
       };
     } catch (e) { appLog(`[direct] storyboard failed: ${e.message}`); return null; }
+  });
+  // Clip playback: the clip's MP4 qualities with a signed token (web GQL VideoAccessToken_Clip; anonymous).
+  ipcMain.handle('direct:clip', async (_e, slug) => {
+    try {
+      const r = await fetchClipSources({ fetch: net.fetch, slug: String(slug || ''), log: appLog });
+      if (!r.ok) appLog(`[clip] sources failed: ${r.reason}`);
+      return r;
+    } catch (e) { appLog(`[clip] sources failed: ${e.message}`); return { ok: false, reason: e.message }; }
   });
   ipcMain.handle('direct:liveInfo', async (_e, login) => {
     try {

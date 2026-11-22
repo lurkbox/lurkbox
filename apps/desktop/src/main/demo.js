@@ -150,6 +150,14 @@ function createDemoHost(opts = {}) {
       return { ok: true, master: demoMedia.masterPlaylist(media(`hls/vod/${v.id}.m3u8`)), authed: true };
     },
     'direct:liveInfo': () => null,
+    // Clips: the demo MP4 of the clip's length, in the qualities a real clip has (all the same file).
+    'direct:clip': (slug) => {
+      const c = db.clips.find((x) => x.id === String(slug));
+      if (!c) return { ok: false, reason: 'not-found' };
+      if (!opts.media || !opts.media.ok) return noMedia();
+      const len = demoMedia.clipLength(c.duration);
+      return { ok: true, qualities: [['1080', 60], ['720', 60], ['480', 30], ['360', 30]].map(([q, fps]) => ({ quality: q, frameRate: fps, url: media(`hls/clip${len}.mp4?q=${q}&sig=demo&token=demo`) })) };
+    },
     'direct:storyboard': (vodId) => {
       const v = db.videos.find((x) => x.id === String(vodId));
       if (!v || !opts.media || !opts.media.ok) return null;
@@ -176,8 +184,8 @@ function createDemoHost(opts = {}) {
     'chatext:update': () => [],
   };
 
-  /** lbhls://demo/<path> → { status, type, body }. */
-  function serveMedia(p) {
+  /** lbhls://demo/<path> → { status, type, body, headers? }. range: the request's Range header (MP4 clips seek with it). */
+  function serveMedia(p, { range = null } = {}) {
     const rel = String(p).replace(/^\/+/, '').split('?')[0];
     if (rel.startsWith('img/')) {
       const svg = images.demoImage(rel, { gameOf });
@@ -196,6 +204,16 @@ function createDemoHost(opts = {}) {
       const live = v.stream_id && db.streams.some((s) => s.id === v.stream_id);
       const dur = durationOf(v) + (live ? (now() - startedAt) / 1000 : 0);
       return { status: 200, type: 'application/vnd.apple.mpegurl', body: demoMedia.vodPlaylist({ durationSec: dur, segBase }) };
+    }
+    if (opts.media && opts.media.ok && (m = /^hls\/(clip\d+\.mp4)$/.exec(rel))) {
+      let body;
+      try { body = fs.readFileSync(path.join(opts.media.dir, m[1])); } catch { return { status: 404, type: 'text/plain', body: 'not found' }; }
+      const r = /^bytes=(\d*)-(\d*)$/.exec(String(range || ''));
+      if (!r || (r[1] === '' && r[2] === '')) return { status: 200, type: 'video/mp4', body, headers: { 'accept-ranges': 'bytes', 'content-length': String(body.length) } };
+      const start = r[1] === '' ? Math.max(0, body.length - Number(r[2])) : Number(r[1]);
+      const end = r[1] === '' || r[2] === '' ? body.length - 1 : Math.min(body.length - 1, Number(r[2]));
+      if (start >= body.length || start > end) return { status: 416, type: 'text/plain', body: '', headers: { 'content-range': `bytes */${body.length}` } };
+      return { status: 206, type: 'video/mp4', body: body.subarray(start, end + 1), headers: { 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${body.length}`, 'content-length': String(end - start + 1) } };
     }
     if (opts.media && opts.media.ok && (m = /^hls\/(seg\d{3}\.ts|storyboard\.jpg)$/.exec(rel))) {
       try {
@@ -265,8 +283,8 @@ function runDemo({ argv = process.argv.slice(1) } = {}) {
       const u = new URL(req.url);
       const cors = { 'access-control-allow-origin': '*', 'cache-control': 'no-store' };
       if (u.host !== 'demo') return new Response('not allowed', { status: 403, headers: cors });
-      const r = host.serveMedia(u.pathname);
-      return new Response(r.body, { status: r.status, headers: { ...cors, 'content-type': r.type } });
+      const r = host.serveMedia(u.pathname, { range: req.headers.get('range') });
+      return new Response(r.body, { status: r.status, headers: { ...cors, 'content-type': r.type, ...(r.headers || {}) } });
     });
     for (const [ch, fn] of Object.entries(host.handlers)) ipcMain.handle(ch, (_e, ...args) => fn(...args));
     ipcMain.on('player-login:pad', () => {});
