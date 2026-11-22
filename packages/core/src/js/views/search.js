@@ -1,7 +1,8 @@
 import { el, button, toast } from '../ui.js';
 import { state } from '../state.js';
 import { tw } from '../api.js';
-import { KeyedGrid, channelCard, errorState } from '../grid.js';
+import { KeyedGrid, channelCard, errorState, listSort } from '../grid.js';
+import { SEARCH_SORTS, sortSearch } from '../../shared/sorts.js';
 import { Poller, loadPages } from '../refresher.js';
 import { focusEl } from '../focus.js';
 import { openKeyboard } from '../osk.js';
@@ -18,8 +19,8 @@ export function searchView() {
     title: 'Search',
     destroy() { stopPoller(); },
     onAction(action) {
-      if (action !== 'Y' || !poller || document.activeElement?.tagName === 'INPUT') return false;
-      poller.tick();
+      if (action !== 'Y' || !this.resort || document.activeElement?.tagName === 'INPUT') return false;
+      this.sort.cycle();
       return true;
     },
     mount(host, nav) {
@@ -34,12 +35,15 @@ export function searchView() {
         'data-osk': 'Search channels',
       });
       const results = el('div', { class: 'search-results' });
+      this.resort = null;
+      const sort = this.sort = listSort({ key: 'searchSort', sorts: SEARCH_SORTS, fallback: 'live', onChange: () => this.resort && this.resort() });
       const watchBtn = button('Watch channel directly', () => watchDirect(), { class: 'watch-direct' });
 
       const run = () => {
         const q = input.value.trim();
         lastQuery = q;
         stopPoller();
+        this.resort = null;
         results.replaceChildren();
         if (!q) return;
         if (!state.auth.signedIn) {
@@ -64,19 +68,21 @@ export function searchView() {
           if (poller.inFlight) pendingMore = true; // a refresh is running; fetch again right after it
           else poller.tick();
         }, { class: 'card card-more', hidden: true });
-        results.append(status, gridEl, el('div', { class: 'grid' }, more), emptyEl);
+        results.append(el('div', { class: 'search-results-head' }, sort.chip, status), gridEl, el('div', { class: 'grid' }, more), emptyEl);
+        let raw = [];
+        this.resort = () => grid.set(sortSearch(raw, sort.value), { keepPosition: true });
         stopPoller();
         poller = new Poller({
           intervalMs: (Number(state.settings.refreshInterval) || 15) * 1000,
           canRun: () => nav.canPoll(),
           isBusy: () => nav.isNavigating(),
           onStatus: (st) => { status.textContent = st === 'offline' ? 'Offline, retrying…' : st === 'ratelimited' ? 'Rate limited, waiting…' : ''; },
-          // Live channels first within each page.
-          load: () => loadPages((c) => tw.searchChannels(q, c), pages, { perPage: (items) => [...items].sort((a, b) => Number(b.is_live) - Number(a.is_live)) }),
+          load: () => loadPages((c) => tw.searchChannels(q, c), pages),
           apply: (r) => {
             if (pendingMore) { pendingMore = false; setTimeout(() => poller && poller.tick(), 0); return; }
             gridEl.querySelector('.loading')?.remove();
-            grid.set(r.items);
+            raw = r.items;
+            grid.set(sortSearch(raw, sort.value));
             emptyEl.hidden = r.items.length > 0;
             more.hidden = !r.cursor;
             more.disabled = false;

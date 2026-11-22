@@ -1,7 +1,9 @@
 // Card grids with cursor paging ("Load more" card at the end).
-import { el, button, fmtViewers, fmtUptime, fmtDate, thumb } from './ui.js';
+import { el, button, toast, fmtViewers, fmtUptime, fmtDate, thumb } from './ui.js';
+import { hint } from './input.js';
+import { sortLabel, nextSort, groupByGame } from '../shared/sorts.js';
 import { ApiError } from './api.js';
-import { state } from './state.js';
+import { state, saveSettings } from './state.js';
 
 const refreshMs = () => (Number(state.settings.refreshInterval) || 15) * 1000;
 import { focusEl } from './focus.js';
@@ -49,6 +51,46 @@ export function videoCard(v, onSelect) {
       el('div', { class: 'card-meta' }, `${fmtDate(v.created_at)} · ${fmtViewers(v.view_count)} views`)));
 }
 
+/**
+ * The current sort of a list, as a small chip ("Y sort: Most viewers") that a tap or click also cycles. Not .focusable:
+ * the D-pad skips it, Y cycles from anywhere in the list.
+ */
+export function sortChip(onClick) {
+  const label = el('span', { class: 'sort-chip-label' });
+  const chip = el('button', { class: 'sort-chip', type: 'button', tabindex: '-1', onclick: () => onClick() }, hint('{Y} sort: '), label);
+  return { el: chip, set(text) { label.textContent = text; chip.setAttribute('aria-label', `Sort: ${text}`); } };
+}
+
+/**
+ * A list's sort: the saved choice (settings key), its chip and Y to cycle. onChange(value) re-sorts the list (keeping the
+ * focus position). @param {{key: string, sorts: {value, label}[], fallback?: string, onChange: (value: string) => void}} o
+ */
+export function listSort({ key, sorts, fallback = sorts[0].value, onChange }) {
+  let value = sorts.some((x) => x.value === state.settings[key]) ? state.settings[key] : fallback;
+  const chip = sortChip(() => s.cycle());
+  chip.set(sortLabel(sorts, value));
+  const s = {
+    chip: chip.el,
+    get value() { return value; },
+    cycle() {
+      value = nextSort(sorts, value);
+      chip.set(sortLabel(sorts, value));
+      saveSettings({ [key]: value });
+      toast(`Sorted: ${sortLabel(sorts, value)}`, 1500);
+      onChange(value);
+    },
+  };
+  return s;
+}
+
+/** Streams with a small game header before each game's group ("By game"); headers have `header: true`. */
+export function withGameHeaders(list) {
+  return groupByGame(list).flatMap((g) => [{ header: true, id: `game:${g.id}`, name: g.name, count: g.items.length }, ...g.items]);
+}
+export function gameHeader(h) {
+  return el('div', { class: 'grid-group', role: 'heading', 'aria-level': '3' }, h.name, el('span', { class: 'grid-group-count' }, String(h.count)));
+}
+
 /** Renders a friendly message for API errors, with an action button where it helps. */
 export function errorState(err, nav) {
   if (err instanceof ApiError && err.code === 'NO_CLIENT_ID') {
@@ -71,55 +113,90 @@ export function errorState(err, nav) {
 
 /**
  * @param {HTMLElement} host
- * @param {{fetchPage: (cursor) => Promise<{items, cursor}>, card: (item) => HTMLElement, empty: string|HTMLElement, nav: object, filter?: (items) => items}} opts
+ * @param {{fetchPage: (cursor) => Promise<{items, cursor}>, card: (item) => HTMLElement, empty: string|HTMLElement, nav: object, filter?: (items) => items, sort?: (items) => items}} opts
+ *   sort: the order of everything loaded so far (re-applied after each page and by resort()).
+ * @returns {{resort: () => void}} resort(): re-orders the cards after the sort changed; focus stays in the same slot.
  */
-export async function pagedGrid(host, opts) {
+export function pagedGrid(host, opts) {
   const grid = el('div', { class: 'grid' });
   host.append(grid);
   grid.append(el('div', { class: 'loading' }, 'Loading…'));
   let more = null;
   const seen = new Set();
+  const items = [];
+  const nodes = new Map(); // item → card
+  const order = () => {
+    if (!opts.sort) return;
+    for (const it of opts.sort(items)) grid.insertBefore(nodes.get(it), more);
+  };
   const load = async (cursor) => {
-    const { items, cursor: next } = await opts.fetchPage(cursor);
-    const fresh = items.filter((it) => {
+    const { items: page, cursor: next } = await opts.fetchPage(cursor);
+    const fresh = page.filter((it) => {
       const key = it.id || it.user_id || JSON.stringify(it);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-    for (const it of (opts.filter ? opts.filter(fresh) : fresh)) grid.insertBefore(opts.card(it), more);
+    for (const it of (opts.filter ? opts.filter(fresh) : fresh)) {
+      const card = opts.card(it);
+      items.push(it);
+      nodes.set(it, card);
+      grid.insertBefore(card, more);
+    }
+    order();
     return next;
   };
-  try {
-    const next = await load(null);
-    grid.querySelector('.loading')?.remove();
-    if (!grid.children.length) {
-      grid.replaceWith(typeof opts.empty === 'string' ? el('div', { class: 'empty' }, el('p', {}, opts.empty)) : opts.empty);
-      return;
+  const ctl = {
+    resort() {
+      if (!opts.sort || !items.length) return;
+      const cards = () => [...grid.children].filter((n) => n !== more && n.classList.contains('focusable'));
+      const active = document.activeElement;
+      const idx = active && grid.contains(active) ? cards().indexOf(active) : -1;
+      const scroller = grid.closest('#content');
+      const top = scroller ? scroller.scrollTop : 0;
+      order();
+      if (idx >= 0) {
+        const slot = cards()[idx];
+        if (slot) slot.focus({ preventScroll: true });
+        if (scroller) scroller.scrollTop = top;
+        setTimeout(refreshMarquee, 60);
+      }
+    },
+  };
+  (async () => {
+    try {
+      const next = await load(null);
+      grid.querySelector('.loading')?.remove();
+      if (!grid.children.length) {
+        grid.replaceWith(typeof opts.empty === 'string' ? el('div', { class: 'empty' }, el('p', {}, opts.empty)) : opts.empty);
+        return;
+      }
+      let cursor = next;
+      if (cursor) {
+        more = button('Load more', async () => {
+          more.disabled = true;
+          more.textContent = 'Loading…';
+          try {
+            // Focus goes to the slot "Load more" was in (the first new card, unless a sort moved things around).
+            const firstNew = grid.children.length - 1;
+            cursor = await load(cursor);
+            const target = grid.children[firstNew];
+            if (target && target !== more) focusEl(target);
+          } catch (e) {
+            console.warn('load more failed', e);
+          }
+          more.disabled = false;
+          more.textContent = 'Load more';
+          if (!cursor) { more.remove(); more = null; }
+        }, { class: 'card card-more' });
+        grid.append(more);
+      }
+    } catch (e) {
+      console.warn('grid load failed', e);
+      grid.replaceWith(errorState(e, opts.nav));
     }
-    let cursor = next;
-    if (cursor) {
-      more = button('Load more', async () => {
-        more.disabled = true;
-        more.textContent = 'Loading…';
-        try {
-          const firstNew = grid.children.length - 1;
-          cursor = await load(cursor);
-          const target = grid.children[firstNew];
-          if (target && target !== more) focusEl(target);
-        } catch (e) {
-          console.warn('load more failed', e);
-        }
-        more.disabled = false;
-        more.textContent = 'Load more';
-        if (!cursor) more.remove();
-      }, { class: 'card card-more' });
-      grid.append(more);
-    }
-  } catch (e) {
-    console.warn('grid load failed', e);
-    grid.replaceWith(errorState(e, opts.nav));
-  }
+  })();
+  return ctl;
 }
 
 /**
@@ -154,12 +231,15 @@ export class KeyedGrid {
     if (!opts.keepPosition) { this.paint(); return; }
     const active = document.activeElement;
     const card = active && this.el.contains(active) ? active.closest('[data-k]') : null;
-    const idx = card ? [...this.el.children].indexOf(card) : -1;
+    // The slot counts cards only (group headers aren't focusable).
+    const cards = () => [...this.el.children].filter((n) => n.classList.contains('focusable'));
+    const idx = card ? cards().indexOf(card) : -1;
     const scroller = this.el.closest('#content') || document.scrollingElement;
     const top = scroller ? scroller.scrollTop : 0;
     this.paint({ noRefocus: true });
     if (idx >= 0) {
-      const slot = this.el.children[Math.min(idx, this.el.children.length - 1)];
+      const now = cards();
+      const slot = now[Math.min(idx, now.length - 1)];
       if (slot) slot.focus({ preventScroll: true });
       if (scroller) scroller.scrollTop = top;
       setTimeout(refreshMarquee, 60);

@@ -1,19 +1,23 @@
 import { el, button, fmtViewers, fmtUptime } from '../ui.js';
 import { hint } from '../input.js';
 import { tw } from '../api.js';
-import { pagedGrid, videoCard, errorState } from '../grid.js';
+import { pagedGrid, videoCard, errorState, listSort } from '../grid.js';
+import { VOD_SORTS, sortVideos } from '../../shared/sorts.js';
 import { followButton } from '../follow.js';
 
-/** Channel page: live status plus VODs. */
+/** Channel page: live status plus VODs (Y cycles their sort). */
 export function channelView({ login, id, name }) {
   return {
     id: `channel:${login}`,
     title: name || login,
+    onAction(action) { if (action === 'Y' && this.sort) { this.sort.cycle(); return true; } return false; },
     async mount(host, nav) {
+      let vodGrid = null;
+      const sort = this.sort = listSort({ key: 'vodSort', sorts: VOD_SORTS, onChange: () => vodGrid && vodGrid.resort() });
       const header = el('header', { class: 'view-header channel-header' }, el('h1', {}, name || login), hint('{B} back'));
       const live = el('div', { class: 'channel-live' }, el('div', { class: 'loading' }, 'Loading…'));
       const vods = el('div', { class: 'channel-vods' });
-      host.append(header, live, el('h2', { class: 'section-title' }, 'Videos'), vods);
+      host.append(header, live, el('h2', { class: 'section-title' }, 'Videos ', sort.chip), vods);
       try {
         const user = id ? { id, login, display_name: name } : await tw.userByLogin(login);
         if (!user) {
@@ -30,10 +34,11 @@ export function channelView({ login, id, name }) {
           : el('div', { class: 'live-row' },
             el('p', {}, 'Offline'),
             button('Open player anyway', () => nav.playChannel({ login: user.login || login, name: user.display_name || name, userId: user.id }))));
-        pagedGrid(vods, {
+        vodGrid = pagedGrid(vods, {
           nav,
           fetchPage: (c) => tw.videos(user.id, c),
           card: (v) => videoCard(v, (x) => nav.playVideo(x)),
+          sort: (items) => sortVideos(items, sort.value),
           empty: 'No videos.',
         });
       } catch (e) {

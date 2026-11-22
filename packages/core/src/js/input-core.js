@@ -174,7 +174,7 @@ export function keyAction(key, typing, shift = false) {
     case 'd': return RIGHT;
     case ' ': return A;
     case 'Backspace': return B;
-    case 'c': return Y; // chat (refresh in lists)
+    case 'c': return Y; // chat (sort in lists)
     case 'l': return X; // jump to live
     case 'q': return LB;
     case 'e': return RB;
