@@ -18,16 +18,18 @@ import java.util.regex.Pattern;
  * from https://<host>/<path>?<query> natively and streamed back on the page's own origin, so VOD playlists and
  * segments on Twitch's CloudFront CDN (CORS only for twitch.tv) load in hls.js. Not an open proxy: only Twitch's
  * playlist and segment hosts (packages/core/src/shared/hls-rewrite.js), and a cloudfront.net host only after the
- * platform layer saw it in a usher master playlist (proxyAllow).
+ * platform layer saw it in a usher master playlist (proxyAllow). No cookies are sent, and redirects are followed here
+ * one hop at a time, each checked like the first URL.
  */
 final class HlsProxy {
     static final String PREFIX = "/_lbhls/";
     private static final String TAG = "Lurkbox";
-    private static final Pattern STATIC_HOST = Pattern.compile("^(usher\\.ttvnw\\.net|([a-z0-9-]+\\.)+ttvnw\\.net|([a-z0-9-]+\\.)*twitch\\.tv)$");
+    private static final Pattern STATIC_HOST = Pattern.compile("^(usher\\.ttvnw\\.net|([a-z0-9-]+\\.)+ttvnw\\.net)$");
     private static final Pattern CLOUDFRONT = Pattern.compile("^[a-z0-9]+\\.cloudfront\\.net$");
     private static final Set<String> seen = ConcurrentHashMap.newKeySet();
     private static final String[] FORWARD_REQ = { "Range", "Accept" };
     private static final String[] FORWARD_RES = { "Content-Range", "Accept-Ranges", "Cache-Control", "Last-Modified", "ETag" };
+    private static final int MAX_REDIRECTS = 5;
     private static int denied = 0;
 
     private HlsProxy() {}
@@ -44,6 +46,11 @@ final class HlsProxy {
     static boolean allows(String host) {
         String h = host == null ? "" : host.toLowerCase(Locale.ROOT);
         return STATIC_HOST.matcher(h).matches() || (CLOUDFRONT.matcher(h).matches() && seen.contains(h));
+    }
+
+    /** https only, an allowed host, no credentials, the default port. */
+    private static boolean allowedTarget(URL u) {
+        return "https".equalsIgnoreCase(u.getProtocol()) && u.getUserInfo() == null && (u.getPort() == -1 || u.getPort() == 443) && allows(u.getHost());
     }
 
     private static Map<String, String> cors() {
@@ -67,21 +74,35 @@ final class HlsProxy {
             return plain(403, "Forbidden");
         }
         if (!"GET".equals(method) && !"HEAD".equals(method)) return plain(405, "Method Not Allowed");
-        String target = "https://" + host + path + (encodedQuery != null ? "?" + encodedQuery : "");
+        URL target;
         HttpURLConnection c = null;
         try {
-            c = (HttpURLConnection) new URL(target).openConnection();
-            c.setRequestMethod(method);
-            c.setInstanceFollowRedirects(true);
-            c.setConnectTimeout(15000);
-            c.setReadTimeout(30000);
-            for (String k : FORWARD_REQ) {
-                for (Map.Entry<String, String> e : requestHeaders.entrySet()) {
-                    if (e.getKey().equalsIgnoreCase(k)) c.setRequestProperty(k, e.getValue());
+            target = new URL("https://" + host + path + (encodedQuery != null ? "?" + encodedQuery : ""));
+            int status;
+            for (int hop = 0; ; hop++) {
+                c = (HttpURLConnection) target.openConnection();
+                c.setRequestMethod(method);
+                c.setInstanceFollowRedirects(false);
+                c.setUseCaches(false);
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(30000);
+                for (String k : FORWARD_REQ) {
+                    for (Map.Entry<String, String> e : requestHeaders.entrySet()) {
+                        if (e.getKey().equalsIgnoreCase(k)) c.setRequestProperty(k, e.getValue());
+                    }
                 }
+                status = c.getResponseCode();
+                if (status < 300 || status >= 400 || status == 304) break;
+                String location = c.getHeaderField("Location");
+                c.disconnect();
+                c = null;
+                URL next = location == null ? null : new URL(target, location);
+                if (next == null || hop >= MAX_REDIRECTS || !allowedTarget(next)) {
+                    Log.w(TAG, "[hls-proxy] redirect from " + target.getHost() + " not followed");
+                    return plain(502, "Bad Gateway");
+                }
+                target = next;
             }
-            int status = c.getResponseCode();
-            if (status >= 300 && status < 400) status = 502; // WebResourceResponse can't carry a redirect
             InputStream body = status >= 400 ? c.getErrorStream() : c.getInputStream();
             if (body == null) body = new ByteArrayInputStream(new byte[0]);
             Map<String, String> headers = cors();
@@ -90,8 +111,8 @@ final class HlsProxy {
                 if (v != null) headers.put(k, v);
             }
             String type = c.getContentType();
-            String mime = path.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : (type != null ? type.split(";")[0].trim() : "application/octet-stream");
-            if (status >= 400) Log.w(TAG, "[hls-proxy] " + status + " from " + host);
+            String mime = target.getPath().endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : (type != null ? type.split(";")[0].trim() : "application/octet-stream");
+            if (status >= 400) Log.w(TAG, "[hls-proxy] " + status + " from " + target.getHost());
             String reason = c.getResponseMessage();
             if (reason == null || reason.isEmpty()) reason = status < 400 ? "OK" : "Error";
             return new WebResourceResponse(mime, null, status, reason, headers, body);

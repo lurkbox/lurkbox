@@ -10,7 +10,7 @@ const path = require('path');
 const { openSteamKeyboard, inGameMode } = require('./steam-keyboard');
 const { JoydevReader } = require('./joydev');
 const { app, BrowserWindow, ipcMain, Menu, session, nativeImage, safeStorage, net, protocol } = require('electron');
-const { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, keepTwitchCookiesThirdParty, CHROME_UA } = require('./player-session');
+const { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, keepTwitchCookiesThirdParty, restrictNavigation, TWITCH_SITE_URL, CHROME_UA } = require('./player-session');
 const { TvSignIn } = require('./tv-signin');
 const qrcode = require('qrcode-generator');
 const { JsonFile, DEFAULT_SETTINGS, sanitizeSettings } = require('./store');
@@ -220,7 +220,7 @@ async function scanInventoryHidden({ claim }) {
     wc.setAudioMuted(true);
     wc.setUserAgent(CHROME_UA);
     wc.setWindowOpenHandler(() => ({ action: 'deny' }));
-    wc.on('will-navigate', (e, url) => { if (!/^https:\/\/(www\.)?twitch\.tv\//.test(url)) e.preventDefault(); });
+    restrictNavigation(wc, TWITCH_SITE_URL);
     await Promise.race([wc.loadURL(drops.INVENTORY_URL), new Promise((_r, rej) => setTimeout(() => rej(new Error('load timed out')), 45000))]);
     let r = null;
     for (let i = 0; i < 30; i++) {
@@ -338,8 +338,26 @@ async function createWindow() {
   }
 }
 
+const sameFrame = (a, b) => !!(a && b && a.processId === b.processId && a.routingId === b.routingId);
+
+/** Is this IPC message from Lurkbox's own page (the main window's top frame, served by our server)? */
+function fromApp(e) {
+  const f = e && e.senderFrame;
+  return !!(server && win && !win.isDestroyed() && e.sender === win.webContents && sameFrame(f, win.webContents.mainFrame) && String(f.url).startsWith(server.url));
+}
+
+/** ipcMain for the renderer's channels: a message from any other frame or window is refused. */
+const appIpc = {
+  handle(channel, fn) {
+    ipcMain.handle(channel, (e, ...args) => {
+      if (!fromApp(e)) { appLog(`[ipc] refused ${channel} from ${String(e && e.senderFrame && e.senderFrame.url).split(/[?#]/)[0].slice(0, 80)}`); throw new Error('not allowed'); }
+      return fn(e, ...args);
+    });
+  },
+};
+
 function registerIpc() {
-  ipcMain.handle('app:info', () => ({
+  appIpc.handle('app:info', () => ({
     windowed: WINDOWED,
     gamescope: underGamescope,
     startChannel: START_CHANNEL,
@@ -347,18 +365,18 @@ function registerIpc() {
     version: app.getVersion(),
     defaults: DEFAULT_SETTINGS,
   }));
-  ipcMain.handle('app:quit', () => app.quit());
-  ipcMain.handle('window:setIcon', (_e, dataUrl) => {
+  appIpc.handle('app:quit', () => app.quit());
+  appIpc.handle('window:setIcon', (_e, dataUrl) => {
     if (!win || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png;base64,') || dataUrl.length > 2_000_000) return false;
     const img = nativeImage.createFromDataURL(dataUrl);
     if (img.isEmpty()) return false;
     win.setIcon(img);
     return true;
   });
-  ipcMain.handle('window:toggleFullscreen', () => { if (win) win.setFullScreen(!win.isFullScreen()); });
+  appIpc.handle('window:toggleFullscreen', () => { if (win) win.setFullScreen(!win.isFullScreen()); });
 
-  ipcMain.handle('settings:get', () => settings.get());
-  ipcMain.handle('settings:set', async (_e, patch) => {
+  appIpc.handle('settings:get', () => settings.get());
+  appIpc.handle('settings:set', async (_e, patch) => {
     const clean = sanitizeSettings(patch || {});
     const prevClientId = settings.get().clientId;
     const next = settings.set(clean);
@@ -373,30 +391,30 @@ function registerIpc() {
     return next;
   });
 
-  ipcMain.handle('auth:state', () => twitch.state());
-  ipcMain.handle('auth:start', async () => {
+  appIpc.handle('auth:state', () => twitch.state());
+  appIpc.handle('auth:start', async () => {
     try {
       return { ok: true, flow: await twitch.startDeviceFlow() };
     } catch (e) {
       return { ok: false, error: e.message };
     }
   });
-  ipcMain.handle('auth:cancel', () => twitch.cancelDeviceFlow());
+  appIpc.handle('auth:cancel', () => twitch.cancelDeviceFlow());
   // One sign-in covers the API and the player, so signing out does both.
-  ipcMain.handle('auth:signOut', async (_e, id) => {
+  appIpc.handle('auth:signOut', async (_e, id) => {
     const target = id || twitch.store().active;
     if (target === twitch.store().active) await playerJar.clear();
     if (/^\d+$/.test(String(target))) playerJar.remove(String(target));
     return twitch.signOut(target || undefined);
   });
-  ipcMain.handle('auth:switch', (_e, id) => twitch.switchAccount(String(id)));
-  ipcMain.handle('auth:remove', async (_e, id) => {
+  appIpc.handle('auth:switch', (_e, id) => twitch.switchAccount(String(id)));
+  appIpc.handle('auth:remove', async (_e, id) => {
     const next = await twitch.removeAccount(String(id));
     if (/^\d+$/.test(String(id))) playerJar.remove(String(id));
     return next;
   });
 
-  ipcMain.handle('helix', async (_e, req) => {
+  appIpc.handle('helix', async (_e, req) => {
     try {
       const r = await twitch.helix(req);
       return { ok: true, status: r.status, data: r.data };
@@ -406,15 +424,15 @@ function registerIpc() {
   });
 
   // The chat composer's keyboard: Steam's (types into the focused box) in Game Mode; elsewhere the core shows its own.
-  ipcMain.handle('keyboard:open', () => (inGameMode() ? openSteamKeyboard(appLog) : false));
-  ipcMain.handle('qr:svg', (_e, text) => {
+  appIpc.handle('keyboard:open', () => (inGameMode() ? openSteamKeyboard(appLog) : false));
+  appIpc.handle('qr:svg', (_e, text) => {
     const qr = qrcode(0, 'M');
     qr.addData(String(text));
     qr.make();
     return qr.createSvgTag({ cellSize: 8, margin: 2, scalable: true });
   });
 
-  ipcMain.handle('player:dismissGate', async (_e, opts = {}) => {
+  appIpc.handle('player:dismissGate', async (_e, opts = {}) => {
     const selectors = opts && opts.play ? [...GATE_SELECTORS, ...PLAY_SELECTORS] : GATE_SELECTORS;
     let clicked = '';
     for (const f of playerFrames()) {
@@ -423,7 +441,7 @@ function registerIpc() {
     if (clicked) appLog(`[player] clicked ${clicked} in the embed`);
     return clicked;
   });
-  ipcMain.handle('direct:master', async (_e, req) => {
+  appIpc.handle('direct:master', async (_e, req) => {
     try {
       const login = req && req.login && /^[a-z0-9_]{1,25}$/i.test(req.login) ? req.login : null;
       const vodId = req && req.vodId && /^\d+$/.test(req.vodId) ? req.vodId : null;
@@ -446,27 +464,27 @@ function registerIpc() {
     }
   });
   // Storyboard thumbnails for scrubbing a VOD (Twitch's seekPreviewsURL JSON; the sprite sheets load as images).
-  ipcMain.handle('direct:storyboard', async (_e, vodId) => {
+  appIpc.handle('direct:storyboard', async (_e, vodId) => {
     try { return await require('./direct').fetchStoryboard({ fetch: net.fetch, vodId }); } catch (e) { appLog(`[direct] storyboard failed: ${e.message}`); return null; }
   });
   // Clip playback: the clip's MP4 qualities with a signed token (web GQL VideoAccessToken_Clip; anonymous).
-  ipcMain.handle('direct:clip', async (_e, slug) => {
+  appIpc.handle('direct:clip', async (_e, slug) => {
     try {
       const r = await fetchClipSources({ fetch: net.fetch, slug: String(slug || ''), log: appLog });
       if (!r.ok) appLog(`[clip] sources failed: ${r.reason}`);
       return r;
     } catch (e) { appLog(`[clip] sources failed: ${e.message}`); return { ok: false, reason: e.message }; }
   });
-  ipcMain.handle('direct:liveInfo', async (_e, login) => {
+  appIpc.handle('direct:liveInfo', async (_e, login) => {
     try {
       if (!/^[a-z0-9_]{1,25}$/i.test(String(login))) return null;
       return await require('./direct').fetchLiveInfo({ fetch: net.fetch, login });
     } catch (e) { appLog(`[direct] live info failed: ${e.message}`); return null; }
   });
   const resume = new ResumeStore(path.join(app.getPath('userData'), 'resume.json'));
-  ipcMain.handle('resume:get', (_e, videoId) => resume.get(twitch.store().active, String(videoId)));
-  ipcMain.handle('resume:set', (_e, videoId, position, duration) => resume.set(twitch.store().active, String(videoId), position, duration));
-  ipcMain.handle('log:write', (_e, line) => appLog(String(line).slice(0, 2000)));
+  appIpc.handle('resume:get', (_e, videoId) => resume.get(twitch.store().active, String(videoId)));
+  appIpc.handle('resume:set', (_e, videoId, position, duration) => resume.set(twitch.store().active, String(videoId), position, duration));
+  appIpc.handle('log:write', (_e, line) => appLog(String(line).slice(0, 2000)));
 
   // ---- Steam library art (opt-in; Settings → Appearance). Never throws to the renderer. ----
   const steamArt = new SteamArt({
@@ -480,11 +498,11 @@ function registerIpc() {
     steamArtBusy = run;
     return run;
   };
-  ipcMain.handle('steam-art:apply', (_e, pngs) => steamArtCall(() => {
+  appIpc.handle('steam-art:apply', (_e, pngs) => steamArtCall(() => {
     if (!settings.get().steamArtSync) return { ok: false, error: 'Steam art sync is off' };
     return steamArt.apply(pngs);
   }));
-  ipcMain.handle('steam-art:restore', () => steamArtCall(() => steamArt.restore()));
+  appIpc.handle('steam-art:restore', () => steamArtCall(() => steamArt.restore()));
 
   // ---- optional player sign-in (twitch.tv web session for subs/Turbo in the embed) ----
   const jar = playerJar;
@@ -492,13 +510,14 @@ function registerIpc() {
     const st = await playerStatus(session.defaultSession.cookies);
     return { ...st, mismatch: mismatchWarning(st.login, twitch.user && twitch.user.login) };
   };
-  ipcMain.handle('player-session:status', () => playerState());
+  appIpc.handle('player-session:status', () => playerState());
   const loginWindowOpts = () => ({
     BrowserWindow, parent: win, session: session.defaultSession, fullscreen: !WINDOWED,
     preload: path.join(__dirname, '..', 'login-preload.js'),
     zoom: loginZoom(require('electron').screen.getPrimaryDisplay().size.height, settings.get().uiScale),
+    log: appLog,
   });
-  ipcMain.handle('player-session:login', async () => {
+  appIpc.handle('player-session:login', async () => {
     const r = await openPlayerLogin({ ...loginWindowOpts(), log: appLog });
     const active = twitch.store().active;
     if (r.ok && active && /^\d+$/.test(active)) await jar.save(active).catch(() => {});
@@ -517,7 +536,7 @@ function registerIpc() {
       };
     },
   });
-  ipcMain.handle('auth:tvSignIn', async (_e, opts = {}) => {
+  appIpc.handle('auth:tvSignIn', async (_e, opts = {}) => {
     const r = await tvSignIn.run({ add: !!(opts && opts.add), accountId: opts && /^\d+$/.test(String(opts.accountId)) ? String(opts.accountId) : null });
     // Write the new web session to disk now; Chromium otherwise batches cookie writes (lost if Steam kills us).
     await session.defaultSession.cookies.flushStore().catch(() => {});
@@ -525,7 +544,7 @@ function registerIpc() {
     return r;
   });
   // One line per account: is the API token usable, and is the player (twitch.tv web session) signed in as them?
-  ipcMain.handle('accounts:status', async () => {
+  appIpc.handle('accounts:status', async () => {
     const st = twitch.state();
     const live = await playerStatus(session.defaultSession.cookies);
     return st.accounts.map((a) => {
@@ -533,11 +552,11 @@ function registerIpc() {
       return { id: a.id, api: !a.needsSignin, player: playerLogin !== null && (!playerLogin || playerLogin.toLowerCase() === String(a.login).toLowerCase()), playerLogin };
     });
   });
-  ipcMain.handle('player-session:signOut', async () => { await jar.clear(); appLog('[player-login] signed out of the player'); return playerState(); });
+  appIpc.handle('player-session:signOut', async () => { await jar.clear(); appLog('[player-login] signed out of the player'); return playerState(); });
   // Controller in the twitch.tv window: the shared navigation (frame-nav.js) runs in the page.
   ipcMain.on('player-login:pad', async (e, key) => {
     const w = BrowserWindow.fromWebContents(e.sender);
-    if (!w || w === win) return;
+    if (!w || w === win || !sameFrame(e.senderFrame, e.sender.mainFrame)) return;
     if (key === 'b') { w.close(); return; }
     if (key === 'keyboard') { openSteamKeyboard(appLog); return; }
     const src = pressSource(key);
@@ -576,7 +595,7 @@ function registerIpc() {
     }
     send('points:state', { login, ...state });
   };
-  ipcMain.handle('points:watch', (_e, login) => {
+  appIpc.handle('points:watch', (_e, login) => {
     const l = login && /^[a-z0-9_]{1,25}$/i.test(String(login)) ? String(login).toLowerCase() : null;
     if (l === pointsLogin) return true;
     pointsLogin = l;
@@ -589,12 +608,12 @@ function registerIpc() {
   // The rewards view: the renderer shows the chat frame as a large modal; here the rewards popover (or just the chat
   // with the prediction/poll pinned) is opened, fitted to the whole frame and driven by the controller (frame-nav).
   // The renderer's TwitchChatFrame reports its mode, so the frame gets the zoom of that mode.
-  ipcMain.handle('points:mode', (_e, mode) => {
+  appIpc.handle('points:mode', (_e, mode) => {
     const m = ['hidden', 'panel', 'modal'].includes(mode) ? mode : 'hidden';
     if (m !== chatFrameMode) { chatFrameMode = m; zoomChatFrames(); }
     return true;
   });
-  ipcMain.handle('points:openPanel', async (_e, opts = {}) => {
+  appIpc.handle('points:openPanel', async (_e, opts = {}) => {
     const frame = pointsLogin && chatFrames(pointsLogin)[0];
     if (!frame) return { ok: false, reason: 'chat not loaded' };
     try {
@@ -628,7 +647,7 @@ function registerIpc() {
   // D-pad/A go to the page; B returns 'back' when it closed a reward's sub-view or left a text box, 'close' when the view
   // should close. A runs as a user gesture, so a text box (a reward's message, Twitch's chat input) can take real focus
   // for Steam's keyboard.
-  ipcMain.handle('points:pad', async (_e, key) => {
+  appIpc.handle('points:pad', async (_e, key) => {
     const frame = pointsLogin && chatFrames(pointsLogin)[0];
     const k = String(key);
     const src = k === 'b' ? backSource() : pressSource(k);
@@ -647,21 +666,21 @@ function registerIpc() {
       return r;
     } catch { return k === 'b' ? 'close' : null; }
   });
-  ipcMain.handle('points:closePanel', async () => {
+  appIpc.handle('points:closePanel', async () => {
     const frame = pointsLogin && chatFrames(pointsLogin)[0];
     if (frame) await frame.executeJavaScript(points.closeRewardsSource()).catch(() => {});
     return true;
   });
 
   // ---- Drops section: Twitch's inventory page in the renderer's frame, driven with the controller (frame-nav) ----
-  ipcMain.handle('drops:status', async () => ({
+  appIpc.handle('drops:status', async () => ({
     signedIn: (await playerStatus(session.defaultSession.cookies)).signedIn,
     lastCheckAt: dropsClaimer && dropsClaimer.lastRunAt, nextCheckAt: dropsClaimer && dropsClaimer.nextAt,
   }));
-  ipcMain.handle('drops:open', () => dropsFrame.open());
-  ipcMain.handle('drops:pad', (_e, key) => dropsFrame.pad(key));
-  ipcMain.handle('drops:close', () => dropsFrame.close());
-  ipcMain.handle('drops:progress', () => dropsProgress);
+  appIpc.handle('drops:open', () => dropsFrame.open());
+  appIpc.handle('drops:pad', (_e, key) => dropsFrame.pad(key));
+  appIpc.handle('drops:close', () => dropsFrame.close());
+  appIpc.handle('drops:progress', () => dropsProgress);
 
   // ---- follow / unfollow: Twitch's own channel page in a hidden window of the twitch.tv session (follow.js) ----
   // Only on the user's press (unfollow only after Lurkbox's confirmation), one at a time, for the channel they chose.
@@ -675,14 +694,14 @@ function registerIpc() {
     wc.setAudioMuted(true);
     wc.setUserAgent(CHROME_UA);
     wc.setWindowOpenHandler(() => ({ action: 'deny' }));
-    wc.on('will-navigate', (e, u) => { if (!/^https:\/\/(www\.)?twitch\.tv\//.test(u)) e.preventDefault(); });
+    restrictNavigation(wc, TWITCH_SITE_URL);
     const page = { eval: (src) => wc.executeJavaScript(src), close: () => { if (!w.isDestroyed()) w.destroy(); } };
     try {
       await Promise.race([wc.loadURL(url), new Promise((_r, rej) => setTimeout(() => rej(new Error('load timed out')), timeoutMs))]);
     } catch (e) { page.close(); throw e; }
     return page;
   };
-  ipcMain.handle('follow:run', async (_e, req = {}) => {
+  appIpc.handle('follow:run', async (_e, req = {}) => {
     if (followBusy) return { ok: false, reason: 'busy' };
     followBusy = true;
     try {
@@ -695,7 +714,7 @@ function registerIpc() {
   });
   // The fallback: the channel's page in the in-app twitch.tv window (TV zoom, controller navigation, B closes), so the
   // user can press Twitch's button themselves.
-  ipcMain.handle('follow:openPage', async (_e, login) => {
+  appIpc.handle('follow:openPage', async (_e, login) => {
     const url = follow.channelUrl(String(login || ''));
     if (!url) return false;
     const w = createLoginWindow({ ...loginWindowOpts(), title: 'twitch.tv' });
@@ -719,7 +738,7 @@ function registerIpc() {
       return r;
     },
   });
-  ipcMain.handle('points:minute', async (_e, m = {}) => {
+  appIpc.handle('points:minute', async (_e, m = {}) => {
     const login = m && /^[a-z0-9_]{1,25}$/i.test(String(m.login)) ? String(m.login).toLowerCase() : null;
     if (!login || !/^\d+$/.test(String(m.channelId)) || !/^\d+$/.test(String(m.broadcastId))) return { ok: false, reason: 'bad request' };
     const web = await playerStatus(session.defaultSession.cookies);
@@ -735,7 +754,7 @@ function registerIpc() {
   });
 
   // Read-only booleans from the embed for debugging subs/Turbo (never values).
-  ipcMain.handle('player:probe', async () => {
+  appIpc.handle('player:probe', async () => {
     const out = { viewerLoggedIn: null, adShowing: null };
     for (const f of playerFrames()) {
       try {
@@ -773,7 +792,7 @@ app.whenReady().then(async () => {
     },
   });
 
-  session.defaultSession.protocol.handle(hlsProxy.SCHEME, hlsProxy.makeHandler({ fetch: (u, o) => net.fetch(u, o), hosts: proxyHosts, log: appLog }));
+  session.defaultSession.protocol.handle(hlsProxy.SCHEME, hlsProxy.makeHandler({ fetch: hlsProxy.netHop(net), hosts: proxyHosts, origin: () => (server ? new URL(server.url).origin : ''), log: appLog }));
   await restorePlayerSession().catch((e) => appLog(`[player-cookies] startup check failed: ${e.message}`));
   // The chat frame (channel points) and the Drops frame are third-party frames of the localhost page: they only get
   // twitch.tv cookies marked SameSite=None. Repair any that aren't, and keep it so (player-session.js).
@@ -789,14 +808,15 @@ app.whenReady().then(async () => {
 
   // The Drops section frames Twitch's inventory page, which refuses framing: allow it for that page in Lurkbox's own
   // window only (drops.allowFraming drops X-Frame-Options and CSP frame-ancestors, nothing else).
+  // Only for the Drops section's own frame: a direct child of Lurkbox's page, not a frame nested in another site.
   session.defaultSession.webRequest.onHeadersReceived({ urls: ['https://www.twitch.tv/drops/inventory*'] }, (d, cb) => {
-    const ours = d.resourceType === 'subFrame' && win && !win.isDestroyed() && d.webContentsId === win.webContents.id;
+    const ours = !!(win && !win.isDestroyed() && server) && drops.isAppDropsFrame(d, { webContentsId: win.webContents.id, pageUrl: server.url });
     cb(ours && drops.isInventoryUrl(d.url) ? { responseHeaders: drops.allowFraming(d.responseHeaders) } : {});
   });
 
   registerIpc();
   // Twitch's chat iframe lives in the default session, so the extensions are loaded there before the window opens.
-  chatExt = setupChatExtensions({ ipcMain, ses: session.defaultSession, getSettings: () => settings.get(), dir: path.join(dir, 'extensions'), fetch: (u, o) => net.fetch(u, o), log: appLog });
+  chatExt = setupChatExtensions({ ipcMain: appIpc, ses: session.defaultSession, getSettings: () => settings.get(), dir: path.join(dir, 'extensions'), fetch: (u, o) => net.fetch(u, o), log: appLog });
   await chatExt.loadChatExtensions(session.defaultSession).catch((e) => appLog(`[extensions] startup load failed: ${e.message}`));
   startCompanion(dir);
   // Validate (and refresh if needed) the stored token. A network error is not a
@@ -877,7 +897,7 @@ function startCompanion(dir) {
   });
   openPending = opener.takeNow();
   opener.start();
-  ipcMain.handle('open:ready', () => { openRendererReady = true; const r = openPending; openPending = null; return r; });
+  appIpc.handle('open:ready', () => { openRendererReady = true; const r = openPending; openPending = null; return r; });
 }
 
 app.on('second-instance', () => {

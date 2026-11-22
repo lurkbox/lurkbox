@@ -3,9 +3,9 @@
 //   - desktop: the lbhls://<host>/<path> scheme (apps/desktop/src/main/hls-proxy.js);
 //   - Android: https://localhost/_lbhls/<host>/<path>, answered natively by the WebView client (MainActivity).
 // Why: Twitch's VOD CDN (*.cloudfront.net) only sends CORS headers for twitch.tv origins, so hls.js in our page can't
-// read VOD playlists or segments directly. No open proxy: only Twitch's playlist/segment hosts, and a cloudfront.net
-// host only after it appeared in a usher master playlist the host fetched itself.
-const STATIC_HOST = /^(usher\.ttvnw\.net|([a-z0-9-]+\.)+ttvnw\.net|([a-z0-9-]+\.)*twitch\.tv)$/i;
+// read VOD playlists or segments directly. No open proxy: only Twitch's playlist/segment hosts (*.ttvnw.net), and a
+// cloudfront.net host only after it appeared in a usher master playlist the host fetched itself.
+const STATIC_HOST = /^(usher\.ttvnw\.net|([a-z0-9-]+\.)+ttvnw\.net)$/i;
 const CLOUDFRONT = /^[a-z0-9]+\.cloudfront\.net$/i;
 
 export class ProxyHosts {
@@ -23,12 +23,18 @@ export class ProxyHosts {
   }
 }
 
+/** The URL as https://host/p?q when it is one the proxy may fetch (https, an allowed host, no credentials or port), else null. */
+export function allowedTarget(url, hosts) {
+  let u;
+  try { u = url instanceof URL ? url : new URL(url); } catch { return null; }
+  if (u.protocol !== 'https:' || !hosts.allows(u.hostname) || u.username || u.password || (u.port && u.port !== '443')) return null;
+  return `https://${u.hostname}${u.pathname}${u.search}`;
+}
+
 /** https://host/p?q → prefix + host/p?q (only for allowed hosts; others unchanged). */
 export function toProxyUrl(url, hosts, prefix) {
-  let u;
-  try { u = new URL(url); } catch { return url; }
-  if (u.protocol !== 'https:' || !hosts.allows(u.hostname) || u.username || u.password || (u.port && u.port !== '443')) return url;
-  return `${prefix}${u.hostname}${u.pathname}${u.search}`;
+  const t = allowedTarget(url, hosts);
+  return t ? `${prefix}${t.slice('https://'.length)}` : url;
 }
 
 /**
