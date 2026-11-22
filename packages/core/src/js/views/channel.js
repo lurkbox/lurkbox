@@ -2,6 +2,7 @@ import { el, button, fmtViewers, fmtUptime } from '../ui.js';
 import { hint } from '../input.js';
 import { tw } from '../api.js';
 import { pagedGrid, videoCard, errorState } from '../grid.js';
+import { followButton } from '../follow.js';
 
 /** Channel page: live status plus VODs. */
 export function channelView({ login, id, name }) {
@@ -20,6 +21,7 @@ export function channelView({ login, id, name }) {
           return;
         }
         if (user.profile_image_url) header.prepend(el('img', { class: 'avatar', src: user.profile_image_url, alt: '' }));
+        if (window.lurkbox.followChannel) header.querySelector('h1').after(followButton({ login: user.login || login, id: user.id, name: user.display_name || name || login }, nav));
         const stream = await tw.streamByUserId(user.id);
         live.replaceChildren(stream
           ? el('div', { class: 'live-row' },

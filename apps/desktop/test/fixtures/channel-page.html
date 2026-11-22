@@ -1,0 +1,57 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>channel page fixture</title>
+<!-- Modelled on www.twitch.tv/<channel> as seen signed out (2026-11): the channel header's right side
+     ([data-target="channel-header-right"]) holds <button data-a-target="follow-button" data-test-selector="follow-button"
+     aria-label="Follow <Name>">Follow</button>, and the header's h1 is the display name. Signed in and following, the
+     button is data-a-target="unfollow-button" and opens a dialog with data-a-target="modal-unfollow-button".
+     The test sets window.MODE before the page script runs (follow.js smoke test): following, bare (no data attributes,
+     aria-label and text only), textonly (text only), stuck (clicks ignored), challenge (a captcha frame after the
+     click), noconfirm (Unfollow opens no dialog), slow (the button appears after 1.5 s), renamed (h1 of another channel). -->
+<style>
+  body { margin: 0; background: #0e0e10; color: #efeff1; font: 14px system-ui, sans-serif; }
+  .Recs { display: flex; gap: 10px; padding: 10px; } .Header { display: flex; justify-content: space-between; padding: 20px; }
+  button { font: inherit; padding: 6px 10px; } [role=dialog] { position: fixed; top: 30%; left: 30%; padding: 20px; background: #222; }
+</style></head>
+<body>
+<!-- Another channel's button, earlier in the page: must never be used. -->
+<div class="Recs"><div class="Rec"><span>OtherGuy</span><button data-a-target="follow-button" aria-label="Follow OtherGuy" id="decoy">Follow</button></div></div>
+<main><div class="Header"><div><h1 id="title">SomeChannel</h1></div><div data-target="channel-header-right" id="right"></div></div></main>
+<script>
+  const M = new Set(String(window.MODE || '').split(',').filter(Boolean));
+  window.clicks = [];
+  let following = M.has('following');
+  document.getElementById('decoy').addEventListener('click', () => window.clicks.push('decoy'));
+  if (M.has('renamed')) document.getElementById('title').textContent = 'OtherGuy';
+  const right = document.getElementById('right');
+  const attrs = (b, target, aria) => {
+    if (!M.has('bare') && !M.has('textonly')) { b.setAttribute('data-a-target', target); b.setAttribute('data-test-selector', target); }
+    if (!M.has('textonly')) b.setAttribute('aria-label', aria);
+  };
+  const render = () => {
+    const b = document.createElement('button');
+    if (following) { attrs(b, 'unfollow-button', 'Unfollow SomeChannel'); b.innerHTML = '<div><span>Following</span></div>'; b.onclick = onUnfollow; }
+    else { attrs(b, 'follow-button', 'Follow SomeChannel'); b.innerHTML = '<div><div>Follow</div></div>'; b.onclick = onFollow; }
+    right.replaceChildren(b);
+  };
+  const flip = (v) => { if (M.has('stuck')) return; setTimeout(() => { following = v; render(); }, 300); };
+  const onFollow = () => {
+    window.clicks.push('follow');
+    if (M.has('challenge')) { const f = document.createElement('iframe'); f.src = 'about:blank'; f.title = 'Verification challenge'; f.setAttribute('src', 'https://client-api.arkoselabs.com/fc'); f.style.cssText = 'width:300px;height:300px'; document.body.append(f); return; }
+    flip(true);
+  };
+  const onUnfollow = () => {
+    window.clicks.push('unfollow');
+    if (M.has('noconfirm')) return;
+    const d = document.createElement('div');
+    d.setAttribute('role', 'dialog');
+    d.innerHTML = '<p>Unfollow SomeChannel?</p><button id="cancel">Cancel</button>';
+    const c = document.createElement('button');
+    if (!M.has('bare') && !M.has('textonly')) c.setAttribute('data-a-target', 'modal-unfollow-button');
+    c.textContent = 'Unfollow';
+    c.onclick = () => { window.clicks.push('confirm'); d.remove(); flip(false); };
+    d.append(c);
+    setTimeout(() => document.body.append(d), 200);
+  };
+  setTimeout(render, M.has('slow') ? 1500 : 200);
+</script>
+</body></html>

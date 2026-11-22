@@ -26,6 +26,7 @@ export function demoHelix(db, req = {}, ctx = {}) {
       return list(s.sort(byViewers).slice(0, first));
     }
     case '/channels/followed':
+      if (q.broadcaster_id != null) { const f = db.follows.filter((x) => x.broadcaster_id === String(q.broadcaster_id)); return ok({ data: f, total: f.length, pagination: {} }); }
       return ok({ data: db.follows.slice(0, first), total: db.follows.length, pagination: {} });
     case '/games/top':
       return list(db.games.slice(0, first));
