@@ -1,9 +1,9 @@
 import { el, button, toast } from '../ui.js';
-import { hint } from '../input.js';
 import { mascotEl } from '../mascot.js';
 import { state, saveSettings } from '../state.js';
 import { tw, setFollowedCache, followedChannels, followsAge, usersByIds, lastLive, lastLiveKnown, ApiError } from '../api.js';
-import { KeyedGrid, streamCard, errorState } from '../grid.js';
+import { KeyedGrid, streamCard, errorState, listSort, sortChip, withGameHeaders, gameHeader } from '../grid.js';
+import { LIVE_SORTS, sortStreams } from '../../shared/sorts.js';
 import { mergeFollows, sortOffline, SORTS, fmtAgo } from '../follows.js';
 import { Poller } from '../refresher.js';
 
@@ -51,16 +51,17 @@ export function followingView() {
       if (!state.auth.signedIn) { host.append(welcome(nav)); return; }
 
       let sort = state.settings.followSort || 'recent';
-      const sortLabel = el('span', {});
+      const offChip = sortChip(() => cycleOffline());
+      const liveSort = listSort({ key: 'liveSort', sorts: LIVE_SORTS, onChange: () => paintLive({ keepPosition: true }) });
       const status = el('span', { class: 'refresh-status' });
       const liveGridEl = el('div', { class: 'grid' });
       const offGridEl = el('div', { class: 'grid grid-offline' });
       const liveEmpty = el('p', { class: 'empty', hidden: true }, 'Nobody you follow is live right now.');
       host.append(
         el('header', { class: 'view-header' }, el('h1', {}, 'Following'), status),
-        el('h2', { class: 'section-title' }, 'Live'),
+        el('h2', { class: 'section-title live-title' }, 'Live ', liveSort.chip),
         liveGridEl, liveEmpty,
-        el('h2', { class: 'section-title offline-title' }, 'Offline ', el('span', { class: 'hint' }, hint('{Y} sort: '), sortLabel)),
+        el('h2', { class: 'section-title offline-title' }, 'Offline ', offChip.el),
         offGridEl);
       const cached = lastShown && lastShown.account === state.auth.active ? lastShown : null;
       if (!cached) liveGridEl.append(el('div', { class: 'loading' }, 'Loading…'));
@@ -68,7 +69,16 @@ export function followingView() {
       let liveList = [];
       let follows = [];
       let users = new Map();
-      const live = new KeyedGrid(liveGridEl, { key: (s) => s.user_id, render: (s) => streamCard(s, (x) => nav.playStream(x, liveList)) });
+      // The player's next/previous channel follows the order on screen.
+      let liveSorted = [];
+      const live = new KeyedGrid(liveGridEl, {
+        key: (s) => (s.header ? s.id : s.user_id),
+        render: (s) => (s.header ? gameHeader(s) : streamCard(s, (x) => nav.playStream(x, liveSorted))),
+      });
+      const paintLive = (opts) => {
+        liveSorted = sortStreams(liveList, liveSort.value);
+        live.set(liveSort.value === 'game' ? withGameHeaders(liveList) : liveSorted, opts);
+      };
       let focusTimer = null;
       const onTileFocus = (f) => {
         clearTimeout(focusTimer);
@@ -89,16 +99,18 @@ export function followingView() {
       const paintOffline = (offList, opts) => {
         const known = lastLiveKnown();
         for (const f of offList) if (known.has(f.broadcaster_id)) f.lastLive = known.get(f.broadcaster_id);
-        sortLabel.textContent = (SORTS.find((s) => s.value === sort) || SORTS[0]).label;
+        offChip.set((SORTS.find((s) => s.value === sort) || SORTS[0]).label);
         offline.set(sortOffline(offList, sort, known), opts);
       };
-      this.cycleSort = () => {
+      const cycleOffline = () => {
         const i = SORTS.findIndex((s) => s.value === sort);
         sort = SORTS[(i + 1) % SORTS.length].value;
         saveSettings({ followSort: sort });
         toast(`Sorted: ${SORTS.find((s) => s.value === sort).label}`, 1500);
         paintOffline(mergeFollows(follows, liveList).offline, { keepPosition: true }); // stay where you are
       };
+      // Y sorts the section that has focus: Offline when on an offline channel, else Live.
+      this.cycleSort = () => (offGridEl.contains(document.activeElement) ? cycleOffline() : liveSort.cycle());
 
       const applyResult = (r) => {
         lastShown = { account: state.auth.active, streams: r.streams, follows: r.follows, users: r.users };
@@ -107,7 +119,7 @@ export function followingView() {
         follows = r.follows;
         users = r.users;
         setFollowedCache(liveList);
-        live.set(liveList);
+        paintLive();
         liveEmpty.hidden = liveList.length > 0;
         paintOffline(mergeFollows(follows, liveList).offline);
       };

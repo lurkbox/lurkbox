@@ -20,6 +20,8 @@ const CUSTOM = { base: 'lurkbox', colors: { bg: '#17122a', surface: '#251d40', a
 /** Per-scene settings (written before startup) and environment. */
 const SETUP = {
   following: {},
+  // Following → Live sorted by game (starts on A–Z; the scene presses Y once).
+  'following-by-game': { settings: { liveSort: 'az' } },
   player: {},
   'player-popover': {},
   'player-chat': { settings: { chatDefault: true } },
@@ -175,6 +177,15 @@ app.on('browser-window-created', (_e, win) => {
       await sleep(300);
       await settle();
       await shoot('following');
+    },
+    async 'following-by-game'() {
+      await following();
+      await js("document.querySelector('[data-view=following] .grid .card').focus(); true");
+      await press('Y'); // A–Z → By game, on the focused Live section
+      await waitFor('the game headers', "document.querySelectorAll('[data-view=following] .grid-group').length >= 2 && /By game/.test(document.querySelector('[data-view=following] .live-title .sort-chip').textContent)");
+      await sleep(1700); // the "Sorted" toast goes
+      await settle();
+      await shoot('following-by-game');
     },
     async player() {
       await openFirstLive();

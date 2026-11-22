@@ -32,6 +32,10 @@ More in [docs/screenshots/](docs/screenshots/): pop-overs, chat over the video, 
   - **Sign in with your phone instead** (a code and QR code for twitch.tv/activate) is still offered. It leaves the player signed out, so Lurkbox then offers the TV login for the player.
   - **Add account** runs the same flow, starting signed out of twitch.tv; each account keeps its own encrypted player session.
 - **Browsing.** Followed Live is the home screen; Browse, Categories and Search are the other sections; channel pages list VODs.
+- **Sorting.** Y re-sorts the list you're on, and a small chip shows the current order ("Y sort: Most viewers"; tap or click it too). The focus stays in the same place, and the choice is remembered.
+  - Following → Live: Most viewers (default), Recently started, Live longest, A–Z, or By game (grouped under small game headers). Following → Offline: Recently live, A–Z, Followed date. Y sorts whichever of the two has focus. Both are also in Settings → General.
+  - Browse and a category's streams: Viewers, Newest, A–Z. A channel's videos: Newest, Oldest, Most viewed, Longest. Search results: Relevance (Twitch's order), Live first (default), A–Z.
+  - The player's previous/next channel follows the order on screen.
 - **Player.** Lurkbox plays streams itself by default (the "Direct" engine: hls.js), with the official Twitch embed as an automatic fallback. The video is always full-bleed. A (or moving the mouse, or a tap) brings up a translucent overlay: the channel's avatar and name, a ● LIVE / "−0:23 behind" / "Rewound" badge and the title (it scrolls when long), the seek bar, and one row of icons: play/pause, volume, quality, chat, send a message, quick chat, jump to live, channel points (with your balance), channel page, more (reload, switch player, fullscreen, stream info) and back. The focused icon shows a small label ("Quality · 1080p60"); hovering or long-pressing shows it too. Volume, quality, chat, channel points and more open small pop-overs above their icon, and B closes them. The overlay hides after about 4 s without input. Y toggles chat. X jumps to live. LB/RB step through followed live channels.
 - **Live chat layout.** The chat icon's pop-over changes chat while you watch: on/off, Lurkbox or Twitch chat, text size, panel width (the video shrinks beside it), left or right, background opacity, and "over the video" (Lurkbox chat floats see-through on top of the stream). Sliders move with the D-pad (hold to go faster), the mouse or a finger. The same settings are in Settings → Chat, with "Reset chat layout".
   - **Direct playback uses Twitch's unofficial web endpoints.** See [Unofficial Twitch interfaces](#unofficial-twitch-interfaces). Ads are detected and labelled but **never skipped or filtered**.
@@ -155,6 +159,7 @@ Settings → Appearance → **Match Steam library artwork to theme** (off by def
 | Player overlay | A, or any D-pad direction (in player) | Enter | move the mouse, or click the video |
 | Close a pop-over (focus goes back to its icon) | B | Esc | click outside it |
 | Slider (pop-overs, Settings → Chat) | D-pad left/right, hold to go faster | Arrows | drag |
+| Sort the list (Following, Browse, a category, a channel's videos, Search) | Y | C | the sort chip |
 | Chat | Y | C | chat icon |
 | Send a message | Send a message (overlay), then A types and Send sends | type, Enter sends | click the box |
 | Leave the chat box | B | Esc | |

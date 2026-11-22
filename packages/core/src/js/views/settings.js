@@ -8,6 +8,7 @@ import { switchTo, addAccount, avatar } from '../accounts.js';
 import { tvSignIn } from '../auth.js';
 import { scheduleSteamArt, restoreSteamArt } from '../steam-art.js';
 import { SORTS } from '../follows.js';
+import { LIVE_SORTS } from '../../shared/sorts.js';
 import { chatSettingsRows } from './settings-chat.js';
 
 function row(label, control, help) {
@@ -194,7 +195,8 @@ export function settingsView() {
           row('Earn channel points while watching', toggle('earnWatchPoints'), 'With the Direct player, reports the stream you\'re watching once a minute the way Twitch\'s own player does, so watch time earns points. Only while it plays on screen; never for other streams.'),
           ...chatSettingsRows({ row, rerender, pickRow }),
           el('h2', { class: 'section-title settings-section' }, 'General'),
-          row('Offline channels sort', pickRow('followSort', 'Offline channels sort', SORTS.map((x) => (x.value === 'recent' ? { ...x, label: `${x.label} (default)` } : x))), 'Order of the Offline section on Following. Y on Following cycles it too.'),
+          row('Live channels sort', pickRow('liveSort', 'Live channels sort', LIVE_SORTS.map((x) => (x.value === 'viewers' ? { ...x, label: `${x.label} (default)` } : x))), 'Order of the Live section on Following. Y there cycles it too.'),
+          row('Offline channels sort', pickRow('followSort', 'Offline channels sort', SORTS.map((x) => (x.value === 'recent' ? { ...x, label: `${x.label} (default)` } : x))), 'Order of the Offline section on Following. Y there cycles it too.'),
           row('Refresh live lists', pickRow('refreshInterval', 'Refresh live lists every', [10, 15, 30, 60].map((v) => ({ value: v, label: `${v} s` })))),
           row('Hide chat and controls when Lurkbox isn\'t focused', toggle('videoOnlyUnfocused'), 'Shows just the video while another app (e.g. a game under Floater) has focus.'),
           row('Confirm before exiting', toggle('confirmExit'), 'B on the home screen exits Lurkbox.'),

@@ -3,6 +3,7 @@
 // ES module; the desktop main process loads it with require().
 import { DEFAULT_CLIENT_ID } from './config.js';
 import { CHAT_LAYOUT_DEFAULTS, sanitizeChatLayout } from './chat-layout.js';
+import { SORT_SETTINGS, validSort } from './sorts.js';
 import { DEFAULT_QUICK_CHAT, sanitizeQuickChat, sanitizeEmoteRecents } from './quick-chat.js';
 
 export const THEMES = ['lurkbox', 'game-mode', 'classic-purple', 'oled', 'daylight', 'high-contrast', 'custom'];
@@ -22,7 +23,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   screenMargin: 0, // percent: 0 | 2.5 | 5 (TV overscan)
   uiScale: 100, // percent, 90..150
   refreshInterval: 15, // seconds: 10 | 15 | 30 | 60
-  followSort: 'recent',
+  followSort: 'recent', // Following → Offline
+  liveSort: 'viewers', // Following → Live (shared/sorts.js)
+  streamSort: 'viewers', // Browse and category streams
+  vodSort: 'newest', // a channel's videos
+  searchSort: 'live', // search results
   videoOnlyUnfocused: true, // hide chat/controls while unfocused (player only)
   confirmExit: true,
   navSounds: true,
@@ -66,6 +71,7 @@ export function sanitizeSettings(patch) {
   if ('playerEngine' in patch) out.playerEngine = patch.playerEngine === 'embed' ? 'embed' : 'direct';
   if ('refreshInterval' in patch) out.refreshInterval = [10, 15, 30, 60].includes(Number(patch.refreshInterval)) ? Number(patch.refreshInterval) : 15;
   if ('followSort' in patch) out.followSort = ['recent', 'az', 'followed'].includes(patch.followSort) ? patch.followSort : 'recent';
+  for (const [k, { sorts, fallback }] of Object.entries(SORT_SETTINGS)) if (k in patch) out[k] = validSort(sorts, patch[k], fallback);
   if ('videoCodec' in patch) out.videoCodec = patch.videoCodec === 'best' ? 'best' : 'h264';
   if ('backgroundQuality' in patch) out.backgroundQuality = ['same', '720', '480'].includes(String(patch.backgroundQuality)) ? String(patch.backgroundQuality) : '720';
   Object.assign(out, sanitizeChatLayout(patch));
