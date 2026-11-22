@@ -1,0 +1,17 @@
+{
+  "appId": "io.github.lurkbox.Lurkbox",
+  "appName": "Lurkbox",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "hostname": "localhost"
+  },
+  "android": {
+    "backgroundColor": "#0e0e10",
+    "allowMixedContent": false,
+    "captureInput": false
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": false }
+  }
+}

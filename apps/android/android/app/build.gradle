@@ -1,0 +1,94 @@
+apply plugin: 'com.android.application'
+
+import groovy.json.JsonSlurper
+
+// versionName: the app's package.json version plus the commit. versionCode must grow with every build so an
+// `adb install -r` always upgrades in place: minutes since 2026-01-01 (UTC), or LURKBOX_VERSION_CODE when set.
+def lurkboxVersion = new JsonSlurper().parse(file('../../package.json')).version
+def gitSha = { ->
+    try {
+        def out = providers.exec { commandLine 'git', 'rev-parse', '--short', 'HEAD'; ignoreExitValue = true }.standardOutput.asText.get().trim()
+        return out ?: 'nogit'
+    } catch (ignored) { return 'nogit' }
+}()
+def lurkboxVersionCode = System.getenv('LURKBOX_VERSION_CODE')?.isInteger()
+    ? System.getenv('LURKBOX_VERSION_CODE').toInteger()
+    : (int) ((System.currentTimeMillis() - Date.parse('yyyy-MM-dd HH:mm z', '2026-01-01 00:00 UTC').time) / 60000L)
+
+// Local device installs are signed with one stable debug key (outside the repo) so upgrades install in place.
+// Without it (CI, other machines) Android's default debug key is used. Never commit a keystore.
+def stableDebugKeystore = new File(System.getenv('LURKBOX_DEBUG_KEYSTORE') ?: "${System.getProperty('user.home')}/.config/lurkbox-android/debug.keystore")
+
+android {
+    namespace = "io.github.lurkbox.Lurkbox"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "io.github.lurkbox.Lurkbox"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode lurkboxVersionCode
+        versionName "${lurkboxVersion}-${gitSha}"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        if (stableDebugKeystore.isFile()) {
+            lurkboxDebug {
+                storeFile stableDebugKeystore
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            if (stableDebugKeystore.isFile()) signingConfig signingConfigs.lurkboxDebug
+        }
+        release {
+            // Debug-signed for now (no release key yet), so the release APK installs too.
+            signingConfig stableDebugKeystore.isFile() ? signingConfigs.lurkboxDebug : signingConfigs.debug
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+android.applicationVariants.all { variant ->
+    variant.assembleProvider.get().doLast {
+        println "Lurkbox ${variant.name}: applicationId ${variant.applicationId}, versionName ${variant.versionName}, versionCode ${variant.versionCode}"
+    }
+}
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

@@ -92,6 +92,33 @@ jobs:
           path: dist/*.AppImage
           retention-days: 7
 
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - name: Install (no install scripts)
+        run: npm ci --ignore-scripts
+      # The runner's preinstalled Android SDK ($ANDROID_HOME); the Android Gradle Plugin fetches a missing platform.
+      # Signed with Android's default debug key (the stable local key never leaves the developer's machine).
+      - name: Build the debug APK
+        run: npm run android:build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lurkbox-Android-debug-APK
+          path: apps/android/android/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest

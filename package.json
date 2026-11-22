@@ -7,7 +7,8 @@
   "author": "aronwk-aaron",
   "workspaces": [
     "packages/core",
-    "apps/desktop"
+    "apps/desktop",
+    "apps/android"
   ],
   "scripts": {
     "start": "npm run start -w apps/desktop --",
@@ -25,6 +26,9 @@
     "test:chat": "npm run test:chat -w apps/desktop --",
     "test:chat-send": "npm run test:chat-send -w apps/desktop --",
     "test:channel": "npm run test:channel -w apps/desktop --",
-    "screenshots": "npm run screenshots -w apps/desktop --"
+    "screenshots": "npm run screenshots -w apps/desktop --",
+    "android:sync": "npm run sync -w apps/android --",
+    "android:build": "npm run build -w apps/android --",
+    "android:release": "npm run release -w apps/android --"
   }
 }
