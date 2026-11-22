@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import { tmpDir } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
-const { ChatExtensions, parseVersion, compareVersions, chromeVersion, scopeManifest, bttvManifest, CHAT_MATCHES } = require('../../src/main/chat-extensions.js');
+const { ChatExtensions, EXTENSIONS, readPins, sha256, parseVersion, compareVersions, chromeVersion, scopeManifest, bttvManifest, CHAT_MATCHES, RESOURCE_MATCHES } = require('../../src/main/chat-extensions.js');
 const { readZip, readTarGz, extractTo, safeEntry } = require('../../src/main/archive.js');
 
 /** A zip with stored or deflated entries, built by hand. */
@@ -60,15 +60,30 @@ test('version parsing and comparison', () => {
   assert.equal(chromeVersion('v1.2.99999'), '1.2.65535');
 });
 
-test('manifests: content scripts scoped to the chat pages in all frames; BTTV wrapper', () => {
-  const m = scopeManifest({ manifest_version: 3, update_url: 'x', content_scripts: [{ matches: ['*://*.twitch.tv/*'], js: ['content.js'] }], background: { service_worker: 'b.js' } });
+test('manifests: content scripts scoped to the chat pages in all frames, no background, permissions or host access; BTTV wrapper', () => {
+  const m = scopeManifest({
+    manifest_version: 3, update_url: 'x', content_scripts: [{ matches: ['*://*.twitch.tv/*'], js: ['content.js'], exclude_globs: ['*://gql.twitch.tv/*'] }], background: { service_worker: 'b.js' },
+    permissions: ['scripting', 'storage'], optional_permissions: ['management'], host_permissions: ['*://*.twitch.tv/*'], optional_host_permissions: ['*://*.kick.com/*'],
+    externally_connectable: { matches: ['*://*.twitch.tv/*'] }, web_accessible_resources: [{ resources: ['site.js'], matches: ['*://*.twitch.tv/*', '*://*.youtube.com/*'] }],
+  });
   assert.deepEqual(m.content_scripts, [{ matches: CHAT_MATCHES, js: ['content.js'], all_frames: true }]);
-  assert.equal(m.update_url, undefined);
-  assert.deepEqual(m.background, { service_worker: 'b.js' });
+  for (const k of ['update_url', 'background', 'permissions', 'optional_permissions', 'host_permissions', 'optional_host_permissions', 'externally_connectable']) assert.equal(m[k], undefined, k);
+  assert.deepEqual(m.web_accessible_resources, [{ resources: ['site.js'], matches: RESOURCE_MATCHES }]);
   const b = bttvManifest('7.7.33');
   assert.equal(b.version, '7.7.33');
   assert.equal(b.content_scripts[0].world, 'MAIN');
   assert.deepEqual(b.content_scripts[0].matches, CHAT_MATCHES);
+  assert.equal(b.host_permissions, undefined);
+});
+
+test('the committed pins: one per extension, a GitHub release URL and a SHA-256 each', () => {
+  const pins = readPins();
+  assert.deepEqual(Object.keys(pins).sort(), Object.keys(EXTENSIONS).sort());
+  for (const [key, p] of Object.entries(pins)) {
+    assert.match(p.url, /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\//, key);
+    assert.match(p.sha256, /^[0-9a-f]{64}$/, key);
+    assert.ok(EXTENSIONS[key].asset.test(p.url.split('/').pop()), key);
+  }
 });
 
 test('archives: zip (stored and deflated), CRX3 header, tar.gz, top folder stripped', () => {
@@ -94,49 +109,78 @@ test('archives: paths outside the target are refused (zip-slip)', () => {
   assert.equal(fs.existsSync(path.join(dir, 'escape.txt')), false);
 });
 
-// ---- the manager, with GitHub and Electron mocked ----
+// ---- the manager, with the downloads and Electron mocked ----
 
-const rel = (tag, assets, extra = {}) => ({ tag_name: tag, draft: false, prerelease: false, assets: assets.map((n) => ({ name: n, browser_download_url: `https://dl/${tag}/${n}` })), ...extra });
-const STV_MF = JSON.stringify({ manifest_version: 3, name: '7TV', version: '3.1.6', content_scripts: [{ matches: ['*://*.twitch.tv/*'], js: ['content.js'] }] });
+const STV_MF = (v = '3.1.6') => JSON.stringify({ manifest_version: 3, name: '7TV', version: v, content_scripts: [{ matches: ['*://*.twitch.tv/*'], js: ['content.js'] }], background: { service_worker: 'background.js' }, permissions: ['storage'] });
+const PACKAGES = {
+  '7tv-3.1.6': makeZip({ 'manifest.json': STV_MF(), 'content.js': '1' }),
+  '7tv-3.2.0': makeZip({ 'manifest.json': STV_MF('3.2.0'), 'content.js': '2' }),
+  ffz: makeZip({ 'manifest.json': JSON.stringify({ manifest_version: 3, name: 'FFZ', version: '4.82.0.31', content_scripts: [{ matches: ['*://*.twitch.tv/*'], js: ['s.js'], all_frames: true }] }) }),
+  bttv: makeTarGz({ 'betterttv.js': '1', 'betterttv.css': '' }),
+};
+const URLS = {
+  '7tv-3.1.6': 'https://github.com/SevenTV/Extension/releases/download/v3.1.6/7tv-webextension-mv3.zip',
+  '7tv-3.2.0': 'https://github.com/SevenTV/Extension/releases/download/v3.2.0/7tv-webextension-mv3.zip',
+  ffz: 'https://github.com/FrankerFaceZ/Extension/releases/download/chrome-stable/4.82.0.31/frankerfacez-extension-4.82.0.31.zip',
+  bttv: 'https://github.com/night/betterttv/releases/download/7.7.33/betterttv.tar.gz',
+};
+const pin = (id, version) => ({ version, url: URLS[id], sha256: sha256(PACKAGES[id]) });
+const pinsFor = ({ stv = '3.1.6' } = {}) => ({ '7tv': pin(`7tv-${stv}`, stv), ffz: pin('ffz', '4.82.0.31'), bttv: pin('bttv', '7.7.33') });
 
-function fakeGitHub({ stvTag = 'v3.1.6', failDownload = [] } = {}) {
+/** Download stand-in: serves the packages by URL; `tamper` serves a changed file for URLs containing it. */
+function fakeGitHub({ failDownload = [], tamper = [] } = {}) {
   const calls = [];
-  const fetch = async (url) => {
+  const byUrl = Object.fromEntries(Object.entries(URLS).map(([id, u]) => [u, PACKAGES[id]]));
+  const fetch = async (url, init) => {
     calls.push(url);
-    const ok = (body) => ({ ok: true, status: 200, json: async () => body, arrayBuffer: async () => body });
-    if (url.includes('/repos/SevenTV/Extension/releases')) return ok([rel('nightly-release', ['7tv-webextension-mv3.zip'], { prerelease: true }), rel(stvTag, ['7tv-webextension-ext.crx', '7tv-webextension-mv3.zip'])]);
-    if (url.includes('/repos/FrankerFaceZ/Extension/releases')) return ok([rel('firefox-stable/4.82.0.42', ['frankerfacez-extension-4.82.0.42.zip']), rel('chrome-stable/4.82.0.31', ['frankerfacez-extension-4.82.0.31.zip'])]);
-    if (url.includes('/repos/night/betterttv/releases')) return ok([rel('7.7.33', ['betterttv.tar.gz'])]);
+    assert.equal(init && init.credentials, 'omit');
     if (failDownload.some((k) => url.includes(k))) return { ok: false, status: 503 };
-    if (url.endsWith('-mv3.zip')) return ok(makeZip({ 'manifest.json': STV_MF, 'content.js': '1' }));
-    if (url.endsWith('.zip')) return ok(makeZip({ 'manifest.json': JSON.stringify({ manifest_version: 3, name: 'FFZ', version: '4.82.0.31', content_scripts: [{ matches: ['*://*.twitch.tv/*'], js: ['s.js'], all_frames: true }] }) }));
-    if (url.endsWith('.tar.gz')) return ok(makeTarGz({ 'betterttv.js': '1', 'betterttv.css': '' }));
-    throw new Error(`unexpected ${url}`);
+    let body = byUrl[url];
+    if (!body) throw new Error(`unexpected ${url}`);
+    if (tamper.some((k) => url.includes(k))) body = Buffer.concat([body, Buffer.from('x')]);
+    return { ok: true, status: 200, arrayBuffer: async () => body };
   };
   fetch.calls = calls;
   return fetch;
 }
 
-test('update: picks stable releases, installs into <key>/<version>, writes scoped manifests', async () => {
+test('update: installs the pinned releases into <key>/<version>, writes scoped manifests', async () => {
   const dir = tmpDir();
-  const m = new ChatExtensions({ dir, fetch: fakeGitHub() });
+  const f = fakeGitHub();
+  const m = new ChatExtensions({ dir, fetch: f, pins: pinsFor() });
   const st = await m.update();
   assert.deepEqual(st.map((x) => [x.key, x.installed]), [['7tv', '3.1.6'], ['ffz', '4.82.0.31'], ['bttv', '7.7.33']]);
   const mf = JSON.parse(fs.readFileSync(path.join(dir, '7tv', '3.1.6', 'manifest.json'), 'utf8'));
   assert.deepEqual(mf.content_scripts[0].matches, CHAT_MATCHES);
+  assert.equal(mf.background, undefined);
+  assert.equal(mf.permissions, undefined);
+  assert.ok(f.calls.every((u) => Object.values(URLS).includes(u)), 'only the pinned files are fetched (no release lookups)');
   assert.ok(fs.existsSync(path.join(dir, '7tv', '3.1.6', 'manifest.orig.json')));
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'bttv', '7.7.33', 'manifest.json'), 'utf8')).content_scripts[0].js[0], 'betterttv.js');
   // State survives a restart.
-  assert.equal(new ChatExtensions({ dir, fetch: null }).status()[0].installed, '3.1.6');
+  assert.equal(new ChatExtensions({ dir, fetch: null, pins: pinsFor() }).status()[0].installed, '3.1.6');
 });
 
-test('update: skips what is current, replaces older versions and removes the old folder', async () => {
+test('update: a download that does not match its pinned checksum is refused and nothing is installed', async () => {
   const dir = tmpDir();
-  await new ChatExtensions({ dir, fetch: fakeGitHub() }).update({ keys: ['7tv'] });
+  const logs = [];
+  const m = new ChatExtensions({ dir, fetch: fakeGitHub({ tamper: ['7tv-webextension'] }), pins: pinsFor(), log: (l) => logs.push(l) });
+  const st = await m.update();
+  const stv = st.find((x) => x.key === '7tv');
+  assert.equal(stv.installed, null);
+  assert.equal(stv.status, 'failed');
+  assert.match(stv.error, /checksum mismatch/);
+  assert.equal(fs.existsSync(path.join(dir, '7tv', '3.1.6')), false);
+  assert.equal(st.find((x) => x.key === 'bttv').installed, '7.7.33');
+});
+
+test('update: skips what matches the pin, moves to a new pin and removes the old folder', async () => {
+  const dir = tmpDir();
+  await new ChatExtensions({ dir, fetch: fakeGitHub(), pins: pinsFor() }).update({ keys: ['7tv'] });
   const f = fakeGitHub();
-  await new ChatExtensions({ dir, fetch: f }).update({ keys: ['7tv'] });
-  assert.equal(f.calls.filter((u) => u.startsWith('https://dl/')).length, 0, 'no download when current');
-  const m = new ChatExtensions({ dir, fetch: fakeGitHub({ stvTag: 'v3.2.0' }) });
+  await new ChatExtensions({ dir, fetch: f, pins: pinsFor() }).update({ keys: ['7tv'] });
+  assert.equal(f.calls.length, 0, 'no download when current');
+  const m = new ChatExtensions({ dir, fetch: fakeGitHub(), pins: pinsFor({ stv: '3.2.0' }) });
   await m.update({ keys: ['7tv'] });
   assert.equal(m.status()[0].installed, '3.2.0');
   assert.equal(fs.existsSync(path.join(dir, '7tv', '3.1.6')), false);
@@ -145,7 +189,7 @@ test('update: skips what is current, replaces older versions and removes the old
 test('update: a failed download is recorded and the others still install', async () => {
   const dir = tmpDir();
   const logs = [];
-  const m = new ChatExtensions({ dir, fetch: fakeGitHub({ failDownload: ['betterttv.tar.gz'] }), log: (l) => logs.push(l) });
+  const m = new ChatExtensions({ dir, fetch: fakeGitHub({ failDownload: ['betterttv.tar.gz'] }), pins: pinsFor(), log: (l) => logs.push(l) });
   const st = await m.update();
   const bttv = st.find((x) => x.key === 'bttv');
   assert.equal(bttv.status, 'failed');
@@ -156,7 +200,7 @@ test('update: a failed download is recorded and the others still install', async
 
 test('loadInto: a load failure disables that extension with the reason; the rest load; update re-enables', async () => {
   const dir = tmpDir();
-  const m = new ChatExtensions({ dir, fetch: fakeGitHub(), log: () => {} });
+  const m = new ChatExtensions({ dir, fetch: fakeGitHub(), pins: pinsFor(), log: () => {} });
   await m.update();
   const loaded = [];
   const ses = { extensions: {
@@ -173,7 +217,7 @@ test('loadInto: a load failure disables that extension with the reason; the rest
   assert.match(ffz.error, /service worker/);
   assert.equal(st.filter((x) => x.loaded).length, 2);
   // Next start: the disabled one isn't tried again.
-  const m2 = new ChatExtensions({ dir, fetch: fakeGitHub(), log: () => {} });
+  const m2 = new ChatExtensions({ dir, fetch: fakeGitHub(), pins: pinsFor(), log: () => {} });
   let tried = 0;
   await m2.loadInto({ extensions: { loadExtension: async (p) => { tried++; assert.ok(!p.includes(`${path.sep}ffz${path.sep}`)); return { id: 'i', name: 'x', version: '1' }; } } }, { download: false });
   assert.equal(tried, 2);
@@ -185,8 +229,22 @@ test('loadInto: a load failure disables that extension with the reason; the rest
 
 test('loadInto downloads missing packages first; older Electron session.loadExtension is used as a fallback', async () => {
   const dir = tmpDir();
-  const m = new ChatExtensions({ dir, fetch: fakeGitHub(), log: () => {} });
+  const m = new ChatExtensions({ dir, fetch: fakeGitHub(), pins: pinsFor(), log: () => {} });
   let n = 0;
   const st = await m.loadInto({ loadExtension: async () => ({ id: `i${++n}`, name: 'x', version: '1' }) });
   assert.equal(st.filter((x) => x.loaded).length, 3);
+});
+
+test('loadInto: a package from before the pins is replaced by the pinned one, never loaded as is', async () => {
+  const dir = tmpDir();
+  const old = path.join(dir, '7tv', '3.1.4');
+  fs.mkdirSync(old, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ '7tv': { version: '3.1.4', path: old, status: 'installed' } }));
+  const loaded = [];
+  const m = new ChatExtensions({ dir, fetch: fakeGitHub(), pins: pinsFor(), log: () => {} });
+  await m.loadInto({ extensions: { loadExtension: async (p) => { loaded.push(p); return { id: p, name: 'x', version: '1' }; } } }, { download: false });
+  assert.ok(!loaded.includes(old));
+  await m.loadInto({ extensions: { loadExtension: async (p) => { loaded.push(p); return { id: p, name: 'x', version: '1' }; } } });
+  assert.ok(loaded.includes(path.join(dir, '7tv', '3.1.6')));
+  assert.equal(fs.existsSync(old), false);
 });

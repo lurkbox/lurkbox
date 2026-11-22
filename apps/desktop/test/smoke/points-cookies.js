@@ -6,8 +6,8 @@
 //   - the failure mode: a twitch.tv page in a first-party window (like the hidden Drops or follow windows) rewrites
 //     auth-token without SameSite (Lax by default), and without the fix the chat frame no longer sees it (signed out);
 //   - with keepTwitchCookiesThirdParty() the rewrite is turned back into SameSite=None and the frame sees the new value;
-//   - repair() fixes cookies that were already Lax at startup (and ones a jar restore wrote as Lax), host-only stays
-//     host-only, and the scan's authCookie diagnostic reports what the frame sees.
+//   - repair() fixes the chat frame's cookies that were already Lax at startup (and ones a jar restore wrote as Lax),
+//     leaves other twitch.tv cookies as they are, host-only stays host-only, and the scan's authCookie diagnostic reports what the frame sees.
 //   npm run test:points-cookies
 const http = require('http');
 const { app, BrowserWindow, session } = require('electron');
@@ -77,11 +77,15 @@ app.whenReady().then(async () => {
     if (v.scan.authCookie !== false) return fail(`authCookie diagnostic ${v.scan.authCookie}`);
 
     // 3. repair(): the startup fix. Host-only cookies stay host-only.
-    await ses.cookies.set({ url: 'https://www.twitch.tv/', name: 'host-only', value: '1', secure: false, sameSite: 'lax', expirationDate: year() });
+    await ses.cookies.set({ url: 'https://www.twitch.tv/', name: 'persistent', value: '1', secure: false, sameSite: 'lax', expirationDate: year() });
+    // A twitch.tv cookie the chat frame doesn't need keeps its SameSite.
+    await ses.cookies.set({ url: 'https://www.twitch.tv/', name: 'experiment_overrides', value: '1', domain: '.twitch.tv', secure: true, sameSite: 'lax', expirationDate: year() });
     const keeper = keepTwitchCookiesThirdParty(ses.cookies, (l) => log.push(l));
     const fixed = await keeper.repair();
-    if (!fixed.some((n) => n.startsWith('auth-token(')) || !fixed.some((n) => n.startsWith('host-only('))) return fail(`repair fixed ${fixed}`);
-    const ho = (await ses.cookies.get({ name: 'host-only' }))[0];
+    if (!fixed.some((n) => n.startsWith('auth-token(')) || !fixed.some((n) => n.startsWith('persistent(')) || fixed.some((n) => n.startsWith('experiment_overrides('))) return fail(`repair fixed ${fixed}`);
+    const other = (await ses.cookies.get({ name: 'experiment_overrides' }))[0];
+    if (!other || other.sameSite !== 'lax') return fail(`an unneeded cookie was changed: ${JSON.stringify(other && other.sameSite)}`);
+    const ho = (await ses.cookies.get({ name: 'persistent' }))[0];
     if (!ho || ho.sameSite !== 'no_restriction' || !ho.secure || !ho.hostOnly) return fail(`host-only cookie ${JSON.stringify(ho)}`);
     if ((await ses.cookies.get({ name: 'auth-token' })).length !== 1) return fail('two auth-token cookies after the repair');
     v = await frameView();

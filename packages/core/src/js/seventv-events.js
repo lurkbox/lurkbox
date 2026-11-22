@@ -14,9 +14,20 @@ export function rgba(n) {
   return `rgba(${(v >>> 24) & 255}, ${(v >>> 16) & 255}, ${(v >>> 8) & 255}, ${((v & 255) / 255).toFixed(3)})`;
 }
 
+/** Hosts a 7TV paint image may come from. */
+const PAINT_IMAGE_HOST = /^cdn\.7tv\.(app|io)$/;
+
+/** A paint's image as a CSS url() value: only https images on 7TV's CDN, the URL escaped as a CSS string; else ''. */
+export function paintImageUrl(raw) {
+  let u;
+  try { u = new URL(String(raw || '')); } catch { return ''; }
+  if (u.protocol !== 'https:' || u.username || u.password || u.port || !PAINT_IMAGE_HOST.test(u.hostname)) return '';
+  return `url("${u.href.replace(/["\\\n\r\f]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `)}")`;
+}
+
 function gradientCss(g) {
   const fn = g.function;
-  if (fn === 'URL') return g.image_url ? `url("${String(g.image_url).replace(/["\\\n]/g, '')}")` : '';
+  if (fn === 'URL') return paintImageUrl(g.image_url);
   const stops = (g.stops || []).map((s) => `${rgba(s.color)} ${Math.round(Number(s.at) * 1000) / 10}%`);
   if (stops.length < 2) return '';
   const head = fn === 'RADIAL_GRADIENT' ? (g.shape === 'ellipse' ? 'ellipse' : 'circle') : `${Number(g.angle) || 0}deg`;
@@ -25,25 +36,26 @@ function gradientCss(g) {
 }
 
 /**
- * A 7TV paint → CSS declarations for the username (background-clip: text). Returns '' when it can't be drawn.
+ * A 7TV paint → CSS declarations for the username (background-clip: text), as [property, value] pairs that are set
+ * one by one through the CSSOM (chat-render.js). Returns null when it can't be drawn.
  * Handles both the flat (v2-style: function/stops/image_url) and the layered (gradients[]) formats.
  */
 export function paintCss(paint) {
   const d = paint && (paint.data || paint);
-  if (!d) return '';
+  if (!d) return null;
   const layers = d.gradients && d.gradients.length ? d.gradients : [d];
   const images = layers.map(gradientCss).filter(Boolean);
-  if (!images.length) return '';
+  if (!images.length) return null;
   const shadows = (d.shadows || []).slice(0, 3).map((s) => `drop-shadow(${Number(s.x_offset) || 0}px ${Number(s.y_offset) || 0}px ${Number(s.radius) || 0}px ${rgba(s.color)})`);
   return [
-    `background-image: ${images.join(', ')}`,
-    'background-size: 100% 100%',
-    '-webkit-background-clip: text',
-    'background-clip: text',
-    '-webkit-text-fill-color: transparent',
+    ['background-image', images.join(', ')],
+    ['background-size', '100% 100%'],
+    ['-webkit-background-clip', 'text'],
+    ['background-clip', 'text'],
+    ['-webkit-text-fill-color', 'transparent'],
     // var(--nick-shadow) is the over-the-video legibility shadow (see app.css); empty elsewhere.
-    shadows.length ? `filter: ${shadows.join(' ')} var(--nick-shadow,)` : '',
-  ].filter(Boolean).join('; ');
+    shadows.length ? ['filter', `${shadows.join(' ')} var(--nick-shadow,)`] : null,
+  ].filter(Boolean);
 }
 
 /** A 7TV badge cosmetic → { url, title }. */
@@ -96,7 +108,7 @@ export class SevenTVEvents {
     this.wantCosmetics = true;
     this.retry = 0;
     this.timer = null;
-    this.paints = new Map(); // paint id → css
+    this.paints = new Map(); // paint id → CSS declarations ([property, value] pairs)
     this.badges = new Map(); // badge id → { url, title }
     this.userPaint = new Map(); // twitch id → paint id
     this.userBadge = new Map(); // twitch id → badge id

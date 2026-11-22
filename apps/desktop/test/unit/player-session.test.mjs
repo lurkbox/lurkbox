@@ -101,19 +101,21 @@ test('every webRequest event is registered once in the main process (a second on
   assert.deepEqual(Object.keys(counts).sort(), ['onBeforeRequest', 'onHeadersReceived'], 'update this test when a listener is added');
 });
 
-test('keepTwitchCookiesThirdParty: twitch.tv cookies that are not SameSite=None + Secure are re-set as such (names logged, values never)', async () => {
+test('keepTwitchCookiesThirdParty: the chat frame\'s twitch.tv cookies that are not SameSite=None + Secure are re-set as such (names logged, values never)', async () => {
   const set = [];
   const listeners = [];
   const jar = [
     { name: 'auth-token', value: 'secret', domain: '.twitch.tv', path: '/', secure: true, httpOnly: false, sameSite: 'lax', expirationDate: 2e9, hostOnly: false },
     { name: 'ok', value: 'v', domain: '.twitch.tv', path: '/', secure: true, sameSite: 'no_restriction', hostOnly: false },
-    { name: 'host', value: 'h', domain: 'www.twitch.tv', path: '/', secure: false, sameSite: 'unspecified', hostOnly: true, session: true },
+    { name: 'persistent', value: 'h', domain: 'www.twitch.tv', path: '/', secure: false, sameSite: 'unspecified', hostOnly: true, session: true },
     { name: 'other', value: 'o', domain: '.example.com', path: '/', secure: false, sameSite: 'lax' },
+    { name: 'experiment_overrides', value: 'x', domain: '.twitch.tv', path: '/', secure: true, sameSite: 'lax', hostOnly: false },
+    { name: 'sudo', value: 'x', domain: '.twitch.tv', path: '/', secure: true, sameSite: 'strict', hostOnly: false },
   ];
   const cookies = { get: async () => jar, set: async (d) => { set.push(d); }, on: (_e, f) => listeners.push(f), removeListener: (_e, f) => listeners.splice(listeners.indexOf(f), 1) };
   const log = [];
   const k = keepTwitchCookiesThirdParty(cookies, (l) => log.push(l));
-  assert.deepEqual(await k.repair(), ['auth-token(lax)', 'host(unspecified)']);
+  assert.deepEqual(await k.repair(), ['auth-token(lax)', 'persistent(unspecified)'], 'only the cookies the chat frame needs');
   assert.deepEqual(set[0], { url: 'https://twitch.tv/', name: 'auth-token', value: 'secret', path: '/', secure: true, httpOnly: false, sameSite: 'no_restriction', domain: '.twitch.tv', expirationDate: 2e9 });
   assert.equal('domain' in set[1], false, 'host-only stays host-only');
   assert.equal('expirationDate' in set[1], false, 'a session cookie stays a session cookie');
@@ -124,6 +126,7 @@ test('keepTwitchCookiesThirdParty: twitch.tv cookies that are not SameSite=None 
   listeners[0]({}, jar[0], 'overwrite', true);
   listeners[0]({}, jar[1], 'explicit', false);
   listeners[0]({}, jar[3], 'explicit', false);
+  listeners[0]({}, jar[4], 'explicit', false);
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(set.length, 1);
   assert.match(log[0], /auth-token was written SameSite=strict \(explicit\); set to SameSite=None/);

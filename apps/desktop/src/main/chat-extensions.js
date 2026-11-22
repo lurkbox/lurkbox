@@ -3,16 +3,25 @@
 // ("Twitch chat" style). Off by default (Settings → Chat). Packages come from each project's official GitHub
 // releases (never the Chrome Web Store) into userData/extensions/<key>/<version>/.
 //
+// Versions are pinned: chat-extensions.lock.json names the exact release file of each and its SHA-256, and a download
+// that doesn't match is refused. Moving to a newer release is a change to that file (scripts/pin-chat-extensions.mjs
+// writes it), never something the app decides on its own.
+//
 // Lurkbox changes each manifest so the content scripts run only in twitch.tv/embed and popout chat (all frames,
-// because the chat is an iframe inside Lurkbox's page) and not in the player or the login window. BetterTTV
+// because the chat is an iframe inside Lurkbox's page) and not in the player or the login window, and removes the
+// background worker, the permissions and the host permissions: what runs is the content script in the chat page. BetterTTV
 // publishes only its page script on GitHub, so Lurkbox wraps it in a small generated manifest, like its extension.
 // An extension that fails to load is disabled with the reason recorded; Lurkbox's own chat emotes keep working.
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { readZip, readTarGz, extractTo } = require('./archive');
 
 const CHAT_MATCHES = ['https://www.twitch.tv/embed/*', 'https://www.twitch.tv/popout/*'];
+/** Pages that may load an extension's web-accessible files (the chat page's own scripts inject them). */
+const RESOURCE_MATCHES = ['https://www.twitch.tv/*'];
 
+// repo/pick/asset/version: how scripts/pin-chat-extensions.mjs finds a release to pin. The app only uses the pins.
 const EXTENSIONS = {
   '7tv': {
     name: '7TV',
@@ -40,6 +49,14 @@ const EXTENSIONS = {
   },
 };
 
+const LOCK_FILE = path.join(__dirname, 'chat-extensions.lock.json');
+/** The pinned release of each extension: { key: { version, url, sha256 } }. */
+function readPins(file = LOCK_FILE) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
+
 /** "v3.1.6" / "chrome-stable/4.82.0.31" / "7.7.33" → [3,1,6] etc.; null if there is no number. */
 function parseVersion(v) {
   const m = /(\d+(?:\.\d+)*)/.exec(String(v || ''));
@@ -64,11 +81,26 @@ function chromeVersion(v) {
   return p.slice(0, 4).map((n) => Math.min(65535, n)).join('.');
 }
 
-/** Restricts content scripts to the chat pages and lets them run in frames. Returns the new manifest. */
+// Manifest keys removed: no background worker, no API permissions or host access, nothing outside the chat page can
+// talk to the extension, and no self-update.
+const DROPPED_KEYS = ['update_url', 'background', 'permissions', 'optional_permissions', 'host_permissions', 'optional_host_permissions', 'externally_connectable'];
+
+/**
+ * Restricts content scripts to the chat pages (in frames), drops the background worker, permissions and host
+ * permissions, and limits web-accessible files to twitch.tv pages. Returns the new manifest.
+ */
 function scopeManifest(m) {
   const out = { ...m };
-  delete out.update_url;
-  out.content_scripts = (m.content_scripts || []).map((cs) => ({ ...cs, matches: CHAT_MATCHES, all_frames: true }));
+  for (const k of DROPPED_KEYS) delete out[k];
+  out.content_scripts = (m.content_scripts || []).map((cs) => {
+    const c = { ...cs, matches: CHAT_MATCHES, all_frames: true };
+    delete c.exclude_globs;
+    delete c.include_globs;
+    return c;
+  });
+  if (Array.isArray(m.web_accessible_resources)) {
+    out.web_accessible_resources = m.web_accessible_resources.map((w) => (w && typeof w === 'object' ? { resources: w.resources || [], matches: RESOURCE_MATCHES } : w)).filter((w) => w && typeof w === 'object');
+  }
   return out;
 }
 
@@ -79,7 +111,6 @@ function bttvManifest(version) {
     description: 'BetterTTV\'s published page script, loaded into Twitch chat by Lurkbox.',
     version: chromeVersion(version),
     content_scripts: [{ matches: CHAT_MATCHES, js: ['betterttv.js'], all_frames: true, run_at: 'document_start', world: 'MAIN' }],
-    host_permissions: ['https://*.twitch.tv/*'],
   };
 }
 
@@ -89,11 +120,13 @@ class ChatExtensions {
    * @param {string} o.dir          userData/extensions
    * @param {Function} o.fetch      fetch(url, init) → Response (Electron net.fetch in the app)
    * @param {Function} [o.log]
+   * @param {object} [o.pins]       { key: { version, url, sha256 } } (default: chat-extensions.lock.json)
    */
-  constructor({ dir, fetch, log = () => {} }) {
+  constructor({ dir, fetch, log = () => {}, pins = readPins() }) {
     this.dir = dir;
     this.fetch = fetch;
     this.log = log;
+    this.pins = pins;
     this.stateFile = path.join(dir, 'state.json');
     this.state = this.readState();
     this.loaded = new Map(); // key → Electron extension id
@@ -119,55 +152,30 @@ class ChatExtensions {
     });
   }
 
-  async github(url) {
-    const r = await this.fetch(url, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Lurkbox' } });
-    if (!r.ok) throw new Error(`GitHub ${r.status}`);
-    return r.json();
+  /** The pinned release of one extension: { version, url, sha256, assetName }. */
+  pinned(key) {
+    const p = this.pins && this.pins[key];
+    if (!p || typeof p.version !== 'string' || !/^https:\/\/github\.com\//.test(String(p.url)) || !/^[0-9a-f]{64}$/.test(String(p.sha256))) throw new Error('no valid pin');
+    return { version: p.version, url: p.url, sha256: p.sha256, assetName: p.url.split('/').pop() };
   }
 
-  /** The latest release of one extension: { version, url, assetName }. */
-  async latest(key) {
-    const def = EXTENSIONS[key];
-    const rels = await this.github(`https://api.github.com/repos/${def.repo}/releases?per_page=20`);
-    const rel = def.pick(Array.isArray(rels) ? rels : []);
-    if (!rel) throw new Error('no release found');
-    const asset = (rel.assets || []).find((a) => def.asset.test(a.name));
-    if (!asset) throw new Error(`release ${rel.tag_name} has no ${def.asset} asset`);
-    return { version: def.version(rel), url: asset.browser_download_url, assetName: asset.name };
-  }
-
-  /** Checks all (or some) extensions; records `latest`. Returns status(). */
-  async check(keys = Object.keys(EXTENSIONS)) {
-    for (const key of keys) {
-      const e = this.entry(key);
-      try {
-        e.latest = (await this.latest(key)).version;
-        e.checkError = null;
-      } catch (err) {
-        e.checkError = err.message;
-        this.log(`[extensions] ${key}: update check failed: ${err.message}`);
-      }
-    }
-    this.saveState();
-    return this.status();
-  }
-
-  /** Downloads and installs the latest release where it is newer than the installed one (or `force`). */
+  /** Installs the pinned release where a different version (or nothing) is installed, or `force`. */
   async update({ keys = Object.keys(EXTENSIONS), force = false } = {}) {
     for (const key of keys) {
       const e = this.entry(key);
       try {
-        const rel = await this.latest(key);
+        const rel = this.pinned(key);
         e.latest = rel.version;
-        if (!force && e.version && compareVersions(rel.version, e.version) <= 0 && e.path && fs.existsSync(e.path)) continue;
-        const r = await this.fetch(rel.url, { headers: { 'User-Agent': 'Lurkbox' } });
+        if (!force && e.version === rel.version && e.sha256 === rel.sha256 && e.path && fs.existsSync(e.path)) continue;
+        const r = await this.fetch(rel.url, { headers: { 'User-Agent': 'Lurkbox' }, credentials: 'omit' });
         if (!r.ok) throw new Error(`download ${r.status}`);
         const buf = Buffer.from(await r.arrayBuffer());
+        if (sha256(buf) !== rel.sha256) throw new Error(`checksum mismatch for ${rel.assetName}; not installed`);
         const dest = path.join(this.dir, key, rel.version.replace(/[^\w.-]/g, '_'));
         fs.rmSync(dest, { recursive: true, force: true });
         this.install(key, buf, dest, rel.version);
         const old = e.path;
-        Object.assign(e, { version: rel.version, path: dest, status: 'installed', error: null, installedAt: Date.now() });
+        Object.assign(e, { version: rel.version, sha256: rel.sha256, path: dest, status: 'installed', error: null, installedAt: Date.now() });
         if (old && old !== dest) fs.rmSync(old, { recursive: true, force: true });
         this.log(`[extensions] ${key}: installed ${rel.version} (${rel.assetName})`);
       } catch (err) {
@@ -203,11 +211,22 @@ class ChatExtensions {
    */
   async loadInto(ses, { download = true } = {}) {
     const api = ses.extensions && typeof ses.extensions.loadExtension === 'function' ? ses.extensions : ses;
-    const missing = Object.keys(EXTENSIONS).filter((k) => { const e = this.state[k]; return !(e && e.path && fs.existsSync(e.path)) && !(e && e.disabled); });
+    // Missing, or installed by an older Lurkbox from another release (or before pins): install the pinned one.
+    const missing = Object.keys(EXTENSIONS).filter((k) => {
+      const e = this.state[k];
+      if (e && e.disabled) return false;
+      let pin = null;
+      try { pin = this.pinned(k); } catch { return false; }
+      return !(e && e.path && fs.existsSync(e.path) && e.version === pin.version && e.sha256 === pin.sha256);
+    });
     if (download && missing.length) await this.update({ keys: missing });
     for (const key of Object.keys(EXTENSIONS)) {
       const e = this.state[key];
       if (!e || !e.path || e.disabled || this.loaded.has(key)) continue;
+      // Only a package that was verified against its pin (an older Lurkbox's unpinned install is not loaded).
+      let pin = null;
+      try { pin = this.pinned(key); } catch { /* no pin */ }
+      if (!pin || e.version !== pin.version || e.sha256 !== pin.sha256) { this.log(`[extensions] ${key}: installed package is not the pinned release; not loaded`); continue; }
       try {
         const ext = await api.loadExtension(e.path, { allowFileAccess: false });
         this.loaded.set(key, ext.id);
@@ -262,7 +281,7 @@ const PROBE_JS = `(() => ({
   bttv: !!(window.BetterTTV || document.querySelector('[class*="bttv-"], #bttv-settings-button')),
 }))()`;
 
-module.exports = { ChatExtensions, EXTENSIONS, parseVersion, compareVersions, chromeVersion, scopeManifest, bttvManifest, CHAT_MATCHES, PROBE_JS };
+module.exports = { ChatExtensions, EXTENSIONS, LOCK_FILE, readPins, sha256, parseVersion, compareVersions, chromeVersion, scopeManifest, bttvManifest, CHAT_MATCHES, RESOURCE_MATCHES, PROBE_JS };
 
 /**
  * Main-process wiring: IPC for Settings, loading at startup when the setting is on, and a probe of Twitch's chat
@@ -278,9 +297,9 @@ function setupChatExtensions({ ipcMain, ses, getSettings, dir, fetch, log }) {
     if (!getSettings().chatExtensions) return mgr.status();
     enabled = true;
     const st = await mgr.loadInto(target, { download: false });
-    const missing = st.filter((x) => !x.installed && x.status !== 'failed');
+    const missing = st.filter((x) => !x.loaded && x.status !== 'failed');
     if (missing.length) {
-      // First run: install in the background, then reload any open chat frame so the new ones run there.
+      // First run (or a new pin): install in the background, then reload any open chat frame so the new ones run there.
       mgr.loadInto(target, { download: true }).then(reloadChatFrames).catch((e) => log(`[extensions] background install failed: ${e.message}`));
     }
     return st;

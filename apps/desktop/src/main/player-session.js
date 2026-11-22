@@ -99,16 +99,24 @@ function mismatchWarning(playerLogin, lurkboxLogin) {
 }
 
 /**
+ * The twitch.tv cookies Twitch's chat frame needs to be signed in: the web session (auth-token, login/name,
+ * persistent, twilight-user, api_token, server_session_id), the device id its requests are bound to (unique_id,
+ * unique_id_durable) and the integrity cookies its points requests use (KP_UIDz, KP_UIDz-ssn).
+ */
+const CHAT_FRAME_COOKIES = new Set(['auth-token', 'login', 'name', 'persistent', 'twilight-user', 'api_token', 'server_session_id', 'unique_id', 'unique_id_durable', 'KP_UIDz', 'KP_UIDz-ssn']);
+
+/**
  * Twitch's chat (and the Drops page) run in iframes of Lurkbox's own http://localhost page, which makes twitch.tv a
  * third party there: Chromium only gives a third-party frame the cookies marked SameSite=None (and Secure). A twitch.tv
  * cookie written as Lax, Strict or with no SameSite (Lax by default; e.g. by twitch.tv's own scripts in a first-party
  * window such as the hidden Drops or follow windows) is then missing in the chat frame, and Twitch's chat shows itself
- * signed out: no balance, no bonus, no rewards. This keeps every twitch.tv cookie SameSite=None + Secure: the ones in
- * the session now (repair()) and every one written later (the 'changed' listener). Logs cookie names, never values.
+ * signed out: no balance, no bonus, no rewards. This keeps the session cookies the chat frame needs (CHAT_FRAME_COOKIES)
+ * SameSite=None + Secure: the ones in the session now (repair()) and every one written later (the 'changed' listener).
+ * Every other twitch.tv cookie keeps the SameSite it was written with. Logs cookie names, never values.
  * @returns {{ repair: () => Promise<string[]>, stop: () => void }} repair() resolves the names it fixed.
  */
 function keepTwitchCookiesThirdParty(cookies, log = () => {}) {
-  const needsFix = (c) => isTwitchCookie(c) && (c.sameSite !== 'no_restriction' || !c.secure);
+  const needsFix = (c) => isTwitchCookie(c) && CHAT_FRAME_COOKIES.has(c.name) && (c.sameSite !== 'no_restriction' || !c.secure);
   const fix = async (c) => {
     const host = String(c.domain || '').replace(/^\./, '');
     const details = {
@@ -231,4 +239,4 @@ function openPlayerLogin({ BrowserWindow, parent, session, fullscreen, preload, 
   });
 }
 
-module.exports = { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, isTwitchCookie, keepTwitchCookiesThirdParty, restrictNavigation, TWITCH_WINDOW_URL, TWITCH_SITE_URL, CHROME_UA };
+module.exports = { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, isTwitchCookie, keepTwitchCookiesThirdParty, CHAT_FRAME_COOKIES, restrictNavigation, TWITCH_WINDOW_URL, TWITCH_SITE_URL, CHROME_UA };
