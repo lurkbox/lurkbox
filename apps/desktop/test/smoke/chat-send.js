@@ -3,7 +3,10 @@
 // with Lurkbox chat on, presses "Send a message" in the player overlay with a virtual gamepad, types on Lurkbox's own
 // on-screen keyboard (demo mode has no Steam keyboard), sends with A, and waits for the message to be drawn at once and
 // then confirmed by the fake chat's IRC echo. Then it sends the same text again and checks that the demo's
-// "identical message" drop is marked as not sent. LURKBOX_SHOT_DIR=<dir> saves chat-send-*.png. Exits 0 on success.
+// "identical message" drop is marked as not sent. Then the emote picker (X in the composer) inserts one of your own
+// Twitch emotes from its Twitch tab and the message goes out with the emote drawn; quick chat (Y in the composer, and
+// the overlay's quick-chat icon) sends a saved phrase at once, which comes back as its echo, and the same phrase
+// again is held by its 3 s cooldown. LURKBOX_SHOT_DIR=<dir> saves chat-send-*.png. Exits 0 on success.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -121,11 +124,54 @@ app.on('browser-window-created', (_e, win) => {
       await waitFor('a toast with the reason', "[...document.querySelectorAll('#toasts .toast')].some((t) => /identical/i.test(t.textContent))", 3000);
       if (await js("document.querySelector('#chat .cm-input').value") !== 'hi chat') throw new Error('a refused message should stay in the composer');
       await shot('dropped');
+      // The emote picker: X from the text box, the Twitch tab (your own emotes, two Helix pages in demo mode), A inserts.
+      await js("(() => { const i = document.querySelector('#chat .cm-input'); i.value = 'hello'; i.dispatchEvent(new Event('input')); i.focus(); return true; })()");
+      await press('X');
+      await waitFor('the emote picker', "!!document.querySelector('.pop-emotes .ep-tab')", 3000);
+      for (let i = 0; i < 6 && !(await js("!!document.querySelector('.pop-emotes .ep-tab.selected[data-tab=\"twitch\"]')")); i++) await press('RB');
+      await waitFor('your Twitch emotes', "document.querySelectorAll('.pop-emotes .ep-grid .ep-emote').length === 4", 5000);
+      await js("document.querySelector('.pop-emotes .ep-emote[title=\"lurkerHi\"]').focus(); true");
+      await press('A');
+      await waitFor('the emote in the draft', "document.querySelector('#chat .cm-input').value === 'hello lurkerHi '", 3000);
+      await shot('emotes');
+      await press('B');
+      await waitFor('the picker closed, focus on its button', "!document.querySelector('.pop-emotes') && document.activeElement && document.activeElement.classList.contains('cm-emotes')", 3000);
+      await sleep(1100);
+      await press('START'); // send from anywhere in the composer
+      await waitFor('the emote message echoed with the emote drawn', "[...document.querySelectorAll('#chat .chat-msg.own')].some((n) => /^demo-msg-/.test(n.dataset.id || '') && !!n.querySelector('img.emote[alt=\"lurkerHi\"]'))", 8000);
+      const recents = await js("(() => { const s = window.__lurkbox.state; return (s.settings.emoteRecents || {})[s.auth.user.id] || []; })()");
+      if (!recents.includes('lurkerHi')) throw new Error(`recent emotes not saved: ${JSON.stringify(recents)}`);
+      // Quick chat from the composer (Y): A sends a phrase at once; it is echoed.
+      await sleep(1100);
+      await press('Y');
+      await waitFor('quick chat', "!!document.querySelector('.pop-quick .qc-item')", 3000);
+      const first = await js("document.activeElement && document.activeElement.dataset.phrase");
+      if (!first) throw new Error('quick chat did not focus a phrase');
+      await shot('quick');
+      await press('A');
+      await waitFor(`the phrase "${first}" echoed`, `[...document.querySelectorAll('#chat .chat-msg.own')].some((n) => /^demo-msg-/.test(n.dataset.id || '') && n.querySelector('.chat-text').textContent.trim() === ${JSON.stringify(first)})`, 8000);
+      // Again at once: the 3 s per-phrase cooldown holds it (a toast, nothing sent).
+      const before = (await ownMessages()).length;
+      await press('A');
+      await waitFor('the cooldown toast', "[...document.querySelectorAll('#toasts .toast')].some((t) => /^Wait \\d+ s$/.test(t.textContent.trim()))", 3000);
+      if ((await ownMessages()).length !== before) throw new Error('the cooldown let a repeat through');
+      await press('B');
       // B leaves the composer for the overlay, on "Send a message".
       await press('B');
       await waitFor('the overlay on compose', "!document.getElementById('player-overlay').hidden && document.activeElement && document.activeElement.dataset.key === 'compose'", 3000);
+      // The overlay's quick-chat icon: another phrase, sent from the overlay's pop-over.
+      await press('RIGHT');
+      await waitFor('the quick-chat icon', "document.activeElement && document.activeElement.dataset.key === 'quick'", 3000);
+      await press('A');
+      await waitFor('quick chat in the overlay', "!!document.querySelector('#player-overlay .pop-quick .qc-item')", 3000);
+      await press('DOWN');
+      const second = await js("document.activeElement && document.activeElement.dataset.phrase");
+      if (!second || second === first) throw new Error(`expected another phrase, got ${second}`);
+      await sleep(3100);
+      await press('A');
+      await waitFor(`the phrase "${second}" echoed`, `[...document.querySelectorAll('#chat .chat-msg.own')].some((n) => /^demo-msg-/.test(n.dataset.id || '') && n.querySelector('.chat-text').textContent.trim() === ${JSON.stringify(second)})`, 8000);
       const own = await ownMessages();
-      finish(0, `sent and echoed, duplicate refused and marked: ${JSON.stringify(own)}`);
+      finish(0, `sent and echoed, duplicate refused and marked, emote inserted, quick chat sent from the composer and the overlay: ${JSON.stringify(own.map((m) => m.text))}`);
     } catch (e) {
       await shot('FAILED').catch(() => {});
       finish(1, e.message);

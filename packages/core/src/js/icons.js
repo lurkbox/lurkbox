@@ -27,6 +27,11 @@ export const PLAYER_ICONS = {
   side: '<rect x="3.5" y="5" width="17" height="14" rx="1.5"/><path d="M14 5v14"/>',
   keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 9.8h0M10 9.8h0M14 9.8h0M17.5 9.8h0M8 14.2h8"/>',
   send: '<path d="M4 11.5L20 4l-6 16-2.6-6.6z"/><path d="M11.4 13.4L20 4"/>',
+  quick: '<path d="M4 5.5h16v10H10l-4.5 4v-4H4z"/><path d="M13.2 7.2l-3 4h3.6l-2.9 3.8"/>',
+  emote: '<circle cx="12" cy="12" r="8.5"/><path d="M8.3 13.8a4.6 4.6 0 0 0 7.4 0"/><path d="M9.2 9.6h0M14.8 9.6h0"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  up: '<path d="M6 14.5l6-6 6 6"/>',
+  down: '<path d="M6 9.5l6 6 6-6"/>',
 };
 
 /** An inline SVG icon (aria-hidden; the control carries the label). Unknown names draw nothing. */

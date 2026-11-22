@@ -40,7 +40,7 @@ export function computeScrollTop({ scrollTop, viewHeight, itemTop, itemBottom, m
   return null;
 }
 
-const SCROLLERS = '#content, .modal, .chat-list, .ce, .po-pop';
+const SCROLLERS = '#content, .modal, .chat-list, .ce, .ep-grid, .po-pop';
 
 function remPx() { return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16; }
 

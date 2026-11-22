@@ -119,7 +119,7 @@ test('the fake Twitch chat speaks IRC that chat.js understands', () => {
   h.run(2);
   const events = h.got.flatMap((d) => d.split('\r\n')).map((l) => ircEvent(parseIrc(l))).filter(Boolean);
   assert.equal(events[0].kind, 'joined');
-  assert.deepEqual(events[1], { kind: 'room', roomId: '7100004', modes: { slow: '0', 'followers-only': '-1', 'subs-only': '0', 'emote-only': '0', r9k: '0' } });
+  assert.deepEqual(events[1], { kind: 'room', roomId: '7100004', modes: { slow: '0', 'followers-only': '10', 'subs-only': '0', 'emote-only': '0', r9k: '0' } });
   const msgs = events.filter((e) => e.kind === 'msg');
   assert.ok(msgs.length >= 20);
   assert.ok(msgs.some((m) => /moderator\/1/.test(m.badges)));

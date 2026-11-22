@@ -79,7 +79,7 @@ export function ownLine({ channel, roomId, user, text, id, color = '#9BE37A', ba
 export function joinLines(channel, roomId, backlog = 24) {
   const out = [
     `:justinfan12345!justinfan12345@justinfan12345.tmi.twitch.tv JOIN #${channel}`,
-    `@emote-only=0;followers-only=-1;r9k=0;room-id=${roomId};slow=0;subs-only=0 :tmi.twitch.tv ROOMSTATE #${channel}`,
+    `@emote-only=0;followers-only=10;r9k=0;room-id=${roomId};slow=0;subs-only=0 :tmi.twitch.tv ROOMSTATE #${channel}`, // followers-only: the composer's note
   ];
   for (let i = 0; i < backlog; i++) out.push(chatLine(channel, roomId, i));
   return out;

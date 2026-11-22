@@ -4,7 +4,8 @@
 /**
  * The row of icon buttons, in order, for what is playing.
  * ctx: { kind: 'live'|'video', points: bool (Twitch's chat frame is loaded), follow: bool (the channel is known and
- * follow/unfollow is available), compose: bool (signed in, Lurkbox chat style: "Send a message"), fullscreen: bool }
+ * follow/unfollow is available), compose: bool (signed in, Lurkbox chat style: "Send a message"), quick: bool (signed in:
+ * quick chat, in either chat style), fullscreen: bool }
  */
 export function overlayControls(ctx) {
   const live = ctx.kind === 'live';
@@ -12,6 +13,7 @@ export function overlayControls(ctx) {
     'play', 'volume', 'quality',
     live ? 'chat' : null,
     live && ctx.compose ? 'compose' : null,
+    live && ctx.quick ? 'quick' : null,
     live ? 'live' : null,
     live && ctx.points ? 'points' : null,
     ctx.follow ? 'follow' : null,
@@ -20,7 +22,7 @@ export function overlayControls(ctx) {
 }
 
 /** Which controls open a pop-over above themselves (the rest act at once). */
-export const POPOVER_CONTROLS = new Set(['volume', 'quality', 'chat', 'points', 'more']);
+export const POPOVER_CONTROLS = new Set(['volume', 'quality', 'chat', 'quick', 'points', 'more']);
 
 /** Icon name for a control in this state. */
 export function controlIcon(key, ctx = {}) {
@@ -58,6 +60,7 @@ export function controlLabel(key, ctx = {}) {
     case 'quality': return `Quality${dot}${ctx.quality || 'Auto'}`;
     case 'chat': return `Chat${dot}${ctx.chatOn ? 'On' : 'Off'}`;
     case 'compose': return 'Send a message';
+    case 'quick': return 'Quick chat';
     case 'live': return ctx.rewound ? 'Back to live' : ctx.behind ? 'Jump to live' : 'Live';
     case 'points': return Number.isFinite(ctx.points) ? `Channel points${dot}${Math.round(ctx.points).toLocaleString('en-US')}` : 'Channel points';
     case 'follow': return ctx.following ? `Following${dot}Unfollow?` : 'Follow';

@@ -25,10 +25,10 @@ export class Popover {
    * Opens `node` for the control `key`, above `opener`. `initial` is the node to focus first (else the first
    * focusable in it). `update` refreshes its contents in place when the player state changes.
    */
-  open({ key, node, opener, initial = null, onClose = null, update = null }) {
+  open({ key, node, opener, initial = null, onClose = null, update = null, onAction = null }) {
     if (this.cur) this.close({ returnFocus: false });
     const openerKey = opener ? stableKey(opener, this.deps.scope) : null;
-    this.cur = { key, node, opener, openerKey, onClose, update };
+    this.cur = { key, node, opener, openerKey, onClose, update, onAction };
     if (this.deps.mount) this.deps.mount(node, opener);
     const first = initial || (node.querySelector && node.querySelector('.focusable'));
     if (first) this.deps.focus(first);
@@ -52,10 +52,14 @@ export class Popover {
 
   update() { if (this.cur && this.cur.update) this.cur.update(); }
 
-  /** Controller input while open. Returns true when consumed (B, A, directions); other actions pass through. */
+  /**
+   * Controller input while open. Returns true when consumed (B, A, directions, and whatever the pop-over's own
+   * onAction takes, e.g. X/Y in quick chat or LB/RB tabs in the emote picker); other actions pass through.
+   */
   handle(action) {
     if (!this.cur) return false;
     if (action === 'B') { this.close(); return true; }
+    if (this.cur.onAction && this.cur.onAction(action)) return true;
     const a = this.deps.active();
     if (['UP', 'DOWN', 'LEFT', 'RIGHT'].includes(action)) {
       if (!this.contains(a)) {

@@ -180,6 +180,7 @@ export class Chat {
     this.gate = new SendGate();
     this.own = { color: '', badges: '', userId: '' };
     this.localSeq = 0;
+    this.ownEmotes = new Map(); // your own Twitch emotes (user-emotes.js), for your messages and the pickers
     this.stv = new SevenTVEvents({ log });
     this.stv.onEmotes = ({ setId, add, remove, personal }) => {
       if (personal) this.index.patchPersonal(setId, { add, remove });
@@ -431,6 +432,16 @@ export class Chat {
     requestAnimationFrame(() => { this.list.scrollTop = this.list.scrollHeight; });
   }
 
+  /** Your own Twitch emotes (Helix /chat/emotes/user) by name. */
+  setOwnEmotes(list) { this.ownEmotes = new Map((list || []).map((e) => [e.name, e])); }
+
+  /** The channel's emotes plus your own Twitch emotes: for your messages, quick-chat phrases and the emote picker. */
+  lookup() {
+    const base = this.index;
+    const own = this.ownEmotes;
+    return { enabled: base.enabled, get: (name, userId) => base.get(name, userId) || own.get(name) || null };
+  }
+
   /** Builds one message: badges, name (colour or 7TV paint), then text with emotes. */
   messageNode(ev) {
     if (ev.roomId && ev.roomId !== this.roomId) this.loadRoom(ev.roomId);
@@ -441,7 +452,9 @@ export class Chat {
     const nick = el('span', { class: 'chat-nick', style: `color:${readableOn(ev.color, chatBg())}`, dataset: { color: ev.color } }, ev.nick);
     if (cos && cos.paintId) applyPaint(nick, cos.paintId, this.stv.paints.get(cos.paintId));
     const text = el('span', { class: 'chat-text' });
-    text.append(renderParts(tokenize(ev.text, ev.emotes, this.index, { userId: ev.userId, animated: this.prefs.animated })));
+    const me = state.auth.user;
+    const index = me && ev.userId && String(ev.userId) === String(me.id) ? this.lookup() : this.index;
+    text.append(renderParts(tokenize(ev.text, ev.emotes, index, { userId: ev.userId, animated: this.prefs.animated })));
     return el('div', { class: `chat-msg${ev.action ? ' action' : ''}`, dataset: { id: ev.id, uid: ev.userId } },
       renderBadges(badges), nick, ev.action ? ' ' : ': ', text);
   }

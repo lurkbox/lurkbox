@@ -4,6 +4,8 @@ import { saveSettings, previewSettings, state, onState } from '../state.js';
 import { TWITCH_CHAT_SIZES, twitchChatZoom } from '../../shared/tv-zoom.js';
 import { ChatControls, resetChatLayoutPatch } from '../chat-controls.js';
 import { confirmDialog } from '../modal.js';
+import { tw } from '../api.js';
+import { phraseEditor, pickChannelList, quickChatSetting } from '../quick-chat.js';
 
 /** What the chat controls need to know about the screen (also used by the player's chat pop-over). */
 export function chatEnv(direct = true) {
@@ -99,6 +101,16 @@ export function chatSettingsRows({ row, rerender, pickRow }) {
     onYes: async () => { await saveSettings(resetChatLayoutPatch()); toast('Chat layout reset', 2000, 'ok'); rerender(); },
   }), { dataset: { setting: 'chatLayoutReset' } }), 'Also in the player: the chat button opens the same controls.'));
   for (const t of CHAT_TOGGLES) rows.push(row(t.label, toggle(t.key), t.help));
+
+  // Quick chat: saved phrases, sent with one press from the player (the quick-chat icon, or the composer).
+  const qc = quickChatSetting(s);
+  rows.push(el('h3', { class: 'settings-subsection' }, 'Quick chat'));
+  rows.push(row('Phrases for all channels', button(`Edit (${qc.global.length})`, () => phraseEditor('global', null, { onClose: rerender }), { dataset: { setting: 'quickChatGlobal' } }), 'Shown after the channel\'s own phrases. Emote names in a phrase are sent as emotes. Up to 30 phrases of up to 500 characters.'));
+  const nChannels = Object.keys(qc.channels).length;
+  rows.push(row('Phrases for one channel', button(nChannels ? `Choose (${nChannels} with phrases)` : 'Choose', () => pickChannelList({
+    onClose: rerender,
+    resolveLogin: async (login) => { const u = await tw.userByLogin(login); return u ? { id: u.id, login: u.login, name: u.display_name } : null; },
+  }), { dataset: { setting: 'quickChatChannel' } }), 'The channel you watched last, one that has phrases, or any channel by name. In the player, Y in the quick-chat list edits a phrase and X adds one.'));
 
   // The real extensions exist only where the platform can load them (Electron).
   if (window.lurkbox && window.lurkbox.chatExtensionsStatus) {
