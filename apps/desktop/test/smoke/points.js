@@ -56,6 +56,10 @@ app.whenReady().then(async () => {
   if (!(await js(points.openRewardsSource()))) return fail('rewards button not found');
   await shot('before-side-panel');
   await js('closeRewards()');
+  // The detailed form (main.js retries it and logs which strategies failed): the first strategy finds the button.
+  const det = await js(points.openRewardsSource({ detail: true }));
+  if (!det.opened || det.via !== points.SELECTORS.rewardsButton[0] || det.tried.length || !det.summary || det.signedOut) return fail(`rewards detail ${JSON.stringify(det)}`);
+  await js('closeRewards()');
 
   // ---- the rewards view: the frame as a modal, as the core's openPointsPanel() does ----
   const openView = async (rewards) => {

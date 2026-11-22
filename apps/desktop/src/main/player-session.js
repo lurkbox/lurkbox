@@ -98,6 +98,47 @@ function mismatchWarning(playerLogin, lurkboxLogin) {
   return `The player is signed in as ${playerLogin}, but Lurkbox is signed in as ${lurkboxLogin}. Subs apply to ${playerLogin}.`;
 }
 
+/**
+ * Twitch's chat (and the Drops page) run in iframes of Lurkbox's own http://localhost page, which makes twitch.tv a
+ * third party there: Chromium only gives a third-party frame the cookies marked SameSite=None (and Secure). A twitch.tv
+ * cookie written as Lax, Strict or with no SameSite (Lax by default; e.g. by twitch.tv's own scripts in a first-party
+ * window such as the hidden Drops or follow windows) is then missing in the chat frame, and Twitch's chat shows itself
+ * signed out: no balance, no bonus, no rewards. This keeps every twitch.tv cookie SameSite=None + Secure: the ones in
+ * the session now (repair()) and every one written later (the 'changed' listener). Logs cookie names, never values.
+ * @returns {{ repair: () => Promise<string[]>, stop: () => void }} repair() resolves the names it fixed.
+ */
+function keepTwitchCookiesThirdParty(cookies, log = () => {}) {
+  const needsFix = (c) => isTwitchCookie(c) && (c.sameSite !== 'no_restriction' || !c.secure);
+  const fix = async (c) => {
+    const host = String(c.domain || '').replace(/^\./, '');
+    const details = {
+      url: `https://${host}${c.path || '/'}`, name: c.name, value: c.value, path: c.path || '/',
+      secure: true, httpOnly: !!c.httpOnly, sameSite: 'no_restriction',
+    };
+    if (!c.hostOnly) details.domain = c.domain; // a host-only cookie must stay host-only
+    if (c.expirationDate && !c.session) details.expirationDate = c.expirationDate;
+    await cookies.set(details);
+  };
+  const onChanged = (_e, cookie, cause, removed) => {
+    if (removed || !needsFix(cookie)) return;
+    fix(cookie).then(
+      () => log(`[player-cookies] ${cookie.name} was written SameSite=${cookie.sameSite}${cookie.secure ? '' : ' without Secure'} (${cause}); set to SameSite=None for the chat frame`),
+      (e) => log(`[player-cookies] could not make ${cookie.name} SameSite=None: ${e.message}`),
+    );
+  };
+  cookies.on('changed', onChanged);
+  return {
+    async repair() {
+      const fixed = [];
+      for (const c of (await cookies.get({})).filter(needsFix)) {
+        try { await fix(c); fixed.push(`${c.name}(${c.sameSite})`); } catch (e) { log(`[player-cookies] could not make ${c.name} SameSite=None: ${e.message}`); }
+      }
+      return fixed;
+    },
+    stop() { cookies.removeListener('changed', onChanged); },
+  };
+}
+
 const CHROME_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
 
 /**
@@ -170,4 +211,4 @@ function openPlayerLogin({ BrowserWindow, parent, session, fullscreen, preload, 
   });
 }
 
-module.exports = { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, isTwitchCookie, CHROME_UA };
+module.exports = { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, isTwitchCookie, keepTwitchCookiesThirdParty, CHROME_UA };

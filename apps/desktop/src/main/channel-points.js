@@ -24,7 +24,15 @@ const SELECTORS = Object.freeze({
   prediction: ['[data-test-selector="community-prediction-highlight-header"]', '[class*="prediction-highlight"]', '[data-test-selector="predictions-highlight"]'],
   poll: ['[data-test-selector="community-poll-highlight"]', '[class*="poll-highlight"]', '[data-test-selector="poll-highlight"]'],
   // "Bits and Points Balances" (seen 2026-11-21).
-  rewardsButton: ['[data-test-selector="community-points-summary"] button[aria-label*="Points" i]', '[data-test-selector="community-points-summary"] button'],
+  // Tried in order; the last ones find the button from the balance text or its label anywhere in the chat input area.
+  rewardsButton: [
+    '[data-test-selector="community-points-summary"] button[aria-label*="Points" i]',
+    '[data-test-selector="community-points-summary"] button',
+    '[data-test-selector="community-points-summary"] [role=button]',
+    'BALANCE_BUTTON', // the button around the balance string
+    '.chat-input button[aria-label*="Points" i]',
+    'button[aria-label*="Bits and Points" i]',
+  ],
   // The "Power-ups & Rewards" popover the balance button opens (and the prediction/poll details, same balloon).
   rewardsPopover: ['.reward-center__content', '[data-test-selector="reward-center-content"]', '[class*="reward-center__content"]', '.reward-center-body'],
   signedOut: ['[data-a-target="chat-welcome-message"] a[href*="login"]', 'button[data-a-target="login-button"]', '[data-test-selector="chat-input-signup-button"]'],
@@ -63,7 +71,11 @@ function scanSource({ autoClaim }) {
     const q = (list) => { for (const s of list) { try { const n = document.querySelector(s); if (n) return n; } catch (e) {} } return null; };
     const text = (n) => (n ? (n.innerText || n.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200) : null);
     const summary = q(S.summary);
-    const out = { signedIn: !!summary && !q(S.signedOut), balanceText: text(q(S.balance)), claimed: false, prediction: null, poll: null };
+    // authCookie: whether the frame's scripts see an auth-token cookie at all (its name only; never the value). False with
+    // a signed-in session means the cookie isn't SameSite=None, so the third-party frame doesn't get it.
+    let authCookie = null;
+    try { authCookie = /(^|;\\s*)auth-token=/.test(document.cookie); } catch (e) { /* no access */ }
+    const out = { signedIn: !!summary && !q(S.signedOut), signInPrompt: !!q(S.signedOut), authCookie, balanceText: text(q(S.balance)), claimed: false, prediction: null, poll: null };
     if (${autoClaim ? 'true' : 'false'}) {
       // Only ever a real button (the wrapper around the chest stays in the page after a claim).
       let b = null;
@@ -78,14 +90,30 @@ function scanSource({ autoClaim }) {
   })()`;
 }
 
-/** Opens the rewards popover (the balance button; it toggles, so not when it is already open). True when it is open. */
-function openRewardsSource() {
+/**
+ * Opens the rewards popover (the balance button; it toggles, so not when it is already open). True when it is open.
+ * With detail: { opened, already, via (the selector that worked), tried: [selector: 'none' | 'error'] , summary, signedOut }
+ * for the log, so a Twitch page change shows which strategies failed.
+ */
+function openRewardsSource({ detail = false } = {}) {
   return `(() => {
     const S = ${JSON.stringify(SELECTORS)};
     const shown = (n) => { const r = n.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
-    for (const s of S.rewardsPopover) for (const n of document.querySelectorAll(s)) if (shown(n)) return true;
-    for (const s of S.rewardsButton) { const n = document.querySelector(s); if (n) { n.click(); return true; } }
-    return false;
+    const has = (list) => list.some((s) => { try { return !!document.querySelector(s); } catch (e) { return false; } });
+    const out = { opened: false, already: false, via: null, tried: [], summary: has(S.summary), signedOut: has(S.signedOut) };
+    const done = () => (${detail ? 'out' : 'out.opened'});
+    for (const s of S.rewardsPopover) for (const n of document.querySelectorAll(s)) if (shown(n)) { out.opened = out.already = true; return done(); }
+    for (const s of S.rewardsButton) {
+      let n = null;
+      try {
+        if (s === 'BALANCE_BUTTON') {
+          for (const b of S.balance) { const t = document.querySelector(b); if (t && t.closest('button, [role=button]')) { n = t.closest('button, [role=button]'); break; } }
+        } else n = document.querySelector(s);
+      } catch (e) { out.tried.push(s + ': error'); continue; }
+      if (n) { n.click(); out.opened = true; out.via = s; return done(); }
+      out.tried.push(s + ': none');
+    }
+    return done();
   })()`;
 }
 
