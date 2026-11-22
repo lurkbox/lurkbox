@@ -3,6 +3,8 @@ import { el, button, toast, fmtViewers, fmtUptime, fmtDate, thumb } from './ui.j
 import { hint } from './input.js';
 import { sortLabel, nextSort, groupByGame } from '../shared/sorts.js';
 import { fmtLength } from '../shared/channel-page.js';
+import { cwProgress } from '../shared/continue-watching.js';
+import { fmtAgo } from './follows.js';
 import { ApiError } from './api.js';
 import { state, saveSettings } from './state.js';
 
@@ -101,6 +103,28 @@ export function videoCard(v, onSelect) {
     el('div', { class: 'card-body' },
       el('div', { class: 'card-title' }, v.title || 'Untitled'),
       el('div', { class: 'card-meta' }, `${fmtDate(v.created_at)} · ${fmtViewers(v.view_count)} views`)));
+}
+
+/**
+ * A Continue watching card (shared/continue-watching.js): the VOD's picture with a progress bar along its bottom and
+ * "x min left"; the channel, the title and when it was last watched. A plays from the saved position; X (or a
+ * long-press) calls onMenu (Remove from Continue watching).
+ */
+export function continueCard(item, onSelect, onMenu) {
+  const v = item.video;
+  const p = cwProgress(item.position, item.duration);
+  const img = v.thumbnail_url ? thumb(v.thumbnail_url, 440, 248) : '';
+  const card = el('button', { class: 'card card-cw focusable', type: 'button', onclick: () => onSelect(item), dataset: { focusKey: `cw-${item.id}`, cwId: item.id }, 'aria-label': `${v.user_name || v.user_login}: ${v.title || 'Video'}, ${p.label}` },
+    el('div', { class: 'card-thumb' },
+      img ? el('img', { src: img, alt: '', loading: 'lazy' }) : el('div', { class: 'thumb-missing' }, 'Video'),
+      el('span', { class: 'badge cw-left' }, p.label),
+      el('div', { class: 'cw-progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(p.fraction * 100)) },
+        el('div', { class: 'cw-progress-fill', style: `width: ${(p.fraction * 100).toFixed(1)}%` }))),
+    el('div', { class: 'card-body' },
+      el('div', { class: 'card-title' }, v.user_name || v.user_login || ''),
+      el('div', { class: 'card-sub' }, v.title || 'Untitled'),
+      el('div', { class: 'card-meta' }, `Watched ${fmtAgo(item.at)}`)));
+  return onLongPress(card, () => onMenu(item));
 }
 
 /** A clip (Helix /clips item): its picture, length and views; who clipped it and when. */

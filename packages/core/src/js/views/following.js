@@ -3,13 +3,17 @@ import { mascotEl } from '../mascot.js';
 import { hint } from '../input.js';
 import { state, saveSettings } from '../state.js';
 import { tw, setFollowedCache, followedChannels, followsAge, usersByIds, lastLive, lastLiveKnown, ApiError } from '../api.js';
-import { KeyedGrid, streamCard, errorState, listSort, sortChip, withGameHeaders, gameHeader } from '../grid.js';
+import { KeyedGrid, streamCard, continueCard, errorState, listSort, sortChip, withGameHeaders, gameHeader } from '../grid.js';
+import { pickFromList } from '../modal.js';
+import { focusEl, scrollToFocus } from '../focus.js';
+import { loadContinueWatching, removeFromContinueWatching } from '../continue-watching.js';
 import { LIVE_SORTS, sortStreams } from '../../shared/sorts.js';
 import { mergeFollows, sortOffline, SORTS, fmtAgo } from '../follows.js';
 import { Poller } from '../refresher.js';
 
 // Last data shown, per account, so coming back to Following paints instantly instead of flashing "Loading…".
 let lastShown = null;
+let lastCw = null;
 
 export function welcome(nav) {
   return el('div', { class: 'welcome' },
@@ -43,7 +47,10 @@ export function followingView() {
     id: 'following',
     title: 'Following',
     destroy() { if (poller) { poller.stop(); this.nav && this.nav.unregisterPoller(poller); } },
+    onPlayerClosed() { if (this.refreshCw) this.refreshCw(); },
     onAction(action) {
+      if (action === 'X' && this.cwRemove && this.cwRemove()) return true; // X on a Continue watching card: its menu
+      if (action === 'Y' && this.inCw && this.inCw()) return true; // the row has no sort (most recent first)
       if (action !== 'Y' || !this.cycleSort) return false;
       this.cycleSort();
       return true;
@@ -57,11 +64,15 @@ export function followingView() {
       const offChip = sortChip(() => cycleOffline());
       const liveSort = listSort({ key: 'liveSort', sorts: LIVE_SORTS, onChange: () => paintLive({ keepPosition: true }) });
       const status = el('span', { class: 'refresh-status' });
-      const liveGridEl = el('div', { class: 'grid' });
+      const liveGridEl = el('div', { class: 'grid grid-live' });
       const offGridEl = el('div', { class: 'grid grid-offline' });
       const liveEmpty = el('p', { class: 'empty', hidden: true }, 'Nobody you follow is live right now.');
+      // Continue watching: above Live, only when there is something to continue.
+      const cwTitle = el('h2', { class: 'section-title cw-title', hidden: true }, 'Continue watching ', hint('{X} remove'));
+      const cwGridEl = el('div', { class: 'grid cw-row hscroll', hidden: true });
       host.append(
         el('header', { class: 'view-header' }, el('h1', {}, 'Following'), hint('{X} channel page'), status),
+        cwTitle, cwGridEl,
         el('h2', { class: 'section-title live-title' }, 'Live ', liveSort.chip),
         liveGridEl, liveEmpty,
         el('h2', { class: 'section-title offline-title' }, 'Offline ', offChip.el),
@@ -82,6 +93,67 @@ export function followingView() {
         liveSorted = sortStreams(liveList, liveSort.value);
         live.set(liveSort.value === 'game' ? withGameHeaders(liveList) : liveSorted, opts);
       };
+      let cwItems = new Map();
+      const cwPlay = (it) => {
+        const cur = cwItems.get(it.id) || it; // the newest position (a refreshed card keeps its first click handler)
+        nav.playVideo(cur.video, { startAt: cur.position }); // Continue: no "Resume?" question
+      };
+      const cwMenu = (it) => {
+        const cur = cwItems.get(it.id) || it;
+        const v = cur.video;
+        const items = [{ value: 'remove', label: 'Remove from Continue watching' }];
+        if (v.user_login) items.push({ value: 'channel', label: `${v.user_name || v.user_login}'s channel page` });
+        pickFromList({
+          title: v.title || 'Continue watching',
+          items,
+          onPick: (what) => {
+            if (what === 'channel') { nav.openChannel({ login: v.user_login, id: v.user_id, name: v.user_name }); return; }
+            cwGen++;
+            removeFromContinueWatching(cur.id);
+            cwItems.delete(cur.id);
+            paintCw([...cwItems.values()], { keepPosition: true });
+            toast('Removed from Continue watching', 1800);
+          },
+        });
+      };
+      const cw = new KeyedGrid(cwGridEl, { key: (it) => it.id, render: (it) => continueCard(it, cwPlay, cwMenu) });
+      const paintCw = (items, opts) => {
+        lastCw = { account: state.auth.active, items };
+        cwItems = new Map(items.map((it) => [it.id, it]));
+        const empty = !items.length;
+        // Leaving the row empty with focus in it: focus goes to the first live card (or whatever is first).
+        const hadFocus = cwGridEl.contains(document.activeElement);
+        cw.set(items, opts);
+        cwTitle.hidden = empty;
+        cwGridEl.hidden = empty;
+        if (empty && hadFocus) { const n = host.querySelector('.grid:not([hidden]) .focusable'); if (n) focusEl(n, { instant: true }); }
+        else if (hadFocus && cwGridEl.contains(document.activeElement)) scrollToFocus(document.activeElement, true); // the card moved (just watched: first)
+      };
+      // One load at a time; a refresh asked for meanwhile runs after it. A load that started before a Remove is
+      // thrown away (it may still have the removed VOD) and done again.
+      let cwLoading = false;
+      let cwAgain = false;
+      let cwGen = 0;
+      const refreshCw = async () => {
+        if (cwLoading) { cwAgain = true; return; }
+        cwLoading = true;
+        try {
+          do {
+            cwAgain = false;
+            const gen = cwGen;
+            const items = await loadContinueWatching();
+            if (gen !== cwGen) cwAgain = true;
+            else if (host.isConnected) paintCw(items);
+          } while (cwAgain && host.isConnected);
+        } catch (e) { console.warn('[cw] load failed', e); } finally { cwLoading = false; }
+      };
+      this.cwRemove = () => { const c = document.activeElement && cwGridEl.contains(document.activeElement) ? document.activeElement.closest('[data-cw-id]') : null; if (c && cwItems.has(c.dataset.cwId)) cwMenu(cwItems.get(c.dataset.cwId)); return !!c; };
+      this.refreshCw = refreshCw;
+      this.inCw = () => cwGridEl.contains(document.activeElement);
+      const cachedCw = lastCw && lastCw.account === state.auth.active ? lastCw : null;
+      if (cachedCw) paintCw(cachedCw.items);
+      refreshCw();
+
       let focusTimer = null;
       const onTileFocus = (f) => {
         clearTimeout(focusTimer);
@@ -125,6 +197,7 @@ export function followingView() {
         paintLive();
         liveEmpty.hidden = liveList.length > 0;
         paintOffline(mergeFollows(follows, liveList).offline);
+        refreshCw(); // also after the player: a finished VOD drops off, a new one comes in
       };
       let first = true;
       poller = new Poller({

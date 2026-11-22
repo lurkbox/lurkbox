@@ -1993,7 +1993,10 @@ export class Player {
     if (typeof pos !== 'number' || !Number.isFinite(pos) || pos <= 0) return;
     this.lastResumeSave = performance.now();
     const done = typeof dur === 'number' && dur > 0 && resumeDecision({ position: pos, duration: dur }) === 'start' && pos > 30;
-    window.lurkbox.resumeSet(cur.videoId, done ? 0 : pos, dur).catch(() => {});
+    // The video's details go with the position, for Following's Continue watching row.
+    const v = cur.video || {};
+    const meta = { title: v.title, login: v.user_login, name: v.user_name, userId: v.user_id, thumb: v.thumbnail_url };
+    window.lurkbox.resumeSet(cur.videoId, done ? 0 : pos, dur, meta).catch(() => {});
   }
 
   /** "Resume at 1:23:45 / Start over". Resolves with the start position (B = resume). */

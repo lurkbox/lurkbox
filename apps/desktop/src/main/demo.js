@@ -41,6 +41,31 @@ function coreDemo() {
   };
 }
 
+/**
+ * The first demo account's Continue watching row: a few past broadcasts part-watched over the last days (newest
+ * first), plus ones the row leaves out (finished, too old, barely started) and one Twitch "deleted" (gone from Helix,
+ * so the row drops it on load).
+ */
+function seedContinueWatching(store, db, accountId, durationOf) {
+  if (!accountId) return;
+  const DAY = 86400000;
+  const past = db.videos.filter((v) => v.type === 'archive' && !v.stream_id);
+  const pick = (i) => past[(i * 7) % past.length];
+  const meta = (v) => ({ title: v.title, login: v.user_login, name: v.user_name, userId: v.user_id, thumb: v.thumbnail_url });
+  const clock = store.now;
+  const put = (v, frac, ago) => {
+    const dur = durationOf(v);
+    store.now = () => db.now - ago; // watched that long ago
+    store.set(accountId, v.id, Math.round(dur * frac), dur, meta(v));
+    store.now = clock;
+  };
+  // Shown: [fraction watched, how long ago].
+  [[0.62, 2 * 3600e3], [0.18, 20 * 3600e3], [0.41, 2 * DAY], [0.83, 4 * DAY], [0.07, 6 * DAY], [0.55, 9 * DAY]].forEach(([f, ago], i) => put(pick(i), f, ago));
+  put(pick(6), 0.97, 3 * 3600e3); // finished
+  put(pick(7), 0.5, 40 * DAY); // older than 30 days
+  store.set(accountId, '2299999999', 1800, 7200, { title: 'A deleted broadcast', login: past[0].user_login, name: past[0].user_name, thumb: past[0].thumbnail_url });
+}
+
 /** Is this URL allowed in demo mode? Only the local page server, the demo media scheme and in-page data. */
 function allowedUrl(url, serverUrl) {
   const u = String(url);
@@ -75,7 +100,9 @@ function createDemoHost(opts = {}) {
   let accounts = opts.signedIn === false ? [] : db.accounts.map((a) => ({ ...a }));
   let active = accounts.length ? accounts[0].id : null;
   let deviceFlow = null;
-  const resume = new Map();
+  // Resume positions: the real store, in memory, on the demo clock; seeded with a Continue watching row.
+  const demoNow = () => data.DEMO_NOW + (now() - startedAt);
+  const resume = new (require('./resume').ResumeStore)(null, { now: demoNow });
 
   const authState = () => {
     const me = accounts.find((a) => a.id === active) || null;
@@ -102,6 +129,7 @@ function createDemoHost(opts = {}) {
     const g = u && db.gameOf.get(u.id);
     return g ? g.name : null;
   };
+  seedContinueWatching(resume, db, accounts.length ? db.accounts[0].id : null, durationOf);
   const noMedia = () => ({ ok: false, reason: `demo video unavailable (${(opts.media && opts.media.reason) || 'not rendered'})` });
 
   const handlers = {
@@ -165,8 +193,10 @@ function createDemoHost(opts = {}) {
       if (!v || !opts.media || !opts.media.ok) return null;
       return demoMedia.storyboardFor(durationOf(v), media('hls/storyboard.jpg'));
     },
-    'resume:get': (id) => resume.get(String(id)) || null,
-    'resume:set': (id, position, duration) => { if (position > 0) resume.set(String(id), { position, duration, at: now() }); else resume.delete(String(id)); return true; },
+    'resume:get': (id) => resume.get(active, String(id)),
+    'resume:set': (id, position, duration, meta) => resume.set(active, String(id), position, duration, meta),
+    'resume:list': () => resume.list(active),
+    'resume:clear': () => resume.clear(active),
     'points:watch': () => true,
     'points:openPanel': () => ({ ok: false, reason: 'not in demo mode' }),
     'points:pad': () => null,

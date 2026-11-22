@@ -56,6 +56,9 @@ const SETUP = {
   signin: { env: { LURKBOX_DEMO_SIGNED_OUT: '1' } },
   // The touch layouts (Android phones and tablets): a touchscreen (Chromium's touch emulation, LURKBOX_DEMO_TOUCH),
   // no controller, driven by taps and swipes.
+  // The demo's Continue watching row shows only in its own scenes, so the other Following shots stay as they were.
+  'continue-watching': { settings: { continueWatchingOn: true } },
+  'phone-continue-watching': { touch: true, settings: { continueWatchingOn: true }, env: { LURKBOX_DEMO_SIZE: '412x915' } },
   'phone-following': { touch: true, env: { LURKBOX_DEMO_SIZE: '412x915' } },
   'phone-channel': { touch: true, env: { LURKBOX_DEMO_SIZE: '412x915' } },
   'phone-player': { touch: true, env: { LURKBOX_DEMO_SIZE: '412x915' } },
@@ -69,7 +72,7 @@ if (TOUCH) SETUP[SCENE].env.LURKBOX_DEMO_TOUCH = '1';
 if (!SETUP[SCENE]) { console.error(`[shot] unknown scene ${SCENE}; one of ${Object.keys(SETUP).join(', ')}`); process.exit(2); }
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'lurkbox-shot-'));
-fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ videoOnlyUnfocused: false, confirmExit: true, navSounds: false, inputWhenUnfocused: true, ...(SETUP[SCENE].settings || {}) }));
+fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ videoOnlyUnfocused: false, confirmExit: true, navSounds: false, inputWhenUnfocused: true, continueWatchingOn: false, ...(SETUP[SCENE].settings || {}) }));
 // Times (the schedule, dates) in UTC, not the machine's zone: the screenshots are public.
 Object.assign(process.env, { TZ: process.env.SHOT_TZ || 'UTC', LURKBOX_DEMO: '1', LURKBOX_USER_DATA: userData, LURKBOX_DEMO_SIZE: process.env.SHOT_SIZE || '1280x800' }, SETUP[SCENE].env || {});
 if (!process.argv.includes('--windowed')) process.argv.push('--windowed');
@@ -175,7 +178,7 @@ app.on('browser-window-created', (_e, win) => {
   /** Following → the first live card, by tap. */
   const tapFirstLive = async () => {
     await following();
-    await tap('[data-view=following] .grid .card');
+    await tap('[data-view=following] .grid-live .card');
     await waitFor('the player', "!document.getElementById('player-screen').hidden");
     await playing();
   };
@@ -200,7 +203,7 @@ app.on('browser-window-created', (_e, win) => {
   const following = () => waitFor('Following', "document.querySelectorAll('[data-view=following] .grid .card').length >= 20");
   const openFirstLive = async () => {
     await following();
-    await js("document.querySelector('[data-view=following] .grid .card').focus(); true");
+    await js("document.querySelector('[data-view=following] .grid-live .card').focus(); true");
     await press('A');
     await waitFor('the player', "!document.getElementById('player-screen').hidden");
     await playing();
@@ -208,7 +211,7 @@ app.on('browser-window-created', (_e, win) => {
   /** X on the first live card opens its channel page (pixelmoth: live, with a schedule). */
   const openChannelPage = async () => {
     await following();
-    await js("document.querySelector('[data-view=following] .grid .card').focus(); true");
+    await js("document.querySelector('[data-view=following] .grid-live .card').focus(); true");
     await press('X');
     await waitFor('the channel page', "!!document.querySelector('.channel-tabs .channel-tab.selected')");
   };
@@ -250,7 +253,7 @@ app.on('browser-window-created', (_e, win) => {
     },
     async 'following-by-game'() {
       await following();
-      await js("document.querySelector('[data-view=following] .grid .card').focus(); true");
+      await js("document.querySelector('[data-view=following] .grid-live .card').focus(); true");
       await press('Y'); // A–Z → By game, on the focused Live section
       await waitFor('the game headers', "document.querySelectorAll('[data-view=following] .grid-group').length >= 2 && /By game/.test(document.querySelector('[data-view=following] .live-title .sort-chip').textContent)");
       await sleep(1700); // the "Sorted" toast goes
@@ -482,7 +485,7 @@ app.on('browser-window-created', (_e, win) => {
     },
     async theme() {
       await following();
-      await js("document.querySelector('[data-view=following] .grid .card').focus(); true");
+      await js("document.querySelector('[data-view=following] .grid-live .card').focus(); true");
       await settle();
       await shoot(`theme-${THEME}`);
     },
@@ -491,6 +494,30 @@ app.on('browser-window-created', (_e, win) => {
       await following(); // the screen behind it has loaded too
       await settle();
       await shoot('whos-watching');
+    },
+    async 'continue-watching'() {
+      await following();
+      await waitFor('the Continue watching row', "document.querySelectorAll('[data-view=following] .cw-row .card').length === 6");
+      await js("document.querySelector('[data-view=following] .cw-row .card').focus(); true");
+      await press('RIGHT');
+      await sleep(300);
+      await settle();
+      await shoot('continue-watching');
+    },
+    async 'phone-continue-watching'() {
+      await layoutIs('phone');
+      await following();
+      await waitFor('the Continue watching row', "document.querySelectorAll('[data-view=following] .cw-row .card').length === 6");
+      const row = await js("(() => { const r = document.querySelector('.cw-row'); return { sw: r.scrollWidth, cw: r.clientWidth, h: r.getBoundingClientRect().height, card: r.querySelector('.card').getBoundingClientRect().height }; })()");
+      if (!(row.sw > row.cw * 2)) throw new Error(`the row does not scroll sideways on the phone: ${JSON.stringify(row)}`);
+      if (row.h > row.card * 1.5) throw new Error(`the row wraps on the phone: ${JSON.stringify(row)}`);
+      await settle();
+      await shoot('phone-continue-watching');
+      // A long-press offers Remove from Continue watching.
+      await tap('[data-view=following] .cw-row .card', { hold: 750 });
+      await waitFor('the menu', "[...document.querySelectorAll('.modal .pick-item')].some((b) => /Remove from Continue watching/.test(b.textContent))");
+      await tap('.modal .pick-item');
+      await waitFor('one card fewer', "document.querySelectorAll('[data-view=following] .cw-row .card').length === 5");
     },
     async 'phone-following'() {
       await layoutIs('phone');
@@ -514,7 +541,7 @@ app.on('browser-window-created', (_e, win) => {
       // A long-press on a live card opens its channel page; a left swipe goes to the next tab.
       await layoutIs('phone');
       await following();
-      await tap('[data-view=following] .grid .card', { hold: 750 });
+      await tap('[data-view=following] .grid-live .card', { hold: 750 });
       await waitFor('the channel page', "!!document.querySelector('.channel-tabs .channel-tab.selected')");
       if (!(await js("document.getElementById('player-screen').hidden"))) throw new Error('the long-press also played the stream');
       await waitFor('the home tab', "document.querySelectorAll('.channel-body .card').length >= 3");
@@ -544,7 +571,7 @@ app.on('browser-window-created', (_e, win) => {
       // A clip from the channel's Clips tab: double tap the right half seeks +10 s, the seek bar drags, swipe down closes.
       await layoutIs('phone');
       await following();
-      await tap('[data-view=following] .grid .card', { hold: 750 });
+      await tap('[data-view=following] .grid-live .card', { hold: 750 });
       await waitFor('the channel page', "!!document.querySelector('.channel-tabs .channel-tab.selected')");
       await tap('.channel-tabs .channel-tab[data-tab=clips], .channel-tabs .channel-tab:nth-child(3)');
       await waitFor('the clips', "document.querySelectorAll('.channel-body .card-clip').length >= 4");

@@ -483,7 +483,9 @@ function registerIpc() {
   });
   const resume = new ResumeStore(path.join(app.getPath('userData'), 'resume.json'));
   appIpc.handle('resume:get', (_e, videoId) => resume.get(twitch.store().active, String(videoId)));
-  appIpc.handle('resume:set', (_e, videoId, position, duration) => resume.set(twitch.store().active, String(videoId), position, duration));
+  appIpc.handle('resume:set', (_e, videoId, position, duration, meta) => resume.set(twitch.store().active, String(videoId), position, duration, meta));
+  appIpc.handle('resume:list', () => resume.list(twitch.store().active));
+  appIpc.handle('resume:clear', () => resume.clear(twitch.store().active));
   appIpc.handle('log:write', (_e, line) => appLog(String(line).slice(0, 2000)));
 
   // ---- Steam library art (opt-in; Settings → Appearance). Never throws to the renderer. ----

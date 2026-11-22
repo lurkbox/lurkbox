@@ -229,6 +229,16 @@ img { display: block; }
 .badge.uptime { bottom: 0.5rem; right: 0.5rem; font-variant-numeric: tabular-nums; }
 .badge.kind { top: 0.5rem; right: 0.5rem; text-transform: capitalize; }
 .badge.clip-views { top: 0.5rem; right: 0.5rem; }
+/* Continue watching (Following): one sideways row, the cards the width of a grid card; the bar along the picture's bottom. */
+.grid.cw-row {
+  grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(15rem, calc((100% - 3 * 1.3rem) / 4));
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain;
+}
+.grid.cw-row::-webkit-scrollbar { display: none; }
+.grid.cw-row[hidden], .cw-title[hidden] { display: none; }
+.badge.cw-left { bottom: 0.75rem; right: 0.5rem; font-variant-numeric: tabular-nums; }
+.cw-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 0.3rem; background: var(--badge-bg); }
+.cw-progress-fill { height: 100%; background: var(--accent); }
 .card-body { padding: 0.7rem 0.9rem 0.9rem; display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
 .card-title { font-weight: 800; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-sub { color: var(--fg); opacity: 0.85; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

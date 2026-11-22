@@ -63,7 +63,12 @@ export function demoHelix(db, req = {}, ctx = {}) {
     }
     case '/videos': {
       let v = db.videos;
-      if (q.id != null) { const ids = many(q.id); return list(v.filter((x) => ids.includes(x.id))); }
+      if (q.id != null) {
+        // Like Helix: the videos found; 404 when none of the ids exists (a deleted VOD).
+        const ids = many(q.id);
+        const found = v.filter((x) => ids.includes(x.id));
+        return found.length ? list(found) : { ok: false, status: 404, error: 'Not Found', data: { message: 'videos not found' }, resetAt: null };
+      }
       if (q.user_id != null) { const id = String(q.user_id); v = v.filter((x) => x.user_id === id); }
       if (q.type && q.type !== 'all') v = v.filter((x) => x.type === q.type);
       const sorted = [...v].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));

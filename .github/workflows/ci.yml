@@ -71,6 +71,10 @@ jobs:
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
         run: xvfb-run -a npm run test:channel
+      - name: Continue watching in demo mode (offline)
+        env:
+          ELECTRON_DISABLE_SANDBOX: "1"
+        run: xvfb-run -a npm run test:continue
 
   package:
     name: AppImage builds

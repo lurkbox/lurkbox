@@ -93,7 +93,7 @@ app.on('browser-window-created', (_e, win) => {
       await js(PAD);
       await sleep(400);
       await waitFor('Following', "document.querySelectorAll('[data-view=following] .grid .card').length >= 5");
-      await js("document.querySelector('[data-view=following] .grid .card').focus(); true");
+      await js("document.querySelector('[data-view=following] .grid-live .card').focus(); true");
       await press('A');
       await waitFor('the player', "!document.getElementById('player-screen').hidden");
       await waitFor('chat messages', "document.querySelectorAll('#chat .chat-msg:not(.system)').length >= 10");

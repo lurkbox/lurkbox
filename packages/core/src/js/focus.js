@@ -44,8 +44,30 @@ const SCROLLERS = '#content, .modal, .chat-list, .ce, .ep-grid, .po-pop';
 
 function remPx() { return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16; }
 
-/** Scrolls only the item's own scroll container (never ancestors or the body). */
+/**
+ * Pure: the scrollLeft that brings an item of a sideways row (.hscroll, e.g. Continue watching) into view with a
+ * margin, or null to leave it alone. Positions are relative to the row's visible left edge.
+ */
+export function computeScrollLeft({ scrollLeft, viewWidth, itemLeft, itemRight, margin }) {
+  if (itemLeft - margin < 0) return Math.max(0, scrollLeft + itemLeft - margin);
+  if (itemRight + margin > viewWidth) return scrollLeft + itemRight + margin - viewWidth;
+  return null;
+}
+
+function scrollRowToFocus(node, instant) {
+  const row = node.closest('.hscroll');
+  if (!row || row.scrollWidth <= row.clientWidth) return;
+  const cr = row.getBoundingClientRect();
+  const r = node.getBoundingClientRect();
+  const left = computeScrollLeft({ scrollLeft: row.scrollLeft, viewWidth: row.clientWidth, itemLeft: r.left - cr.left, itemRight: r.right - cr.left, margin: remPx() * 1.5 });
+  if (left === null) return;
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  row.scrollTo({ left, behavior: instant || reduce ? 'instant' : 'smooth' });
+}
+
+/** Scrolls only the item's own scroll container (never ancestors or the body), and its sideways row if it is in one. */
 export function scrollToFocus(node, instant = false) {
+  scrollRowToFocus(node, instant);
   const sc = node.closest(SCROLLERS);
   if (!sc || sc.scrollHeight <= sc.clientHeight) return;
   const cr = sc.getBoundingClientRect();
