@@ -87,7 +87,8 @@ app.whenReady().then(async () => {
     const inside = a.top >= box.top - 1 && a.bottom <= box.bottom + 1 && g.top >= 0 && g.bottom <= innerHeight && g.left >= 0 && g.right <= innerWidth;
     return { ok: off < 1.5 && inside, off, inside, a: [a.left, a.top, a.width, a.height].map(Math.round) };
   })()`);
-  const press = async (k) => { const v = await js(pressSource(k)); await wait(30); return v; };
+  // A runs as a user gesture, as the main process sends it (a text box may then take real focus).
+  const press = async (k) => { const v = await frame.executeJavaScript(pressSource(k), k === 'a'); await wait(30); return v; };
 
   if (!(await openView(true))) return fail('rewards popover did not open');
   // The popover fills the frame, and its scroll container the height under the header.
@@ -147,11 +148,30 @@ app.whenReady().then(async () => {
   await press('a');
   if ((await js('window.picked')) !== tile || !(await js('!!document.getElementById("detail")'))) return fail(`A on ${tile} did not open its detail`);
   if ((await js(backSource())) !== 'back' || (await js('!!document.getElementById("detail")'))) return fail('B did not go back from the detail');
-  // The reward that needs a message: A on its text box asks for the Steam keyboard.
-  await js('window.__lbNav.start()');
-  for (let i = 0; i < 6 && !/^cr-/.test(await cur()); i++) await press('down');
-  for (let i = 0; i < 3 && (await cur()) !== 'cr-message'; i++) await press('right');
-  if ((await cur()) !== 'cr-message') return fail(`could not reach the message reward (${await cur()})`);
+  // A reward without a message: its detail's Redeem button redeems it.
+  // Walks the D-pad towards an element: up/down until on its row, then left/right.
+  const focusTarget = async (id) => {
+    await js('window.__lbNav.reset(), window.__lbNav.start()');
+    for (let i = 0; i < 24 && (await cur()) !== id; i++) {
+      const d = await js(`(() => { const a = window.__lbNav.current().getBoundingClientRect(); const b = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect();
+        const dy = (b.top + b.bottom - a.top - a.bottom) / 2; const dx = (b.left + b.right - a.left - a.right) / 2;
+        return Math.abs(dy) > 8 ? (dy > 0 ? 'down' : 'up') : (dx > 0 ? 'right' : 'left'); })()`);
+      await press(d);
+    }
+    return cur();
+  };
+  if ((await focusTarget('cr-hydrate')) !== 'cr-hydrate') return fail(`could not reach Hydrate! (${await cur()})`);
+  await press('a');
+  await wait(50);
+  await js('window.__lbNav.reset(), window.__lbNav.start()');
+  for (let i = 0; i < 4 && (await cur()) !== 'redeem'; i++) await press('down');
+  await press('a');
+  if ((await js('window.redeemed')) !== 'cr-hydrate') return fail(`Redeem did not redeem (${await js('window.redeemed')})`);
+  await js(backSource());
+  // A power-up with a message in its detail: A on the text box takes real focus and asks for the Steam keyboard; the
+  // first B leaves the box ('text'), the next goes back.
+  await focusTarget('pu-highlight');
+  if ((await cur()) !== 'pu-highlight') return fail(`could not reach the highlight power-up (${await cur()})`);
   await press('a');
   await wait(50);
   await js('window.__lbNav.start()');
@@ -160,11 +180,59 @@ app.whenReady().then(async () => {
     if ((await cur()) === 'reward-text') kb = await press('a');
     else await press('down');
   }
-  if (kb !== 'keyboard') return fail(`A on the reward's text box did not ask for the keyboard (${await cur()})`);
+  if (kb !== 'keyboard') return fail(`A on the power-up's text box did not ask for the keyboard (${await cur()})`);
+  if ((await js('document.activeElement && document.activeElement.id')) !== 'reward-text') return fail('the text box did not get DOM focus');
   g = await geometry();
   if (!g.ok) return fail(`ring on the text box: ${JSON.stringify(g)}`);
   await shot('detail-text');
+  if ((await js(backSource())) !== 'text') return fail('B in the text box did not just leave it');
+  if ((await js('document.activeElement && document.activeElement.id')) === 'reward-text') return fail('the text box kept the focus after B');
   if ((await js(backSource())) !== 'back') return fail('B did not go back from the text reward');
+
+  // A reward that needs a message, the way Twitch does it: the popover closes, the reward becomes a chip above the chat
+  // input (a contenteditable Slate editor, not a textarea), and the input has the focus. A on it asks for the
+  // keyboard, typed keys reach it, Enter sends (Lurkbox presses "Chat" when the editor didn't send by itself) and the
+  // reward is redeemed with the message; B in the box goes back to the reward list and lets go of the focus.
+  const reachMessageReward = async () => {
+    await focusTarget('cr-message');
+    if ((await cur()) !== 'cr-message') throw new Error(`could not reach the message reward (${await cur()})`);
+    await press('a');
+    await wait(50);
+    if (await js("document.getElementById('balloon').style.display !== 'none'")) throw new Error('the popover stayed open for a message reward');
+    if (!(await js("document.getElementById('reward-chip').style.display !== 'none'"))) throw new Error('no reward chip');
+  };
+  const typeKeys = async (text) => {
+    win.webContents.focus();
+    for (const ch of text) { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: ch }); win.webContents.sendInputEvent({ type: 'char', keyCode: ch }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: ch }); await wait(20); }
+  };
+  const editorText = () => js("document.querySelector('[data-a-target=chat-input]').textContent");
+  try { await reachMessageReward(); } catch (e) { return fail(e.message); }
+  if (!(await js("!!window.__lbNav.current() && window.__lbNav.current().getAttribute('data-a-target') === 'chat-input'"))) await press('down'); // the nav picks up the page's focus: the editor
+  if (!(await js("!!window.__lbNav.current() && window.__lbNav.current().getAttribute('data-a-target') === 'chat-input'"))) return fail(`the chat input is not a target after picking the reward (${await cur()})`);
+  const kb2 = await press('a');
+  if (kb2 !== 'keyboard') return fail(`A on the chat input did not ask for the keyboard (${kb2})`);
+  if (!(await js("document.activeElement === document.querySelector('[data-a-target=chat-input]')"))) return fail('the chat input did not get DOM focus');
+  await typeKeys('hi');
+  if ((await editorText()) !== 'hi') return fail(`typing did not reach the chat input ("${await editorText()}")`);
+  await shot('reward-message');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+  win.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+  await wait(700);
+  const red = await js('({ redeemed: window.redeemed, text: window.redeemedText, sent: window.sent, focused: document.activeElement === document.querySelector("[data-a-target=chat-input]") })');
+  if (red.redeemed !== 'cr-message' || red.text !== 'hi') return fail(`Enter did not send the reward's message: ${JSON.stringify(red)}`);
+  if (red.focused) return fail('the chat input kept the focus after sending');
+  // Again, and B this time: back to the reward list, the box lets go of the focus.
+  await js("document.getElementById('balance-btn').click(), true"); // the list again
+  try { await reachMessageReward(); } catch (e) { return fail(e.message); }
+  const onEditor = () => js("!!window.__lbNav.current() && window.__lbNav.current().getAttribute('data-a-target') === 'chat-input'");
+  if (!(await onEditor())) await press('down');
+  if ((await press('a')) !== 'keyboard') return fail('A on the chat input (second time) did not ask for the keyboard');
+  const b1 = await js(backSource());
+  if (b1 !== 'text') return fail(`B in the chat input returned ${b1}`);
+  if (await js("document.activeElement === document.querySelector('[data-a-target=chat-input]')")) return fail('the chat input kept the focus after B');
+  await js(points.openRewardsSource()); // what the main process does after 'text'
+  if (!(await js("document.getElementById('balloon').style.display !== 'none' && !!document.getElementById('rewards')"))) return fail('B did not go back to the reward list');
   if ((await js(backSource())) !== 'close') return fail('B on the list did not ask to close the view');
   await closeView();
   const after = await js(`({ open: document.getElementById('balloon').style.display !== 'none', nav: !!window.__lbNav, fit: !!window.__lbFit, ring: !!document.getElementById('lurkbox-focus-ring'), transform: document.getElementById('balloon').style.transform })`);
@@ -184,6 +252,6 @@ app.whenReady().then(async () => {
   await shot('prediction-open');
   await closeView();
 
-  console.log(`[points-smoke] PASS: chat zoomed ${zoom}; balance 12.3K -> 12,350 after one Claim Bonus click (+50), prediction noticed once; rewards view ${layout.modal[2]}x${layout.modal[3]} with the hint below it, popover fitted to the frame, ${targets.length} single-element targets (wrappers skipped), down walked ${seen.length} tiles with the ring on each and the list scrolled, A opened a detail and B went back then closed, A on a text box asked for the keyboard, prediction view fitted`);
+  console.log(`[points-smoke] PASS: chat zoomed ${zoom}; balance 12.3K -> 12,350 after one Claim Bonus click (+50), prediction noticed once; rewards view ${layout.modal[2]}x${layout.modal[3]} with the hint below it, popover fitted to the frame, ${targets.length} single-element targets (wrappers skipped), down walked ${seen.length} tiles with the ring on each and the list scrolled, A opened a detail and B went back then closed, Redeem redeemed, A on a text box focused it and asked for the keyboard, a message reward's contenteditable chat input took the keys and Enter sent it (redeemed with the message), B left the box for the reward list, prediction view fitted`);
   app.exit(0);
 }).catch((e) => fail((e && e.stack) || String(e)));

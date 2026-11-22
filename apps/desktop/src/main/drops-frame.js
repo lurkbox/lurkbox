@@ -46,10 +46,10 @@ function createDropsFrameHost({ frames, zoom, openKeyboard = () => {} }) {
       if (!src) return null;
       if (!frame) return k === 'b' ? 'close' : null;
       try {
-        const r = await frame.executeJavaScript(src);
+        const r = await frame.executeJavaScript(src, key === 'a');
         if (r === 'keyboard') openKeyboard();
         if (r === 'no-nav') host.prepare().catch(() => {});
-        return r;
+        return r === 'text' ? 'back' : r; // B left a text box: stay in the page
       } catch { return k === 'b' ? 'close' : null; }
     },
     async close() {
