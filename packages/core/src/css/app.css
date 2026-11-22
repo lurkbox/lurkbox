@@ -223,6 +223,7 @@ img { display: block; }
 }
 .badge.live { top: 0.5rem; left: 0.5rem; background: var(--live); color: var(--on-live); }
 .badge.viewers { bottom: 0.5rem; left: 0.5rem; }
+.badge.uptime { bottom: 0.5rem; right: 0.5rem; font-variant-numeric: tabular-nums; }
 .badge.kind { top: 0.5rem; right: 0.5rem; text-transform: capitalize; }
 .badge.clip-views { top: 0.5rem; right: 0.5rem; }
 .card-body { padding: 0.7rem 0.9rem 0.9rem; display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
