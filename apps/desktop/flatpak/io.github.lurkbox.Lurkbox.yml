@@ -31,6 +31,8 @@ finish-args:
 modules:
   - name: lurkbox
     buildsystem: simple
+    build-options:
+      no-debuginfo: true        # prebuilt Electron binaries: nothing to split, no .Debug extension
     sources:
       - type: dir
         path: ../../../dist/linux-unpacked
