@@ -1,0 +1,7 @@
+# Weekly update PRs for the pinned GitHub Actions (the SHA and the tag comment move together).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
