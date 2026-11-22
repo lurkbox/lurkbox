@@ -594,6 +594,7 @@ body.video-only.player-active .raid-card { transform: scale(1.3); }
 #player-screen.chat-over.chat-left #chat { left: 0; right: auto; }
 #player-screen.chat-over .chat-title { border-bottom: 0; }
 #player-screen.chat-over .chat-msg, #player-screen.chat-over .chat-title { text-shadow: 0 0 0.25rem var(--overlay-from), 0 0.05rem 0.15rem var(--overlay-from); }
+#player-screen.chat-over .chat-nick.paint { --nick-shadow: drop-shadow(0 0 0.2rem var(--overlay-from)) drop-shadow(0 0.05rem 0.1rem var(--overlay-from)); }
 
 /* ---------- Drops: Twitch's inventory page in a large frame, the hint in a strip below it (never over the page) ---------- */
 .drops-stage { position: relative; height: calc(100vh - 12.5rem); min-height: 16rem; border: 0.2rem solid var(--border); border-radius: 0.8rem; overflow: hidden; background: var(--chat-bg); }

@@ -23,7 +23,7 @@ const SETUP = {
   player: {},
   'player-popover': {},
   'player-chat': { settings: { chatDefault: true } },
-  'player-chat-overlay': { settings: { chatDefault: true, chatOverlay: true, chatOverlayOpacity: 45, chat7tvCosmetics: false } },
+  'player-chat-overlay': { settings: { chatDefault: true, chatOverlay: true, chatOverlayOpacity: 45 } },
   'player-rewind': {},
   categories: {},
   search: {},
@@ -247,7 +247,7 @@ app.on('browser-window-created', (_e, win) => {
     },
     async settings() {
       await following();
-      await press('RB', 'RB', 'RB', 'RB');
+      await press('RB', 'RB', 'RB', 'RB', 'RB'); // past Drops
       await waitFor('settings', "!!document.querySelector('[data-view=settings] .focusable')");
       await settle();
       await shoot('settings');

@@ -41,7 +41,8 @@ export function paintCss(paint) {
     '-webkit-background-clip: text',
     'background-clip: text',
     '-webkit-text-fill-color: transparent',
-    shadows.length ? `filter: ${shadows.join(' ')}` : '',
+    // var(--nick-shadow) is the over-the-video legibility shadow (see app.css); empty elsewhere.
+    shadows.length ? `filter: ${shadows.join(' ')} var(--nick-shadow,)` : '',
   ].filter(Boolean).join('; ');
 }
 
