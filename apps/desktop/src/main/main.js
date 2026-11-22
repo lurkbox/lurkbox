@@ -22,6 +22,7 @@ const { navSource, pressSource, backSource } = require('./frame-nav');
 const points = require('./channel-points');
 const drops = require('./drops');
 const { createDropsFrameHost } = require('./drops-frame');
+const follow = require('./follow');
 const { WatchMinutes } = require('./watch-minutes');
 const { ResumeStore } = require('./resume');
 const { WEB_CLIENT_ID, GQL_URL } = require('./direct');
@@ -630,6 +631,47 @@ function registerIpc() {
   ipcMain.handle('drops:pad', (_e, key) => dropsFrame.pad(key));
   ipcMain.handle('drops:close', () => dropsFrame.close());
   ipcMain.handle('drops:progress', () => dropsProgress);
+
+  // ---- follow / unfollow: Twitch's own channel page in a hidden window of the twitch.tv session (follow.js) ----
+  // Only on the user's press (unfollow only after Lurkbox's confirmation), one at a time, for the channel they chose.
+  let followBusy = false;
+  const openFollowPage = async (url, timeoutMs) => {
+    const w = new BrowserWindow({
+      show: false, width: 1280, height: 900, paintWhenInitiallyHidden: true,
+      webPreferences: { session: session.defaultSession, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+    });
+    const wc = w.webContents;
+    wc.setAudioMuted(true);
+    wc.setUserAgent(CHROME_UA);
+    wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+    wc.on('will-navigate', (e, u) => { if (!/^https:\/\/(www\.)?twitch\.tv\//.test(u)) e.preventDefault(); });
+    const page = { eval: (src) => wc.executeJavaScript(src), close: () => { if (!w.isDestroyed()) w.destroy(); } };
+    try {
+      await Promise.race([wc.loadURL(url), new Promise((_r, rej) => setTimeout(() => rej(new Error('load timed out')), timeoutMs))]);
+    } catch (e) { page.close(); throw e; }
+    return page;
+  };
+  ipcMain.handle('follow:run', async (_e, req = {}) => {
+    if (followBusy) return { ok: false, reason: 'busy' };
+    followBusy = true;
+    try {
+      return await follow.runFollow({
+        login: String(req.login || ''), name: String(req.name || '').slice(0, 60), action: req.action, confirmed: req.confirmed === true,
+        hasSession: async () => (await playerStatus(session.defaultSession.cookies)).signedIn,
+        openPage: openFollowPage, log: appLog,
+      });
+    } finally { followBusy = false; }
+  });
+  // The fallback: the channel's page in the in-app twitch.tv window (TV zoom, controller navigation, B closes), so the
+  // user can press Twitch's button themselves.
+  ipcMain.handle('follow:openPage', async (_e, login) => {
+    const url = follow.channelUrl(String(login || ''));
+    if (!url) return false;
+    const w = createLoginWindow({ ...loginWindowOpts(), title: 'twitch.tv' });
+    w.loadURL(url);
+    await new Promise((resolve) => w.on('closed', resolve));
+    return true;
+  });
 
   // Watch-time points for the stream on screen (direct engine). The renderer reports once a minute what it plays.
   const minuteMasters = new Map();

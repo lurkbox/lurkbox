@@ -251,6 +251,17 @@ export interface LurkboxPlatform {
   /** Optional. Drops events: { type: 'claimed', name } after auto-claim pressed a drop's Claim button and the page took it. */
   onDropsEvent?(cb: (event: { type: string; name?: string }) => void): Unsubscribe;
 
+  // ---- follow / unfollow (desktop: Twitch's own channel page in the twitch.tv session; the public API has none) ----
+
+  /**
+   * Optional. Presses Twitch's own Follow (or, with confirmed: true after the user confirmed, Unfollow) button on the
+   * channel's twitch.tv page in a hidden window, and resolves once the button flipped. reason: 'no-session' (no
+   * twitch.tv sign-in), 'challenge' (captcha), 'signed-out', 'wrong-channel', 'timeout', 'load', 'busy', 'invalid'.
+   */
+  followChannel?(req: { login: string; name?: string; action: 'follow' | 'unfollow'; confirmed?: boolean }): Promise<{ ok: boolean; following?: boolean; already?: boolean; reason?: string }>;
+  /** Optional. Opens the channel's twitch.tv page in the in-app TV window (controller navigation, B closes); resolves when it closes. */
+  openChannelPage?(login: string): Promise<boolean>;
+
   // ---- open requests (desktop: from the Decky plugin's go-live toasts) ----
 
   /** The page is ready for open requests; resolves one that arrived before it was ready, or null. */

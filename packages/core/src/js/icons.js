@@ -22,6 +22,8 @@ export const PLAYER_ICONS = {
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   gift: '<rect x="4" y="9" width="16" height="11" rx="1"/><path d="M12 9v11M4 13h16M12 9c-1.5-4-6-4-5 0M12 9c1.5-4 6-4 5 0"/>',
   poll: '<path d="M5 20V11M12 20V5M19 20v-6"/>',
+  heart: '<path d="M12 19.5C7 16 3.5 12.6 3.5 9a4.4 4.4 0 0 1 8.5-2.2A4.4 4.4 0 0 1 20.5 9c0 3.6-3.5 7-8.5 10.5z"/>',
+  'heart-filled': '<path d="M12 19.5C7 16 3.5 12.6 3.5 9a4.4 4.4 0 0 1 8.5-2.2A4.4 4.4 0 0 1 20.5 9c0 3.6-3.5 7-8.5 10.5z" fill="currentColor"/>',
   side: '<rect x="3.5" y="5" width="17" height="14" rx="1.5"/><path d="M14 5v14"/>',
 };
 

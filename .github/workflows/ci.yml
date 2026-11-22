@@ -55,6 +55,10 @@ jobs:
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
         run: xvfb-run -a npm run test:drops
+      - name: Follow against the channel page fixture
+        env:
+          ELECTRON_DISABLE_SANDBOX: "1"
+        run: xvfb-run -a npm run test:follow
 
   package:
     name: AppImage builds

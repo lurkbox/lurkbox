@@ -49,6 +49,23 @@ export async function followedChannels({ maxAgeMs = 10 * 60 * 1000 } = {}) {
   followCache.set(me, { at: Date.now(), items });
   return items;
 }
+/**
+ * Does the signed-in user follow this channel? Helix GET /channels/followed?user_id=<me>&broadcaster_id=<id>.
+ * Resolves true/false, or null when it can't tell (signed out, error).
+ */
+export async function isFollowing(broadcasterId) {
+  const me = state.auth.user && state.auth.user.id;
+  if (!me || !broadcasterId) return null;
+  try {
+    const r = await helix('/channels/followed', { user_id: me, broadcaster_id: String(broadcasterId) });
+    return (r.data || []).some((f) => String(f.broadcaster_id) === String(broadcasterId));
+  } catch { return null; }
+}
+/** After a follow or unfollow: the next Following refresh (and LB/RB stepping) reloads the lists. */
+export function invalidateFollows() {
+  followCache.clear();
+  followedCache = { at: 0, items: [], account: state.auth.active };
+}
 export function followsAge() {
   const c = followCache.get(state.auth.user && state.auth.user.id);
   return c ? Date.now() - c.at : Infinity;

@@ -510,6 +510,9 @@ body.video-only.player-active .raid-card { transform: scale(1.3); }
 .po-glyph svg { width: 1.85rem; height: 1.85rem; filter: drop-shadow(0 0 0.12rem var(--overlay-from)) drop-shadow(0 0.05rem 0.35rem var(--overlay-from)); }
 .po-icon[data-icon="play"] svg, .po-icon[data-icon="pause"] svg { stroke-width: 2.4; }
 .po-icon[data-icon="play"] svg path { fill: currentColor; }
+/* Follow: the heart (outline) and Following (filled), in the player's bar and on the channel page. */
+.follow-btn { display: inline-flex; align-items: center; gap: 0.5rem; }
+.follow-btn .follow-icon svg { width: 1.4rem; height: 1.4rem; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
 .po-icon.expanded { background: var(--raised); }
 .po-icon:focus, .po-icon.is-focused { background: var(--focus-bg); color: var(--focus-fg); }
 .po-icon:focus svg, .po-icon.is-focused svg { filter: none; }

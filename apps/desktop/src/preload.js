@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld('lurkbox', {
   dropsPad: (key) => ipcRenderer.invoke('drops:pad', key),
   dropsClose: () => ipcRenderer.invoke('drops:close'),
   dropsProgress: () => ipcRenderer.invoke('drops:progress'),
+  followChannel: (req) => ipcRenderer.invoke('follow:run', req),
+  openChannelPage: (login) => ipcRenderer.invoke('follow:openPage', login),
   onDropsEvent: on('drops:event'),
   watchMinute: (info) => ipcRenderer.invoke('points:minute', info),
   liveInfo: (login) => ipcRenderer.invoke('direct:liveInfo', login),

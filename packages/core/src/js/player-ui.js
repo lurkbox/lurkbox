@@ -3,7 +3,8 @@
 
 /**
  * The row of icon buttons, in order, for what is playing.
- * ctx: { kind: 'live'|'video', points: bool (Twitch's chat frame is loaded), fullscreen: bool }
+ * ctx: { kind: 'live'|'video', points: bool (Twitch's chat frame is loaded), follow: bool (the channel is known and
+ * follow/unfollow is available), fullscreen: bool }
  */
 export function overlayControls(ctx) {
   const live = ctx.kind === 'live';
@@ -12,6 +13,7 @@ export function overlayControls(ctx) {
     live ? 'chat' : null,
     live ? 'live' : null,
     live && ctx.points ? 'points' : null,
+    ctx.follow ? 'follow' : null,
     'channel', 'more', 'back',
   ].filter(Boolean);
 }
@@ -25,6 +27,7 @@ export function controlIcon(key, ctx = {}) {
     case 'play': return ctx.paused ? 'play' : 'pause';
     case 'volume': return ctx.muted || ctx.volume === 0 ? 'volume-muted' : ctx.volume < 0.5 ? 'volume-low' : 'volume';
     case 'chat': return ctx.chatOn ? 'chat' : 'chat-off';
+    case 'follow': return ctx.following ? 'heart-filled' : 'heart';
     default: return key;
   }
 }
@@ -42,7 +45,8 @@ export function shortCount(n) {
 
 /**
  * The label bubble's text: the action and, after " · ", its current state.
- * ctx: { paused, muted, volume (0..1), quality (label), chatOn, rewound, behind, points (balance or null), name }
+ * ctx: { paused, muted, volume (0..1), quality (label), chatOn, rewound, behind, points (balance or null), name,
+ *        following (true / false / null when unknown) }
  */
 export function controlLabel(key, ctx = {}) {
   const dot = ' · ';
@@ -53,6 +57,7 @@ export function controlLabel(key, ctx = {}) {
     case 'chat': return `Chat${dot}${ctx.chatOn ? 'On' : 'Off'}`;
     case 'live': return ctx.rewound ? 'Back to live' : ctx.behind ? 'Jump to live' : 'Live';
     case 'points': return Number.isFinite(ctx.points) ? `Channel points${dot}${Math.round(ctx.points).toLocaleString('en-US')}` : 'Channel points';
+    case 'follow': return ctx.following ? `Following${dot}Unfollow?` : 'Follow';
     case 'channel': return ctx.name ? `${ctx.name}${dot}Channel` : 'Channel';
     case 'more': return 'More';
     case 'back': return 'Back';

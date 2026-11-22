@@ -11,7 +11,8 @@ import { moveFocus, focusFirst, focusEl, focusables } from './focus.js';
 import { snapshotFocus, restoreFocus, focusKey } from './focus-keep.js';
 import { pickFromList } from './modal.js';
 import { state, onState, saveSettings, previewSettings } from './state.js';
-import { tw, followedLive, usersByIds } from './api.js';
+import { tw, followedLive, usersByIds, isFollowing } from './api.js';
+import { pressFollow } from './follow.js';
 import { icon } from './icons.js';
 import { overlayControls, POPOVER_CONTROLS, controlIcon, controlLabel, shortCount, liveLabel, anchorPopover, OVERLAY_HIDE_MS, POPOVER_HIDE_MS } from './player-ui.js';
 import { Popover } from './popover.js';
@@ -42,7 +43,7 @@ import { liveBadge, catchUpDecision, backgroundCap } from './hls-util.js';
 const EMBED_URL = 'https://player.twitch.tv/js/embed/v1.js';
 const EMBED_PARENT = ['localhost']; // must match the host the UI is served from
 /** Every control the bar can show, in order (overlayControls() picks the ones for what is playing). */
-const ALL_CONTROLS = ['play', 'volume', 'quality', 'chat', 'live', 'points', 'channel', 'more', 'back'];
+const ALL_CONTROLS = ['play', 'volume', 'quality', 'chat', 'live', 'points', 'follow', 'channel', 'more', 'back'];
 const LONG_PRESS_MS = 450;
 
 const RAID_STATUS_TEXT = {
@@ -232,6 +233,7 @@ export class Player {
     this.watcher.watch(null); // raids only matter for live channels
     this.closePointsPanel();
     this.tchat.close();
+    this.loadFollow(cur);
     if (window.lurkbox.storyboard) window.lurkbox.storyboard(video.id).then((sb) => { if (cur === this.current) this.storyboard = sb; }).catch(() => {});
     let startAt = 0;
     const saved = window.lurkbox.resumeGet ? await window.lurkbox.resumeGet(video.id).catch(() => null) : null;
@@ -271,6 +273,26 @@ export class Player {
     this.watcher.watch(cur.userId ? { id: cur.userId, login: cur.login } : null);
     if (this.overlayVisible()) this.renderOverlay();
     this.loadDropsChip(cur);
+    this.loadFollow(cur);
+  }
+
+  /** Whether the user follows this channel (Helix), for the heart icon. */
+  async loadFollow(cur) {
+    if (!cur.userId || cur.following != null) return;
+    const f = await isFollowing(cur.userId);
+    if (cur !== this.current || f == null) return;
+    cur.following = f;
+    if (this.overlayVisible()) this.renderOverlay();
+  }
+
+  /** The heart: follow at once, or (following) ask in a Lurkbox dialog, then unfollow. */
+  async toggleFollow() {
+    const cur = this.current;
+    if (!cur || !cur.login) return;
+    const f = await pressFollow({ login: cur.login, id: cur.userId, name: cur.name || cur.login }, cur.following == null ? null : cur.following, { signIn: () => this.nav.signIn() });
+    if (cur !== this.current) return;
+    cur.following = f;
+    this.renderOverlay();
   }
 
   /** The drops chip: progress on a drop for this stream's game, from the host's last look at the inventory page. */
@@ -819,6 +841,7 @@ export class Player {
       behind: !!ls.behind,
       points: this.points.signedIn && Number.isFinite(this.points.balance) ? this.points.balance : null,
       name: cur.name || cur.login || '',
+      following: cur.following == null ? null : cur.following,
     };
   }
 
@@ -917,14 +940,14 @@ export class Player {
     const ui = this.ui;
     const snap = snapshotFocus(this.overlay, focusables(this.overlay));
     const ctx = this.labelCtx();
-    const shown = new Set(overlayControls({ kind: cur.kind, points: !!this.tchat.login }));
+    const shown = new Set(overlayControls({ kind: cur.kind, points: !!this.tchat.login, follow: !!(cur.login && window.lurkbox.followChannel && state.auth.signedIn) }));
     for (const key of ALL_CONTROLS) {
       const b = ui.buttons[key];
       b.hidden = !shown.has(key);
       const name = controlIcon(key, ctx);
       if (b.dataset.icon !== name) { b.dataset.icon = name; b.firstElementChild.replaceWith(icon(name)); }
       b.setAttribute('aria-label', controlLabel(key, ctx));
-      b.classList.toggle('on', key === 'chat' && ctx.chatOn);
+      b.classList.toggle('on', (key === 'chat' && ctx.chatOn) || (key === 'follow' && ctx.following === true));
       b.setAttribute('aria-expanded', this.pop.key === key ? 'true' : 'false');
     }
     const count = ui.buttons.points.querySelector('.po-count');
@@ -973,6 +996,7 @@ export class Player {
     switch (key) {
       case 'play': this.togglePause(); break;
       case 'live': this.jumpToLive(); break;
+      case 'follow': this.toggleFollow(); break;
       case 'channel': {
         const c = { login: cur.login, id: cur.userId, name: cur.name };
         this.nav.closePlayer();
