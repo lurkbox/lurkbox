@@ -5,13 +5,16 @@ import { openKeyboard } from './osk.js';
 import { el, button, toast } from './ui.js';
 import { openModal } from './modal.js';
 import { hint } from './input.js';
+import { systemKeyboard } from './layout.js';
 
 /**
- * Opens a keyboard for `input`. Resolves 'steam' (Steam's keyboard is up; the input keeps focus and gets the keys)
- * or 'osk' (the built-in keyboard; on Done the text goes into the input, an 'input' event fires and onDone runs).
+ * Opens a keyboard for `input`. Resolves 'system' (a touch layout: the focused box shows the system keyboard),
+ * 'steam' (Steam's keyboard is up; the input keeps focus and gets the keys) or 'osk' (the built-in keyboard; on Done the text goes into the input, an 'input' event fires and onDone runs).
  */
 export async function keyboardFor(input, { title = 'Enter text', maxLength = 500, onDone = null, onCancel = null } = {}) {
   input.focus({ preventScroll: true });
+  // A touchscreen without a controller (phone and tablet layouts): the focused box brings up the system keyboard.
+  if (systemKeyboard()) return 'system';
   let steam = false;
   if (window.lurkbox && window.lurkbox.openOnScreenKeyboard) {
     try { steam = (await window.lurkbox.openOnScreenKeyboard()) === true; } catch { steam = false; }

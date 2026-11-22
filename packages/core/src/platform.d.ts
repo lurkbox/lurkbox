@@ -42,9 +42,14 @@ export interface AppInfo {
   startVod: string | null;
   /** App version string. */
   version: string;
+  /** Optional. The host can show the touch layouts (tablet, phone; shared/layout-mode.js): Android sets it, the
+   *  desktop leaves it out, so Settings → Layout → Auto is always the TV layout there. Auto still needs a coarse
+   *  pointer and no controller, so Android TV gets the TV layout. */
+  touch?: boolean;
   /** Optional. Set only in demo mode (desktop: LURKBOX_DEMO=1, for screenshots): the page installs ./js/demo/install.js,
-   *  which fakes the clock, chat and emote APIs. mediaBase prefixes the demo's pictures; now is the pinned clock (ms). */
-  demo?: { mediaBase: string; now?: number } | null;
+   *  which fakes the clock, chat and emote APIs. mediaBase prefixes the demo's pictures; now is the pinned clock (ms);
+   *  touch (LURKBOX_DEMO_TOUCH=1) treats the pointer as a touchscreen, for the touch layout screenshots. */
+  demo?: { mediaBase: string; now?: number; touch?: boolean } | null;
   /** DEFAULT_SETTINGS from ./shared/settings.js. */
   defaults: Settings;
 }

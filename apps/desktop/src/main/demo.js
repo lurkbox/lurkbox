@@ -21,6 +21,8 @@ function isDemo(env = process.env) {
 }
 
 const MEDIA_BASE = 'lbhls://demo/';
+// LURKBOX_DEMO_TOUCH=1: the touch layouts' screenshots (AppInfo.touch, and the page treats the pointer as a touchscreen).
+const DEMO_TOUCH = process.env.LURKBOX_DEMO_TOUCH === '1';
 const QR = (text) => {
   const qrcode = require('qrcode-generator');
   const qr = qrcode(0, 'M');
@@ -103,7 +105,7 @@ function createDemoHost(opts = {}) {
   const noMedia = () => ({ ok: false, reason: `demo video unavailable (${(opts.media && opts.media.reason) || 'not rendered'})` });
 
   const handlers = {
-    'app:info': () => ({ windowed: true, gamescope: false, startChannel: opts.startChannel || null, startVod: null, version: opts.version || '0.0.0', defaults: schema.DEFAULT_SETTINGS, demo: { mediaBase: MEDIA_BASE, now: data.DEMO_NOW } }),
+    'app:info': () => ({ windowed: true, gamescope: false, startChannel: opts.startChannel || null, startVod: null, version: opts.version || '0.0.0', defaults: schema.DEFAULT_SETTINGS, demo: { mediaBase: MEDIA_BASE, now: data.DEMO_NOW, touch: DEMO_TOUCH }, ...(DEMO_TOUCH ? { touch: true } : {}) }),
     'app:quit': () => { if (opts.quit) opts.quit(); },
     'window:setIcon': () => false,
     'window:toggleFullscreen': () => {},

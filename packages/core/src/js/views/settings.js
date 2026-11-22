@@ -11,6 +11,7 @@ import { SORTS } from '../follows.js';
 import { LIVE_SORTS } from '../../shared/sorts.js';
 import { clearSearches, searchesFor } from '../../shared/search-history.js';
 import { chatSettingsRows } from './settings-chat.js';
+import { LAYOUT_MODES, LAYOUT_LABELS } from '../../shared/layout-mode.js';
 
 function row(label, control, help) {
   return el('div', { class: 'setting-row' },
@@ -54,7 +55,7 @@ export function settingsView() {
       idInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); saveId(); } });
       const idControls = el('div', { class: 'row' },
         idInput,
-        button('Keyboard', () => openKeyboard({ title: 'Twitch Client ID', value: idInput.value, onDone: (v) => { idInput.value = v; saveId(); } })),
+        button('Keyboard', () => openKeyboard({ title: 'Twitch Client ID', value: idInput.value, onDone: (v) => { idInput.value = v; saveId(); } }), { class: 'osk-btn' }),
         defaults.clientId && s.clientId !== defaults.clientId
           ? button('Use built-in', () => { idInput.value = defaults.clientId; saveId(); })
           : null);
@@ -183,6 +184,7 @@ export function settingsView() {
           window.lurkbox.steamArtRestore ? row('Restore original Lurkbox art', restoreArtBtn, 'Puts the original library art back and turns the setting above off.') : '',
           row('Screen margin', pickRow('screenMargin', 'Screen margin', SCREEN_MARGINS), 'Space around the edges for TVs that crop the picture (overscan).'),
           row('UI scale', pickRow('uiScale', 'UI scale', UI_SCALES)),
+          row('Layout', pickRow('layoutMode', 'Layout', LAYOUT_MODES.map((v) => ({ value: v, label: v === 'auto' ? 'Auto (default)' : LAYOUT_LABELS[v] }))), 'Auto picks the TV layout for a remote or controller, and the tablet or phone layout on a touchscreen.'),
           el('h2', { class: 'section-title settings-section' }, 'Player'),
           row('Player', pickRow('playerEngine', 'Player', [{ value: 'direct', label: 'Direct (default)' }, { value: 'embed', label: 'Twitch player' }]), 'Direct plays the stream itself; the official Twitch player is the automatic fallback.'),
           row('Latency', pickRow('lowLatency', 'Latency', [{ value: true, label: 'Low latency' }, { value: false, label: 'Normal' }])),

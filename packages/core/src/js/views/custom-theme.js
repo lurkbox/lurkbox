@@ -179,7 +179,7 @@ export function openColorEditor(title, value, onChange) {
 
   const content = el('div', { class: 'ce' },
     el('div', { class: 'ce-top' }, big, el('div', { class: 'ce-hexrow' }, hexIn,
-      button('Keyboard', () => openKeyboard({ title: 'Hex colour', value: hexIn.value, maxLength: 7, onDone: setHex })))),
+      button('Keyboard', () => openKeyboard({ title: 'Hex colour', value: hexIn.value, maxLength: 7, onDone: setHex }), { class: 'osk-btn' }))),
     ...sliders.map((s) => s.rowEl),
     presets,
     el('div', { class: 'row' },

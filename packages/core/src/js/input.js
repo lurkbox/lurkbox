@@ -2,7 +2,8 @@
 //  - gamepads (Steam Input's virtual pad with the standard mapping, or raw pads
 //    via vendor fallback tables; any connected pad drives the UI),
 //  - keyboard (also what Steam's keyboard/mouse templates send),
-//  - mouse (hover focuses, click activates, right-click = back, wheel scrolls).
+//  - mouse (hover focuses, click activates, right-click = back, wheel scrolls),
+//  - touch (taps are clicks; mode 'touch' hides the focus ring in the touch layouts; gestures are in touch.js).
 import { onAction as soundForAction, installSounds } from './sounds.js';
 import {
   A, B, X, Y, LB, RB, LT, RT, BACK, START, UP, DOWN, LEFT, RIGHT, DIRECTIONS, SHIFT_LEFT, SHIFT_RIGHT, HOME, END,
@@ -187,7 +188,24 @@ export class Input {
   installMouse() {
     let lastX = -1;
     let lastY = -1;
+    // Touch: input mode 'touch' (no focus ring, no cursor). The mouse events a browser makes up after a tap don't
+    // count as the mouse.
+    this.lastTouchAt = -Infinity;
+    const touchedRecently = () => performance.now() - this.lastTouchAt < 1000;
+    window.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+      this.lastTouchAt = performance.now();
+      this.mode.set('touch');
+    }, true);
+    // A tapped button doesn't keep the focus highlight (the focus ring is the controller's cursor). Text boxes keep
+    // focus for the keyboard, and so do controls that moved the focus somewhere on purpose.
+    window.addEventListener('click', (e) => {
+      if (!touchedRecently() || !document.body.classList.contains('touch-ui')) return;
+      const b = e.target.closest && e.target.closest('button');
+      if (b) setTimeout(() => { if (document.activeElement === b) b.blur(); }, 0);
+    });
     window.addEventListener('mousemove', (e) => {
+      if (touchedRecently()) return;
       if (e.screenX === lastX && e.screenY === lastY) return; // synthetic move after scroll/layout
       lastX = e.screenX;
       lastY = e.screenY;
@@ -201,9 +219,11 @@ export class Input {
         f.focus({ preventScroll: true });
       }
     });
-    window.addEventListener('mousedown', () => { this.mode.set('mouse'); this.bumpCursor(); }, true);
+    window.addEventListener('mousedown', () => { if (touchedRecently()) return; this.mode.set('mouse'); this.bumpCursor(); }, true);
     window.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+      // A touch long-press opens the context menu too; it is not Back (Android's back gesture is).
+      if (touchedRecently()) return;
       this.mode.set('mouse');
       this.dispatch(B, 'mouse');
     });
@@ -220,6 +240,7 @@ export class Input {
     body.classList.toggle('input-mouse', mode === 'mouse');
     body.classList.toggle('input-pad', mode === 'pad');
     body.classList.toggle('input-keyboard', mode === 'keyboard');
+    body.classList.toggle('input-touch', mode === 'touch');
     if (mode !== 'mouse') { clearTimeout(this.cursorTimer); body.classList.add('cursor-idle'); }
     refreshGlyphs(this.mode.glyphFamily());
   }
