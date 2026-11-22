@@ -13,7 +13,8 @@
   .chat-author__display-name { font-weight: 700; color: #9ad0ff; }
   /* Twitch wraps the whole input area in one focusable box: the old navigation outlined all of it. */
   .chat-input { padding: 10px; }
-  .chat-input textarea { box-sizing: border-box; width: 100%; height: 38px; resize: none; background: #2f2f35; color: inherit; border: 2px solid #464649; border-radius: 6px; padding: 8px; font: inherit; }
+  .chat-input [data-a-target=chat-input] { box-sizing: border-box; width: 100%; min-height: 38px; background: #2f2f35; color: inherit; border: 2px solid #464649; border-radius: 6px; padding: 8px; font: inherit; outline: none; white-space: pre-wrap; }
+  .reward-chip { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; padding: 4px 8px; border-radius: 6px; background: #9147ff; font-weight: 700; }
   .chat-input__buttons-container { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
   .community-points-summary { display: flex; align-items: center; gap: 4px; }
   /* The balloon is anchored above the chat input with a desktop max-height and a transform (as Twitch's is). */
@@ -48,7 +49,10 @@
     <div class="chat-line__message"><span class="chat-author__display-name" role="button" tabindex="0">mossy_otter</span>: gg</div>
   </div>
   <div class="chat-input" tabindex="0" id="input-wrapper">
-    <textarea data-a-target="chat-input" placeholder="Send a message"></textarea>
+    <div class="reward-chip" id="reward-chip" style="display:none"><span id="reward-chip-text"></span><button aria-label="Cancel reward" id="reward-cancel" onclick="cancelChip()">✕</button></div>
+    <!-- Twitch's chat input is a Slate editor: a contenteditable div, not a textarea. Enter does nothing here (the
+         fixture has no Slate), so Lurkbox has to press the "Chat" button. -->
+    <div data-a-target="chat-input" role="textbox" contenteditable="true" aria-label="Send a message" aria-multiline="true"></div>
     <div class="chat-input__buttons-container">
       <div data-test-selector="community-points-summary" class="community-points-summary">
         <button aria-label="Bits and Points Balances" id="balance-btn" onclick="toggleRewards()">
@@ -60,7 +64,7 @@
           </button>
         </div>
       </div>
-      <button data-a-target="chat-send-button">Chat</button>
+      <button data-a-target="chat-send-button" onclick="sendChat()">Chat</button>
     </div>
   </div>
 </div>
@@ -70,9 +74,9 @@
 </div>
 
 <script>
-  const POWER_UPS = [['pu-highlight', 'Highlight My Message', 50], ['pu-emote', 'Unlock a Random Sub Emote', 240], ['pu-modify', 'Modify a Single Emote', 360],
+  const POWER_UPS = [['pu-highlight', 'Highlight My Message', 50, true], ['pu-emote', 'Unlock a Random Sub Emote', 240], ['pu-modify', 'Modify a Single Emote', 360],
     ['pu-choose', 'Choose an Emote to Unlock', 1440], ['pu-effect', 'Message Effects', 200], ['pu-giant', 'Gigantify an Emote', 300]];
-  const REWARDS = [['cr-hydrate', 'Hydrate!', 500], ['cr-song', 'Pick the next song', 2000], ['cr-message', 'Send a message to stream', 1000, true],
+  const REWARDS = [['cr-hydrate', 'Hydrate!', 500], ['cr-song', 'Pick the next song', 2000], ['cr-message', 'Say hi!', 1000, true],
     ['cr-pushups', '10 push-ups', 3000], ['cr-accent', 'Talk in an accent', 4000], ['cr-map', 'Choose the map', 5000],
     ['cr-hat', 'Wear the silly hat', 6000], ['cr-dance', 'Victory dance', 8000]];
   const tile = ([id, title, cost]) => `<div class="reward-list-item"><button class="reward-tile" id="${id}" aria-label="${title}, ${cost} points" onclick="pick('${id}')"><span class="icon"></span><span>${title}</span><span class="cost">${cost}</span></button></div>`;
@@ -106,7 +110,30 @@
   function openRewards(view) { document.getElementById('balloon').style.display = 'block'; render(view === 'prediction' ? prediction() : main()); }
   function closeRewards() { document.getElementById('balloon').style.display = 'none'; pop().innerHTML = ''; }
   function toggleRewards() { if (document.getElementById('balloon').style.display === 'none') openRewards(); else closeRewards(); }
-  function pick(id) { window.picked = id; render(detail(id)); }
+  // A reward that needs a message works like Twitch's: the popover closes, the reward shows as a chip above the chat
+  // input, and the input gets the focus; "Chat" sends the message and redeems the reward.
+  function pick(id) {
+    window.picked = id;
+    const r = REWARDS.find((x) => x[0] === id);
+    if (r && r[3]) {
+      closeRewards();
+      window.chip = id;
+      document.getElementById('reward-chip-text').textContent = r[1] + ' ◯' + r[2];
+      document.getElementById('reward-chip').style.display = 'flex';
+      document.querySelector('[data-a-target=chat-input]').focus();
+      return;
+    }
+    render(detail(id));
+  }
+  function cancelChip() { window.chip = null; document.getElementById('reward-chip').style.display = 'none'; }
+  function sendChat() {
+    const ed = document.querySelector('[data-a-target=chat-input]');
+    const text = ed.textContent.trim();
+    if (!text) return;
+    window.sent = (window.sent || []).concat([text]);
+    if (window.chip) { window.redeemed = window.chip; window.redeemedText = text; cancelChip(); }
+    ed.textContent = '';
+  }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRewards(); });
 </script>
 </body></html>

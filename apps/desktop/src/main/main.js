@@ -605,7 +605,9 @@ function registerIpc() {
       return { ok: true, opened };
     } catch (e) { return { ok: false, reason: e.message }; }
   });
-  // D-pad/A go to the page; B returns 'back' when it closed a reward's sub-view, 'close' when the view should close.
+  // D-pad/A go to the page; B returns 'back' when it closed a reward's sub-view or left a text box, 'close' when the view
+  // should close. A runs as a user gesture, so a text box (a reward's message, Twitch's chat input) can take real focus
+  // for Steam's keyboard.
   ipcMain.handle('points:pad', async (_e, key) => {
     const frame = pointsLogin && chatFrames(pointsLogin)[0];
     const k = String(key);
@@ -613,8 +615,15 @@ function registerIpc() {
     if (!src) return null;
     if (!frame) return k === 'b' ? 'close' : null;
     try {
-      const r = await frame.executeJavaScript(src);
+      const r = await frame.executeJavaScript(src, k === 'a');
       if (r === 'keyboard') openSteamKeyboard(appLog);
+      if (r === 'text') {
+        // B in a text box: it let go of the focus; back to the reward list (Twitch closed it for a message reward).
+        await frame.executeJavaScript(points.openRewardsSource());
+        await frame.executeJavaScript(points.fitRewardsSource());
+        setTimeout(() => frame.executeJavaScript('window.__lbFit && window.__lbFit.run(), window.__lbNav && (window.__lbNav.reset(), window.__lbNav.start())').catch(() => {}), 300);
+        return 'back';
+      }
       return r;
     } catch { return k === 'b' ? 'close' : null; }
   });

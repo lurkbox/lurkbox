@@ -31,9 +31,12 @@ const SELECTORS = Object.freeze({
 });
 
 /** frame-nav options in the rewards view: stay in the popover; without one, the pinned prediction/poll and the balance. */
+// Without the popover (the pinned prediction, or a reward that needs a message: Twitch closes the popover and shows its
+// chat input with the reward above it), the targets are the highlights and the chat input area (the editor, the reward
+// chip's buttons, the balance and the "Chat" button).
 const NAV_OPTIONS = Object.freeze({
   scopeSelector: '[role=dialog], .reward-center__content',
-  fallbackSelector: '.community-highlight-stack, [class*="community-highlight"], [data-test-selector="community-points-summary"]',
+  fallbackSelector: '.community-highlight-stack, [class*="community-highlight"], .chat-input, [data-test-selector="community-points-summary"]',
 });
 
 /** "1,234" → 1234, "12.3K" → 12300, "1.2M" → 1200000, "12,3 k" → 12300. NaN when there is no number. */

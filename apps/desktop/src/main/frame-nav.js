@@ -2,7 +2,12 @@
 // Controller navigation for twitch.tv pages we don't control (the sign-in window, the channel-points rewards view of
 // Twitch's embedded chat). Injected into the page with executeJavaScript; the app sends it presses:
 //   window.__lbNav.press('up'|'down'|'left'|'right'|'a') → 'keyboard' when A landed on a text box (open the OSK).
-//   window.__lbNav.back() → 'back' when B closed a sub-view (a reward's detail/confirm), else 'close'.
+//   window.__lbNav.back() → 'text' when B left a text box (it loses DOM focus), 'back' when B closed a sub-view (a
+//   reward's detail/confirm), else 'close'.
+// Text boxes include contenteditable editors (Twitch's chat input is a Slate editor: div[contenteditable][role=textbox]
+// with data-a-target="chat-input"). A on one gives it real DOM focus (the one exception to domFocus: false), so
+// Steam's keyboard or a physical keyboard types into it; Enter in a chat input sends, pressing the page's own "Chat"
+// button when the editor didn't clear by itself, and then the box lets go of the focus.
 // Spatial navigation over individual actionable elements (wrappers and anything over ~60 % of the viewport are
 // skipped), a focus ring on the element's exact rect (clipped to what is visible, kept up to date on scroll and
 // resize), and hidden checkboxes reachable through their label. It never reads field values or cookies; it only looks
@@ -45,13 +50,15 @@ function installNav(opts) {
     'input:not([type=hidden]):not([disabled])', 'textarea:not([disabled])', 'select:not([disabled])',
     'button:not([disabled])', 'a[href]', '[role=button]', '[role=checkbox]', '[role=switch]', '[role=link]', '[role=menuitem]', '[role=radio]',
     '[role=tab]', '[role=option]', '[tabindex]:not([tabindex="-1"])',
+    '[contenteditable=""]', '[contenteditable="true"]', '[role=textbox]', '[data-a-target="chat-input"]',
   ].join(',');
+  var SEND = opts.sendSelector || 'button[data-a-target="chat-send-button"]';
   // Buttons that leave a sub-view of a popover (a reward's detail or confirm step) rather than closing it.
   var BACK = opts.backSelector || 'button[aria-label="Back" i], button[aria-label^="Back " i], button[data-a-target*="back" i], [data-test-selector*="back-button" i] button, button[data-test-selector*="back" i]';
   var TEXT_TYPES = new Set(['text', 'email', 'password', 'search', 'tel', 'url', 'number', '']);
   var isTextField = function (el) {
-    if (!el) return false;
-    if (el.tagName === 'TEXTAREA' || el.isContentEditable) return true;
+    if (!el || !el.getAttribute) return false;
+    if (el.tagName === 'TEXTAREA' || el.isContentEditable || el.getAttribute('role') === 'textbox' || el.getAttribute('data-a-target') === 'chat-input') return true;
     return el.tagName === 'INPUT' && TEXT_TYPES.has((el.getAttribute('type') || '').toLowerCase());
   };
   var targetBox = function (el) {
@@ -214,7 +221,7 @@ function installNav(opts) {
     if (!current || !current.isConnected) { move('down'); return null; }
     reveal(current);
     drawRing();
-    if (isTextField(current)) { current.focus(); return 'keyboard'; }
+    if (isTextField(current)) { typing = current; current.focus(); return 'keyboard'; }
     var t = (current.getAttribute('type') || '').toLowerCase();
     if ((t === 'checkbox' || t === 'radio') && usesLabel(current)) current.labels[0].click();
     else current.click();
@@ -223,6 +230,9 @@ function installNav(opts) {
   };
   // B: leave a sub-view of the open popover (its Back button) when there is one.
   var back = function () {
+    // First B in a text box: it lets go of the focus (the app keeps the controller), nothing else happens.
+    var a = document.activeElement;
+    if (a && (a === typing || isTextField(a))) { releaseText(a); return 'text'; }
     var roots = scopes();
     for (var i = 0; i < roots.length; i++) {
       var list = roots[i].querySelectorAll(BACK);
@@ -240,6 +250,31 @@ function installNav(opts) {
     document.documentElement.appendChild(bar);
     hideHint = function () { bar.style.opacity = '0'; setTimeout(function () { bar.remove(); }, 400); hideHint = function () {}; };
   }
+  // The text box that A focused; released on B or after a send.
+  var typing = null;
+  var releaseText = function (el) {
+    typing = null;
+    try { el.blur(); } catch (e) { /* gone */ }
+    drawRing();
+  };
+  var textOf = function (el) { return el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' ? el.value : el.textContent; };
+  var chatBox = function (el) { return el.getAttribute('data-a-target') === 'chat-input' || !!(el.closest && el.closest('.chat-input, [data-a-target="chat-input"]')); };
+  // Enter in a chat box sends. Twitch's editor sends (and clears) by itself; if the text is still there a moment later,
+  // its "Chat" button is pressed. Either way the box then lets go of the focus.
+  var onKey = function (e) {
+    var t = e.target;
+    if (e.key !== 'Enter' || e.shiftKey || !isTextField(t) || !chatBox(t)) return;
+    var before = textOf(t);
+    if (!before || !before.trim()) return;
+    setTimeout(function () {
+      if (t.isConnected && textOf(t) === before) {
+        var b = document.querySelector(SEND);
+        if (b && !b.disabled) b.click();
+      }
+      setTimeout(function () { if (document.activeElement === t && !(textOf(t) || '').trim()) releaseText(t); }, 150);
+    }, 300);
+  };
+  addEventListener('keydown', onKey, true);
   var onFocusIn = function (e) {
     var t = e.target;
     if (t && t.matches && t.matches(FOCUSABLE) && candidates().indexOf(t) >= 0) { current = t; drawRing(); }
@@ -262,6 +297,7 @@ function installNav(opts) {
       removeEventListener('scroll', drawRing, true);
       removeEventListener('resize', drawRing);
       removeEventListener('focusin', onFocusIn, true);
+      removeEventListener('keydown', onKey, true);
       current = null;
       if (ring) ring.remove();
       ring = null;
