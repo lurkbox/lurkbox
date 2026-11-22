@@ -14,7 +14,7 @@ import { state, onState, saveSettings, previewSettings } from './state.js';
 import { tw, followedLive, usersByIds, isFollowing } from './api.js';
 import { pressFollow } from './follow.js';
 import { icon } from './icons.js';
-import { overlayControls, POPOVER_CONTROLS, controlIcon, controlLabel, shortCount, liveLabel, anchorPopover, OVERLAY_HIDE_MS, POPOVER_HIDE_MS } from './player-ui.js';
+import { overlayControls, fitControls, PINNED_CONTROLS, POPOVER_CONTROLS, controlIcon, controlLabel, shortCount, liveLabel, anchorPopover, OVERLAY_HIDE_MS, POPOVER_HIDE_MS } from './player-ui.js';
 import { Popover } from './popover.js';
 import { Slider, handleSliderAction } from './slider.js';
 import { ChatControls } from './chat-controls.js';
@@ -1106,6 +1106,14 @@ export class Player {
     ui.panel = el('div', { class: 'po-panel po-ui' }, ui.top, ui.row);
     ui.tip = el('div', { class: 'po-tip', role: 'tooltip', hidden: true });
     this.overlay.replaceChildren(ui.panel, ui.tip);
+    // The row never overflows: re-fit it when its width changes (resize, rotation) or the layout mode does.
+    ui.overflow = [];
+    let rowWidth = 0;
+    const refit = () => { if (this.overlayVisible()) this.renderOverlay(true); };
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(() => { if (ui.row.clientWidth !== rowWidth) { rowWidth = ui.row.clientWidth; refit(); } }).observe(ui.row);
+    }
+    window.addEventListener('layoutchange', refit);
     this.overlay.addEventListener('focusin', (e) => {
       const b = e.target.closest && e.target.closest('.po-icon');
       if (b && !document.body.classList.contains('input-mouse') && !document.body.classList.contains('input-touch')) this.showTip(b);
@@ -1265,10 +1273,14 @@ export class Player {
       vod: cur.kind === 'clip' && !!cur.clip.video_id, clip: state.auth.signedIn, prev: !!this.clipNeighbour(-1), next: !!this.clipNeighbour(1),
       compose: state.auth.signedIn && state.settings.chatStyle !== 'twitch',
       quick: state.auth.signedIn,
+      volume: !isPhoneLayout(), // phones have volume buttons
     }));
+    for (const key of ALL_CONTROLS) ui.buttons[key].hidden = !shown.has(key);
+    // What does not fit moves into More, lowest priority first.
+    ui.overflow = this.fitRow(ALL_CONTROLS.filter((k) => shown.has(k)));
+    for (const key of ui.overflow) ui.buttons[key].hidden = true;
     for (const key of ALL_CONTROLS) {
       const b = ui.buttons[key];
-      b.hidden = !shown.has(key);
       const name = controlIcon(key, ctx);
       if (b.dataset.icon !== name) { b.dataset.icon = name; b.firstElementChild.replaceWith(icon(name)); }
       b.setAttribute('aria-label', controlLabel(key, ctx));
@@ -1304,6 +1316,16 @@ export class Player {
     this.tickLive(); // the live/behind badge is owned by tickLive
     if (this.tipFor) { if (this.tipFor.hidden) this.hideTip(); else this.showTip(this.tipFor, { refresh: true }); }
     this.pop.update();
+  }
+
+  /** The controls (of `keys`, all shown) that do not fit in the row's width; [] when the row is not laid out. */
+  fitRow(keys) {
+    const row = this.ui.row;
+    const cs = getComputedStyle(row);
+    const width = row.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    // With a controller (TV layout), "Send a message" is the way into the composer, so it stays too.
+    const pinned = isTouchLayout() ? PINNED_CONTROLS : new Set([...PINNED_CONTROLS, 'compose']);
+    return fitControls(keys, { width, button: this.ui.buttons.play.offsetWidth, gap: parseFloat(cs.columnGap) || 0, pinned }).overflow;
   }
 
   /** The channel's avatar (Helix, cached), else its initial. */
@@ -1460,6 +1482,22 @@ export class Player {
     const info = el('div', { class: 'po-pop-info' });
     const raid = el('div', { class: 'po-pop-note' });
     const engine = button('', () => this.switchEngine(), { class: 'po-item', dataset: { focusKey: 'pop-engine' } });
+    // The row's controls that did not fit, as items (a pop-over control opens its own pop-over in place of this one).
+    const extra = el('div', { class: 'po-more-extra' });
+    const renderExtra = () => {
+      const keys = (this.ui && this.ui.overflow) || [];
+      const ctx = this.labelCtx();
+      const sig = keys.map((k) => `${k}:${controlIcon(k, ctx)}:${controlLabel(k, ctx)}`).join('|');
+      if (extra.dataset.sig === sig) return;
+      extra.dataset.sig = sig;
+      const snap = snapshotFocus(extra, focusables(extra));
+      extra.replaceChildren(...keys.map((k) => button([icon(controlIcon(k, ctx), 'po-item-icon'), el('span', {}, controlLabel(k, ctx))], () => {
+        if (POPOVER_CONTROLS.has(k)) { this.onControl(k, this.ui.buttons.more); return; }
+        this.pop.close(); // focus goes back to More
+        this.onControl(k, this.ui.buttons.more);
+      }, { class: 'po-item', dataset: { focusKey: `pop-x-${k}` } })));
+      restoreFocus(extra, snap, focusables(extra), (n) => focusEl(n, { instant: true }));
+    };
     const items = [
       button([icon('reload', 'po-item-icon'), el('span', {}, 'Reload')], () => { this.pop.close({ returnFocus: false }); this.reload(); }, { class: 'po-item', dataset: { focusKey: 'pop-reload' } }),
       engine,
@@ -1468,6 +1506,7 @@ export class Player {
     const update = () => {
       const cur = this.current;
       if (!cur) return;
+      renderExtra();
       const s = cur.stream;
       const meta = cur.kind === 'clip'
         ? ['Clip', clipMeta(cur.clip), cur.clip.video_id ? (cur.clip.vod_offset != null ? `from a broadcast at ${fmtTime(cur.clip.vod_offset)}` : 'from a broadcast') : 'broadcast not saved']
@@ -1481,7 +1520,7 @@ export class Player {
       engine.replaceChildren(icon('engine', 'po-item-icon'), el('span', {}, direct ? 'Use the Twitch player' : this.embedOnly ? 'Try the Lurkbox player again' : 'Use the Lurkbox player'));
     };
     update();
-    return { title: 'More', body: el('div', { class: 'po-pop-body po-list' }, info, raid, ...items.filter(Boolean)), initial: () => items[0], update };
+    return { title: 'More', body: el('div', { class: 'po-pop-body po-list' }, info, raid, extra, ...items.filter(Boolean)), initial: () => extra.querySelector('.focusable') || items[0], update };
   }
 
   /** Reloads what is playing (More → Reload). */

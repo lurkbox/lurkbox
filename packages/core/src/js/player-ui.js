@@ -6,15 +6,17 @@
  * ctx: { kind: 'live'|'video', points: bool (Twitch's chat frame is loaded), follow: bool (the channel is known and
  * follow/unfollow is available), compose: bool (signed in, Lurkbox chat style: "Send a message"), quick: bool (signed in:
  * quick chat, in either chat style), fullscreen: bool, vod: bool (a clip whose broadcast Twitch still has), prev/next:
- * bool (a clip with a clip before/after it in its list), clip: bool (signed in: make a clip of the live stream) }
+ * bool (a clip with a clip before/after it in its list), clip: bool (signed in: make a clip of the live stream),
+ * volume: bool (default true; false on a phone, which has volume buttons) }
  */
 export function overlayControls(ctx) {
   const live = ctx.kind === 'live';
+  const volume = ctx.volume !== false ? 'volume' : null;
   if (ctx.kind === 'clip') {
-    return ['play', 'volume', 'quality', ctx.prev ? 'prev' : null, ctx.next ? 'next' : null, ctx.vod ? 'vod' : null, ctx.follow ? 'follow' : null, 'channel', 'more', 'back'].filter(Boolean);
+    return ['play', volume, 'quality', ctx.prev ? 'prev' : null, ctx.next ? 'next' : null, ctx.vod ? 'vod' : null, ctx.follow ? 'follow' : null, 'channel', 'more', 'back'].filter(Boolean);
   }
   return [
-    'play', 'volume', 'quality',
+    'play', volume, 'quality',
     live ? 'chat' : null,
     live && ctx.compose ? 'compose' : null,
     live && ctx.quick ? 'quick' : null,
@@ -24,6 +26,31 @@ export function overlayControls(ctx) {
     ctx.follow ? 'follow' : null,
     'channel', 'more', 'back',
   ].filter(Boolean);
+}
+
+/**
+ * Which controls leave the row first when it is too narrow: the end of this list goes first. Those in
+ * PINNED_CONTROLS never leave it; the rest move into the More pop-over, in their row order.
+ */
+export const CONTROL_PRIORITY = ['play', 'chat', 'quick', 'volume', 'quality', 'live', 'prev', 'next', 'vod', 'follow', 'clip', 'points', 'channel', 'compose', 'back', 'more'];
+export const PINNED_CONTROLS = new Set(['play', 'chat', 'quick', 'more']);
+
+/**
+ * Fits the row of `keys` (row order) into `width` px, every button `button` px wide with `gap` px between them.
+ * Drops the lowest-priority unpinned controls until the rest fit. Returns { shown, overflow }, both in row order.
+ * A width or button size of 0 (not laid out yet) keeps them all. `pinned` can add to the controls that always stay.
+ */
+export function fitControls(keys, { width, button, gap = 0, pinned = PINNED_CONTROLS }) {
+  if (!(width > 0) || !(button > 0)) return { shown: [...keys], overflow: [] };
+  const rank = (k) => { const i = CONTROL_PRIORITY.indexOf(k); return i < 0 ? CONTROL_PRIORITY.length : i; };
+  const fits = (n) => n * button + Math.max(0, n - 1) * gap <= width + 0.5;
+  const kept = new Set(keys);
+  const drop = keys.filter((k) => !pinned.has(k)).sort((a, b) => rank(b) - rank(a));
+  for (const k of drop) {
+    if (fits(kept.size)) break;
+    kept.delete(k);
+  }
+  return { shown: keys.filter((k) => kept.has(k)), overflow: keys.filter((k) => !kept.has(k)) };
 }
 
 /** Which controls open a pop-over above themselves (the rest act at once). */

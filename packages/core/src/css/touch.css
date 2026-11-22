@@ -164,8 +164,6 @@ body.touch-ui .po-row::-webkit-scrollbar { display: none; }
 body.touch-ui .po-seek-track { height: 0.75rem; }
 body.touch-ui .po-seek { padding-top: 0.9rem; padding-bottom: 0.9rem; } /* a taller strip to put a finger on */
 body.touch-ui .po-seek-head { width: 1.4rem; height: 1.4rem; margin: -0.7rem 0 0 -0.7rem; }
-/* Phones have volume buttons. */
-body.layout-phone .po-icon[data-key="volume"] { display: none; }
 
 /* Portrait (phone and tablet): the video on top at 16:9, the chat fills the rest with the composer at the bottom. */
 body.touch-ui.orient-portrait #player-screen { flex-direction: column; padding: var(--sa-top) var(--sa-right) 0 var(--sa-left); }
