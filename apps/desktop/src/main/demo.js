@@ -131,6 +131,7 @@ function createDemoHost(opts = {}) {
       return helix.demoHelix(db, req || {}, { activeId: active });
     },
     'qr:svg': (text) => QR(text),
+    'keyboard:open': () => false, // the built-in keyboard (no Steam in demo mode)
     'player:dismissGate': () => '',
     'log:write': (line) => log(String(line).slice(0, 2000)),
     'player-session:status': () => ({ signedIn: false, login: null, mismatch: null }),

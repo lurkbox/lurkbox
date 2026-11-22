@@ -9,9 +9,15 @@ import { EmoteCache } from './emote-providers.js';
 import { BadgeCache, parseBadgesTag, lookupBadge } from './chat-badges.js';
 import { SevenTVEvents } from './seventv-events.js';
 import { renderParts, renderBadges, applyPaint, attachChatTips } from './chat-render.js';
+import { toast } from './ui.js';
+import {
+  NO_MODES, parseRoomState, PendingEchoes, SendGate, buildSendRequest, interpretSendResult, sendAuthState, slowModeExempt,
+  waitText, emitChatSent, ECHO_TIMEOUT_MS,
+} from './chat-send.js';
 
 const IRC_URL = 'wss://irc-ws.chat.twitch.tv:443';
 const MAX_MESSAGES = 150;
+const ROOM_MODE_TAGS = ['slow', 'followers-only', 'subs-only', 'emote-only', 'r9k'];
 
 function parseTags(raw) {
   const tags = {};
@@ -72,8 +78,13 @@ export function ircEvent(m) {
         emotes: m.tags.emotes || '',
       };
     }
-    case 'ROOMSTATE':
-      return m.tags['room-id'] ? { kind: 'room', roomId: m.tags['room-id'] } : null;
+    case 'ROOMSTATE': {
+      if (!m.tags['room-id']) return null;
+      // Room modes: every tag on join, then only the ones that changed (merged by parseRoomState).
+      const modes = {};
+      for (const k of ROOM_MODE_TAGS) if (k in m.tags) modes[k] = m.tags[k];
+      return { kind: 'room', roomId: m.tags['room-id'], modes };
+    }
     case 'USERNOTICE':
       return m.tags['system-msg'] ? { kind: 'system', text: m.tags['system-msg'] + (m.trailing ? ` — ${m.trailing}` : ''), notice: true } : null;
     case 'CLEARMSG':
@@ -126,6 +137,23 @@ export function chatPrefs(s = state.settings || {}) {
   };
 }
 
+/** Not signed in, or the token lacks user:write:chat: offer the TV sign-in (again). */
+let signInPrompt = null;
+export async function promptChatSignIn(kind) {
+  if (signInPrompt && !signInPrompt.closed) return;
+  const [{ confirmDialog }, { tvSignIn }] = await Promise.all([import('./modal.js'), import('./auth.js')]);
+  const again = kind === 'reauth';
+  signInPrompt = confirmDialog({
+    title: again ? 'Sign in again to chat' : 'Sign in to chat',
+    message: again
+      ? 'Lurkbox needs a fresh sign-in to send chat messages for this account (Twitch\'s "send chat messages" permission is missing).'
+      : 'Sign in to Twitch to send chat messages.',
+    yes: 'Sign in',
+    no: 'Not now',
+    onYes: () => tvSignIn({ accountId: again ? state.auth.active : null }),
+  });
+}
+
 export class Chat {
   constructor(panel) {
     this.panel = panel;
@@ -144,6 +172,14 @@ export class Chat {
     this.prefs = chatPrefs();
     this.queue = []; // nodes waiting for the next frame (one layout per frame, not per message)
     this.flushing = false;
+    // Sending (chat-send.js): the room's modes, messages waiting for their IRC echo, the local send gate, and what
+    // your own messages looked like last time (colour and badges, from the echo).
+    this.modes = { ...NO_MODES };
+    this.modeListeners = new Set();
+    this.pending = new PendingEchoes();
+    this.gate = new SendGate();
+    this.own = { color: '', badges: '', userId: '' };
+    this.localSeq = 0;
     this.stv = new SevenTVEvents({ log });
     this.stv.onEmotes = ({ setId, add, remove, personal }) => {
       if (personal) this.index.patchPersonal(setId, { add, remove });
@@ -180,6 +216,8 @@ export class Chat {
     this.list.replaceChildren();
     this.log.clear();
     this.queue = [];
+    this.pending.clear();
+    this.setModes({ ...NO_MODES });
     this.system('Connecting to chat…');
     this.connect();
   }
@@ -261,8 +299,11 @@ export class Chat {
       case 'ping': ws.send(ev.reply); break;
       case 'reconnect': ws.close(); break;
       case 'joined': this.retry = 0; this.system(`Joined #${this.channel}`); break;
-      case 'room': this.loadRoom(ev.roomId); break;
-      case 'msg': this.add(this.messageNode(ev), ev.id); break;
+      case 'room':
+        this.loadRoom(ev.roomId);
+        if (ev.modes) this.setModes(parseRoomState(ev.modes, this.modes));
+        break;
+      case 'msg': this.onMessage(ev); break;
       case 'system': this.system(ev.text, ev.notice ? 'notice' : ''); break;
       case 'delete': {
         const gone = this.log.remove((x) => x.id === ev.id);
@@ -272,6 +313,122 @@ export class Chat {
       }
       default: break;
     }
+  }
+
+  /** An incoming message; your own is matched to the copy drawn when you sent it, which it replaces. */
+  onMessage(ev) {
+    const me = state.auth.user;
+    const mine = !!(me && ev.userId && String(ev.userId) === String(me.id));
+    if (mine) this.own = { color: ev.color, badges: ev.badges, userId: ev.userId };
+    const p = mine ? this.pending.match(ev) : null;
+    const node = this.messageNode(ev);
+    if (mine) node.classList.add('own');
+    if (p && this.replaceItem(p.localId, node, ev.id)) return;
+    this.add(node, ev.id);
+  }
+
+  /** Swaps the node of a message already in the list (or still queued). Returns false when it is gone. */
+  replaceItem(id, node, newId = id) {
+    const item = this.log.items.find((x) => x.id === id) || this.queue.find((x) => x.id === id);
+    if (!item) return false;
+    if (item.node.isConnected) item.node.replaceWith(node);
+    item.node = node;
+    item.id = newId;
+    return true;
+  }
+
+  // ---------- sending ----------
+
+  /** fn(modes) whenever the room's modes change (the composer's note). Returns an unsubscribe function. */
+  onModes(fn) { this.modeListeners.add(fn); return () => this.modeListeners.delete(fn); }
+
+  setModes(m) {
+    const same = JSON.stringify(m) === JSON.stringify(this.modes);
+    this.modes = m;
+    if (!same) for (const fn of this.modeListeners) { try { fn(m); } catch (e) { console.error(e); } }
+  }
+
+  slowExempt() {
+    const me = state.auth.user;
+    return slowModeExempt({ userId: me && me.id, roomId: this.roomId, badges: this.own.badges });
+  }
+
+  /** The local gate for a send now (slow mode, cooldowns): { ok } or { ok: false, waitMs, why }. */
+  checkGate(phrase = null) {
+    return this.gate.check({ now: Date.now(), slowSec: this.modes.slow, exempt: this.slowExempt(), phrase });
+  }
+
+  /**
+   * Sends `text` to the channel as the signed-in account (Helix POST /chat/messages). With the IRC panel connected to
+   * that room, the message shows at once (dimmed) and is confirmed by its echo; a refusal marks it and shows a toast.
+   * opts: { broadcasterId (default: this room), phrase (quick-chat cooldown key) }. Resolves interpretSendResult()'s
+   * shape, or { ok: false, kind: 'auth'|'cooldown'|<buildSendRequest error> }.
+   */
+  async send(text, { broadcasterId = null, phrase = null } = {}) {
+    const auth = sendAuthState(state.auth);
+    if (auth !== 'ok') { promptChatSignIn(auth); return { ok: false, kind: 'auth' }; }
+    const me = state.auth.user;
+    const roomId = String(broadcasterId || this.roomId || '');
+    const req = buildSendRequest({ broadcasterId: roomId, senderId: me.id, message: text });
+    if (req.error) {
+      if (req.error === 'too-long') toast('That message is over Twitch\'s 500-character limit', 3000, 'warn');
+      else if (req.error === 'no-channel') toast('Chat isn\'t connected yet', 2500, 'warn');
+      return { ok: false, kind: req.error };
+    }
+    const now = Date.now();
+    const gate = this.gate.check({ now, slowSec: roomId === this.roomId ? this.modes.slow : 0, exempt: this.slowExempt(), phrase });
+    if (!gate.ok) { toast(waitText(gate), 2000); return { ok: false, kind: 'cooldown', ...gate }; }
+    const undo = this.gate.mark({ now, phrase });
+    const localId = this.roomId === roomId && this.ws ? this.addOwn(req.body.message) : null;
+    let r;
+    try { r = await window.lurkbox.helix(req); } catch (e) { r = { ok: false, status: 0, error: e.message, data: null }; }
+    const res = interpretSendResult(r);
+    if (res.ok) {
+      if (localId) this.pending.setId(localId, res.id);
+      emitChatSent({ channel: this.roomId === roomId ? this.channel : null, roomId, text: req.body.message, id: res.id, user: me });
+      log(`sent a message to ${roomId}${res.id ? '' : ' (no id)'}`);
+      return res;
+    }
+    this.gate.undo(undo);
+    if (res.kind === 'rate') this.gate.block(res.retryAt);
+    if (localId) this.markOwn(localId, 'failed', 'not sent');
+    log(`send to ${roomId} failed: ${res.kind}${res.code ? ` ${res.code}` : ''}`);
+    if (res.kind === 'auth') promptChatSignIn('reauth');
+    else toast(res.reason, 4500, 'warn');
+    return res;
+  }
+
+  /** Draws your own message right away (pending until its echo). Returns its local id. */
+  addOwn(text) {
+    const me = state.auth.user;
+    const localId = `local-${++this.localSeq}`;
+    const node = this.messageNode({
+      id: localId, nick: me.display_name || me.login, color: this.own.color, text, action: false,
+      userId: String(me.id), roomId: this.roomId, badges: this.own.userId === String(me.id) ? this.own.badges : '', emotes: '',
+    });
+    node.classList.add('own', 'pending');
+    this.pending.add({ localId, text, userId: String(me.id), at: Date.now() });
+    this.add(node, localId);
+    this.scrollToEnd();
+    setTimeout(() => {
+      for (const gone of this.pending.expire(Date.now())) this.markOwn(gone.localId, 'unconfirmed', 'not seen in chat yet');
+    }, ECHO_TIMEOUT_MS + 100);
+    return localId;
+  }
+
+  /** Marks your own message: 'failed' (Twitch refused it) or 'unconfirmed' (no echo). */
+  markOwn(localId, kind, label) {
+    if (kind === 'failed') this.pending.remove(localId);
+    const item = this.log.items.find((x) => x.id === localId) || this.queue.find((x) => x.id === localId);
+    if (!item) return;
+    item.node.classList.remove('pending');
+    item.node.classList.add(kind);
+    if (!item.node.querySelector('.chat-own-state')) item.node.append(el('span', { class: 'chat-own-state' }, ` · ${label}`));
+  }
+
+  /** Jumps the list to the newest message (after you send). */
+  scrollToEnd() {
+    requestAnimationFrame(() => { this.list.scrollTop = this.list.scrollHeight; });
   }
 
   /** Builds one message: badges, name (colour or 7TV paint), then text with emotes. */

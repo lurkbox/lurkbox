@@ -35,7 +35,9 @@ function vlog(line) {
   console.log(line);
   try { if (window.lurkbox.log) window.lurkbox.log(line); } catch { /* ignore */ }
 }
-import { Chat } from './chat.js';
+import { Chat, promptChatSignIn } from './chat.js';
+import { Composer } from './chat-composer.js';
+import { sendAuthState } from './chat-send.js';
 import { RaidCountdown } from './raid.js';
 import { DirectEngine, EVENTS as DIRECT_EVENTS } from './direct-engine.js';
 import { liveBadge, catchUpDecision, backgroundCap } from './hls-util.js';
@@ -43,7 +45,7 @@ import { liveBadge, catchUpDecision, backgroundCap } from './hls-util.js';
 const EMBED_URL = 'https://player.twitch.tv/js/embed/v1.js';
 const EMBED_PARENT = ['localhost']; // must match the host the UI is served from
 /** Every control the bar can show, in order (overlayControls() picks the ones for what is playing). */
-const ALL_CONTROLS = ['play', 'volume', 'quality', 'chat', 'live', 'points', 'follow', 'channel', 'more', 'back'];
+const ALL_CONTROLS = ['play', 'volume', 'quality', 'chat', 'compose', 'live', 'points', 'follow', 'channel', 'more', 'back'];
 const LONG_PRESS_MS = 450;
 
 const RAID_STATUS_TEXT = {
@@ -71,6 +73,13 @@ export class Player {
     this.statusEl = document.getElementById('player-status');
     this.chatPanel = document.getElementById('chat');
     this.chat = new Chat(this.chatPanel);
+    // Sending (Lurkbox chat style): the composer at the bottom of the chat panel.
+    this.composer = new Composer({
+      chat: this.chat,
+      onSend: (text) => this.chat.send(text, { broadcasterId: this.current && this.current.userId }),
+      onLeave: () => this.leaveComposer(),
+    });
+    this.chatPanel.append(this.composer.node);
     this.embed = null;
     this.current = null; // { kind: 'live'|'video', login, name, userId, stream, videoId, title }
     this.playlist = [];
@@ -175,6 +184,7 @@ export class Player {
     // Chat layout: the chat pop-over and Settings → Chat change the same settings; apply them live.
     this.appliedStyle = state.settings.chatStyle;
     onState((what) => {
+      if (what === 'signin' || what === 'auth' || what === 'account') { if (this.active) { this.applyLayout(); if (this.overlayVisible()) this.renderOverlay(true); } return; }
       if (what !== 'settings') return;
       if (this.active && this.current && this.current.kind === 'live' && state.settings.chatStyle !== this.appliedStyle) {
         this.appliedStyle = state.settings.chatStyle;
@@ -200,6 +210,7 @@ export class Player {
     if (this.vodTimeline) { vlog(this.vodTimeline.finish('left before PLAYING')); this.vodTimeline = null; }
     if (this.embedOnly && this.embedOnly !== login) this.embedOnly = null;
     if (Array.isArray(playlist) && playlist.length) this.playlist = playlist;
+    if (!this.current || this.current.login !== login) this.composer.clear(); // a draft belongs to its channel
     this.current = { kind: 'live', login, name: name || login, userId: userId || (stream && stream.user_id) || null, stream: stream || null };
     this.resetSeek();
     this.show();
@@ -679,6 +690,8 @@ export class Player {
     clearTimeout(this.earlyTimer2);
     this.hidePlayPrompt();
     this.watcher.watch(null);
+    this.composer.clear();
+    this.composer.setVisible(false);
     this.chat.leave();
     this.closePointsPanel();
     this.tchat.close();
@@ -723,6 +736,8 @@ export class Player {
     const twitchStyle = state.settings.chatStyle === 'twitch';
     this.screen.classList.toggle('twitch-chat', !!(chatVisible && twitchStyle));
     if (!this.pointsPanel) this.tchat.setMode(chatVisible && twitchStyle && this.tchat.login ? 'panel' : 'hidden');
+    // Twitch chat style has its own input in Twitch's frame, so the composer is only in Lurkbox chat.
+    this.composer.setVisible(!!(chatVisible && !twitchStyle && state.auth.signedIn));
     if (chatVisible && twitchStyle) {
       this.chat.leave(); // Twitch's chat replaces the IRC panel
     } else if (chatVisible && this.current) {
@@ -741,6 +756,26 @@ export class Player {
     this.chatOn = !this.chatOn;
     this.applyLayout();
     if (this.overlayVisible()) this.renderOverlay();
+  }
+
+  /** "Send a message": chat on, focus the composer and open a keyboard (Lurkbox chat style, live, signed in). */
+  openComposer() {
+    if (!this.current || this.current.kind !== 'live') return;
+    const auth = sendAuthState(state.auth);
+    if (auth !== 'ok') { promptChatSignIn(auth); return; }
+    if (state.settings.chatStyle === 'twitch') { toast('Type in Twitch\'s chat on the right', 2500); return; }
+    if (!this.chatOn) { this.chatOn = true; this.applyLayout(); }
+    this.hideOverlay();
+    this.composer.focus({ keyboard: true });
+  }
+
+  /** B in the composer: back to the overlay, on "Send a message". The draft stays. */
+  leaveComposer() {
+    const a = document.activeElement;
+    if (a && this.composer.contains(a)) a.blur();
+    document.body.classList.remove('composing');
+    this.lastFocusKey = 'po-compose';
+    this.showOverlay();
   }
 
   async step(dir) {
@@ -940,7 +975,10 @@ export class Player {
     const ui = this.ui;
     const snap = snapshotFocus(this.overlay, focusables(this.overlay));
     const ctx = this.labelCtx();
-    const shown = new Set(overlayControls({ kind: cur.kind, points: !!this.tchat.login, follow: !!(cur.login && window.lurkbox.followChannel && state.auth.signedIn) }));
+    const shown = new Set(overlayControls({
+      kind: cur.kind, points: !!this.tchat.login, follow: !!(cur.login && window.lurkbox.followChannel && state.auth.signedIn),
+      compose: state.auth.signedIn && state.settings.chatStyle !== 'twitch',
+    }));
     for (const key of ALL_CONTROLS) {
       const b = ui.buttons[key];
       b.hidden = !shown.has(key);
@@ -997,6 +1035,7 @@ export class Player {
       case 'play': this.togglePause(); break;
       case 'live': this.jumpToLive(); break;
       case 'follow': this.toggleFollow(); break;
+      case 'compose': this.openComposer(); break;
       case 'channel': {
         const c = { login: cur.login, id: cur.userId, name: cur.name };
         this.nav.closePlayer();
@@ -1547,8 +1586,13 @@ export class Player {
 
   // ---------- input ----------
 
-  handle(action) {
-    const r = this.handleAction(action);
+  scrollChat(action) {
+    const l = this.chatPanel.querySelector('.chat-list');
+    if (l) l.scrollBy({ top: action === UP ? -200 : 200, behavior: 'smooth' });
+  }
+
+  handle(action, source = 'pad') {
+    const r = this.handleAction(action, source);
     if (this.overlayVisible()) this.syncTip();
     return r;
   }
@@ -1564,7 +1608,13 @@ export class Player {
     else this.hideTip();
   }
 
-  handleAction(action) {
+  handleAction(action, source = 'pad') {
+    if (this.composer.contains(document.activeElement)) {
+      if (this.composer.handle(action, source)) return true;
+      if (action === UP || action === DOWN) { this.scrollChat(action); return true; }
+      if (action === Y) { this.leaveComposer(); return true; }
+      return true; // the rest would act on the video behind it
+    }
     if (this.pointsPanel) {
       if (action === B) { this.pointsBack(); return true; }
       if (action === START) { this.closePointsPanel({ focusIcon: true }); return true; }
@@ -1624,8 +1674,7 @@ export class Player {
       case UP:
       case DOWN: {
         // With Lurkbox chat showing, up/down scroll it; otherwise they bring the controls back.
-        const l = this.chatPanel.querySelector('.chat-list');
-        if (l && this.screen.classList.contains('chat-on') && !this.screen.classList.contains('twitch-chat')) l.scrollBy({ top: action === UP ? -200 : 200, behavior: 'smooth' });
+        if (this.screen.classList.contains('chat-on') && !this.screen.classList.contains('twitch-chat')) this.scrollChat(action);
         else this.showOverlay();
         return true;
       }

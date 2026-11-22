@@ -4,7 +4,8 @@
 // the demo data. Anything else is refused: demo mode never touches the network. Same-origin requests (the page's
 // own files) still go to the host.
 import { DEMO_NOW, EMOTES, buildDemoData } from './data.js';
-import { joinLines, chatLine, PAINTED } from './chat-feed.js';
+import { joinLines, chatLine, ownLine, PAINTED } from './chat-feed.js';
+import { onChatSent } from '../chat-send.js';
 
 const BLOCKED = 'Lurkbox demo mode: network access is blocked';
 
@@ -80,7 +81,8 @@ function paintDispatches() {
 
 /**
  * A WebSocket stand-in for the three sockets the core opens (Twitch IRC, EventSub, 7TV EventAPI). Other URLs fail
- * like an unreachable server. ctx: { roomIdOf(login), chat: { paused, intervalMs }, setTimer, clearTimer, log }.
+ * like an unreachable server. ctx: { roomIdOf(login), chat: { paused, intervalMs }, setTimer, clearTimer, log,
+ * sockets (a Set the open IRC sockets join, for echo()) }.
  */
 export function demoWebSocket(ctx) {
   const { setTimer = (f, ms) => setTimeout(f, ms), clearTimer = (t) => clearTimeout(t) } = ctx;
@@ -124,13 +126,22 @@ export function demoWebSocket(ctx) {
     close(code = 1000, reason = '') {
       if (this.readyState === 3) return;
       this.readyState = 3;
+      if (ctx.sockets) ctx.sockets.delete(this);
       for (const t of this.timers) clearTimer(t);
       this.timers.clear();
       this.fire('onclose', { code, reason });
     }
 
+    /** The echo of a message sent through Helix (demo mode's stand-in for Twitch relaying it to the channel). */
+    echo(detail) {
+      this.later(() => this.emit(ownLine({ channel: this.channel, roomId: this.roomId, user: detail.user, text: detail.text, id: detail.id })), 250);
+    }
+
     startIrc(channel) {
       const roomId = ctx.roomIdOf(channel) || '0';
+      this.channel = channel;
+      this.roomId = roomId;
+      if (ctx.sockets) ctx.sockets.add(this);
       const [join, room, ...backlog] = joinLines(channel, roomId);
       this.emit(join);
       this.emit(room);
@@ -172,7 +183,10 @@ export function installDemo(win, info = {}) {
   win.fetch = demoFetch({ realFetch, origin: win.location.origin, media, log });
   const chat = { paused: false, intervalMs: 1200 };
   const ids = new Map(db.users.map((u) => [u.login, u.id]));
-  win.WebSocket = demoWebSocket({ roomIdOf: (l) => ids.get(l), chat, log });
+  const sockets = new Set();
+  win.WebSocket = demoWebSocket({ roomIdOf: (l) => ids.get(l), chat, log, sockets });
+  // Sent messages come back over the fake chat connection of their room, as they would from Twitch.
+  onChatSent((d) => { for (const s of sockets) if (s.roomId === String(d.roomId)) s.echo(d); });
   const control = {
     db,
     pauseChat() { chat.paused = true; },

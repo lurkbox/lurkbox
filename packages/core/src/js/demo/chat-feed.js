@@ -64,6 +64,17 @@ export function chatLine(channel, roomId, n) {
   return `@${tagStr} :${login}!${login}@${login}.tmi.twitch.tv PRIVMSG #${channel} :${text}`;
 }
 
+/** Your own message as the IRC echo the anonymous chat connection gets after a Helix send. */
+export function ownLine({ channel, roomId, user, text, id, color = '#9BE37A', badges = '' }) {
+  const login = String(user.login || 'lurker').toLowerCase();
+  const tags = {
+    'badge-info': '', badges, color, 'display-name': user.display_name || login, emotes: '', id: String(id || ''),
+    mod: '0', 'room-id': String(roomId), 'tmi-sent-ts': String(Date.now()), 'user-id': String(user.id),
+  };
+  const tagStr = Object.entries(tags).map(([k, v]) => `${k}=${tagEsc(v)}`).join(';');
+  return `@${tagStr} :${login}!${login}@${login}.tmi.twitch.tv PRIVMSG #${channel} :${text}`;
+}
+
 /** What the fake IRC server answers on JOIN: the join, the room state and a backlog of `backlog` messages. */
 export function joinLines(channel, roomId, backlog = 24) {
   const out = [

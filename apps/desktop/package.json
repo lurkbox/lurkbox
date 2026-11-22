@@ -21,6 +21,7 @@
     "test:drops": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/drops.js",
     "test:follow": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/follow.js",
     "test:chat": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/chat.js",
+    "test:chat-send": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/chat-send.js",
     "screenshots": "node scripts/screenshots.mjs"
   },
   "dependencies": {

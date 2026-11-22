@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('lurkbox', {
   onAuthEvent: on('auth:event'),
   helix: (req) => ipcRenderer.invoke('helix', req),
   qrSvg: (text) => ipcRenderer.invoke('qr:svg', text),
+  openOnScreenKeyboard: () => ipcRenderer.invoke('keyboard:open'),
   dismissPlayerGate: (opts) => ipcRenderer.invoke('player:dismissGate', opts),
   log: (line) => ipcRenderer.invoke('log:write', line),
   playerSessionStatus: () => ipcRenderer.invoke('player-session:status'),

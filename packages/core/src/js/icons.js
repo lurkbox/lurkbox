@@ -25,6 +25,8 @@ export const PLAYER_ICONS = {
   heart: '<path d="M12 19.5C7 16 3.5 12.6 3.5 9a4.4 4.4 0 0 1 8.5-2.2A4.4 4.4 0 0 1 20.5 9c0 3.6-3.5 7-8.5 10.5z"/>',
   'heart-filled': '<path d="M12 19.5C7 16 3.5 12.6 3.5 9a4.4 4.4 0 0 1 8.5-2.2A4.4 4.4 0 0 1 20.5 9c0 3.6-3.5 7-8.5 10.5z" fill="currentColor"/>',
   side: '<rect x="3.5" y="5" width="17" height="14" rx="1.5"/><path d="M14 5v14"/>',
+  keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 9.8h0M10 9.8h0M14 9.8h0M17.5 9.8h0M8 14.2h8"/>',
+  send: '<path d="M4 11.5L20 4l-6 16-2.6-6.6z"/><path d="M11.4 13.4L20 4"/>',
 };
 
 /** An inline SVG icon (aria-hidden; the control carries the label). Unknown names draw nothing. */
