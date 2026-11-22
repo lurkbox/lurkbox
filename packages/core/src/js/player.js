@@ -22,6 +22,9 @@ import { chatEnv } from './views/settings-chat.js';
 import { marqueeLine } from './marquee.js';
 import { chatLayout, chatOverActive, chatPanelWidth } from '../shared/chat-layout.js';
 import { twitchChatZoom } from '../shared/tv-zoom.js';
+import { DoubleTap } from '../shared/gestures.js';
+import { bindPointerGestures } from './touch.js';
+import { isTouchLayout, isPhoneLayout } from './layout.js';
 
 /** Player log line: console plus userData/lurkbox.log (readable over SSH). */
 function plog(msg) {
@@ -151,6 +154,7 @@ export class Player {
     // The iframe ignores the pointer (CSS), so the stage receives all mouse input.
     const stage = document.getElementById('player-stage');
     stage.addEventListener('click', (e) => {
+      if (performance.now() - this.touchTapAt < 700) return; // a finger: the touch gestures below handle it
       if (e.target.closest('button, .po-ui, .play-prompt')) return;
       if (this.pop.isOpen) { this.pop.close(); this.bumpOverlay(); return; } // a click outside closes the pop-over
       if (this.overlayVisible()) this.hideOverlay(); else this.showOverlay();
@@ -178,6 +182,7 @@ export class Player {
       if (this.overlayVisible()) this.bumpOverlay(); else this.showOverlay();
     });
     this.lastMouse = { x: -1, y: -1 };
+    this.installTouch(stage);
 
     // Seek bar + hold-to-scrub (VODs, and live rewind through the archive VOD on the direct engine).
     this.seekBar = new SeekBar({ onSeek: (t) => this.seekTo(t), onPreview: () => this.bumpOverlay() });
@@ -854,7 +859,8 @@ export class Player {
         button('Press A to play', () => { this.hidePlayPrompt(); window.lurkbox.dismissPlayerGate({ play: true }); this.kickPlayback('prompt'); this.armPlayWatchdog(); }, { class: 'primary big' }));
       document.getElementById('player-stage').append(this.playPrompt);
     }
-    if (this.chatOn === null) this.chatOn = !!state.settings.chatDefault;
+    // Portrait in a touch layout: the chat fills the space under the video, so it starts on.
+    if (this.chatOn === null) this.chatOn = !!state.settings.chatDefault || (isTouchLayout() && window.innerHeight > window.innerWidth);
     this.active = true;
     document.body.classList.add('player-active');
     this.screen.hidden = false;
@@ -1102,7 +1108,7 @@ export class Player {
     this.overlay.replaceChildren(ui.panel, ui.tip);
     this.overlay.addEventListener('focusin', (e) => {
       const b = e.target.closest && e.target.closest('.po-icon');
-      if (b && !document.body.classList.contains('input-mouse')) this.showTip(b);
+      if (b && !document.body.classList.contains('input-mouse') && !document.body.classList.contains('input-touch')) this.showTip(b);
       else if (!b) this.hideTip();
     });
     this.ui = ui;
@@ -1766,6 +1772,66 @@ export class Player {
     if ((action === LEFT || action === RIGHT) && this.scrubber.active && this.scrubber.dir) this.scrubber.release();
   }
 
+  /** Seeks by `delta` seconds on a VOD or clip (a double tap on a half of the video); shows the controls. */
+  seekBy(delta) {
+    const cur = this.current;
+    const m = this.seekModel();
+    if (!cur || (cur.kind !== 'video' && cur.kind !== 'clip') || !m) return false;
+    const t = Math.max(m.min, Math.min(m.max, m.pos + delta));
+    this.seekTo(t);
+    if (!this.overlayVisible()) this.showOverlay(); else this.bumpOverlay();
+    this.flashSeek(delta);
+    return true;
+  }
+
+  /** "−10 s" / "+10 s" over the half of the video that was tapped. */
+  flashSeek(delta) {
+    if (!this.seekFlash) {
+      this.seekFlash = el('div', { class: 'seek-flash', 'aria-hidden': 'true' });
+      document.getElementById('player-stage').append(this.seekFlash);
+    }
+    const f = this.seekFlash;
+    f.textContent = `${delta < 0 ? '\u2212' : '+'}${Math.abs(delta)} s`;
+    f.dataset.side = delta < 0 ? 'left' : 'right';
+    f.hidden = false;
+    clearTimeout(this.seekFlashTimer);
+    this.seekFlashTimer = setTimeout(() => { f.hidden = true; }, 700);
+  }
+
+  /**
+   * Touch on the player (touch layouts only; shared/gestures.js): a tap shows or hides the controls, a double tap on
+   * the left or right half seeks ∓10 s on VODs and clips, a swipe down closes the player on a phone, and on a phone
+   * held sideways a swipe from the right brings the chat in (a swipe right puts it away).
+   */
+  installTouch(stage) {
+    this.touchTapAt = -Infinity;
+    const dbl = new DoubleTap();
+    const sideways = () => isPhoneLayout() && window.innerWidth > window.innerHeight;
+    bindPointerGestures(stage, {
+      skip: (e) => !!e.target.closest('button, .po-ui, .po-pop, .play-prompt, #chat'),
+      onTap: ({ x, t }) => {
+        this.touchTapAt = t;
+        if (!this.active) return;
+        if (this.pop.isOpen) { this.pop.close({ returnFocus: false }); this.bumpOverlay(); dbl.reset(); return; }
+        const rect = stage.getBoundingClientRect();
+        const r = dbl.tap(x - rect.left, rect.width, t);
+        if (r.kind === 'double' && this.seekBy(r.seek)) return;
+        if (this.overlayVisible()) this.hideOverlay(); else this.showOverlay();
+      },
+      onSwipe: (dir, s) => {
+        if (!this.active || this.pop.isOpen || this.cpop.isOpen || this.raid.active || this.pointsPanel) return;
+        if (dir === 'down' && isPhoneLayout() && !sideways()) { this.nav.closePlayer(); return; }
+        if (dir === 'left' && sideways() && !this.chatOn && s.x > window.innerWidth * 0.5) this.toggleChat();
+        else if (dir === 'right' && sideways() && this.chatOn) this.toggleChat();
+      },
+    });
+    // The chat panel itself: a swipe right puts it away (phone held sideways).
+    bindPointerGestures(this.chatPanel, {
+      skip: (e) => !!e.target.closest('input, button'),
+      onSwipe: (dir) => { if (this.active && dir === 'right' && sideways() && this.chatOn) this.toggleChat(); },
+    });
+  }
+
   seekTo(t) {
     const cur = this.current;
     if (!cur || !this.embed) return;
@@ -1897,7 +1963,7 @@ export class Player {
    * events are deferred while the window lacks OS focus (Gamescope).
    */
   syncTip() {
-    if (document.body.classList.contains('input-mouse')) return; // the mouse: hover shows it
+    if (document.body.classList.contains('input-mouse') || document.body.classList.contains('input-touch')) return; // hover / long-press show it
     const a = document.activeElement;
     if (a && a.classList && a.classList.contains('po-icon') && this.overlay.contains(a) && !this.pop.isOpen) this.showTip(a);
     else this.hideTip();

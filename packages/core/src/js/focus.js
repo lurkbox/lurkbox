@@ -78,8 +78,17 @@ export function scrollToFocus(node, instant = false) {
   sc.scrollTo({ top: target, behavior: instant || reduce ? 'instant' : 'smooth' });
 }
 
+/** A finger in a touch layout has no cursor: only text boxes take focus (for the keyboard), nothing scrolls to it. */
+function touchWithoutCursor(node) {
+  if (typeof document === 'undefined' || !document.body) return false;
+  const b = document.body.classList;
+  if (!b.contains('touch-ui') || !b.contains('input-touch')) return false;
+  return !(node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable);
+}
+
 export function focusEl(node, opts = {}) {
   if (!node) return false;
+  if (touchWithoutCursor(node)) return false;
   node.focus({ preventScroll: true });
   markFocused(node);
   scrollToFocus(node, !!opts.instant);

@@ -148,3 +148,67 @@ body.layout-phone .exit-modal .row .btn { flex: 1; }
 body.layout-phone #toasts { top: calc(0.6rem + var(--sa-top)); left: calc(0.6rem + var(--sa-left)); right: calc(0.6rem + var(--sa-right)); align-items: stretch; }
 body.layout-phone .toast { max-width: none; font-size: 1rem; }
 body.layout-phone .drops-stage { height: calc(100vh - 14rem - var(--sa-top) - var(--sa-bottom)); }
+
+/* ---------- the player on touch ---------- */
+body.touch-ui #player-stage { touch-action: none; } /* taps, double taps and swipes are ours (js/touch.js) */
+body.touch-ui #chat .chat-list { touch-action: pan-y; overscroll-behavior: contain; }
+.seek-flash {
+  position: absolute; top: 50%; z-index: 4; transform: translate(-50%, -50%); pointer-events: none;
+  padding: 0.6rem 1.1rem; border-radius: 999px; background: var(--badge-bg); color: var(--badge-fg);
+  font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.seek-flash[data-side="left"] { left: 25%; }
+.seek-flash[data-side="right"] { left: 75%; }
+body.touch-ui .po-row { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding: 0.2rem 0; }
+body.touch-ui .po-row::-webkit-scrollbar { display: none; }
+body.touch-ui .po-seek-track { height: 0.75rem; }
+body.touch-ui .po-seek { padding-top: 0.9rem; padding-bottom: 0.9rem; } /* a taller strip to put a finger on */
+body.touch-ui .po-seek-head { width: 1.4rem; height: 1.4rem; margin: -0.7rem 0 0 -0.7rem; }
+/* Phones have volume buttons. */
+body.layout-phone .po-icon[data-key="volume"] { display: none; }
+
+/* Portrait (phone and tablet): the video on top at 16:9, the chat fills the rest with the composer at the bottom. */
+body.touch-ui.orient-portrait #player-screen { flex-direction: column; padding: var(--sa-top) var(--sa-right) 0 var(--sa-left); }
+body.touch-ui.orient-portrait #player-screen:not(.chat-on) { justify-content: center; }
+body.touch-ui.orient-portrait #player-stage { flex: none; width: 100%; aspect-ratio: 16 / 9; max-height: 60vh; }
+body.touch-ui.orient-portrait #player-screen #chat {
+  position: static; order: 0; flex: 1; min-height: 0; width: auto; padding: 0 0 var(--sa-bottom);
+  border: 0; border-top: 1px solid var(--border); background: var(--chat-bg);
+}
+body.touch-ui.orient-portrait #player-screen #chat .chat-msg { text-shadow: none; }
+/* The overlay keeps to the video box: smaller type, tighter rows. */
+body.layout-phone.orient-portrait .po-panel { gap: 0.2rem; padding: 0 0.6rem 0.3rem; }
+body.layout-phone.orient-portrait .po-top { gap: 0.5rem; }
+body.layout-phone.orient-portrait .po-avatar { width: 2.1rem; height: 2.1rem; }
+body.layout-phone.orient-portrait .po-name { font-size: 1.1rem; max-width: 40%; }
+body.layout-phone.orient-portrait .po-title { font-size: 0.95rem; }
+body.layout-phone.orient-portrait .po-icon { width: var(--touch-min); height: var(--touch-min); }
+body.layout-phone.orient-portrait .po-glyph svg { width: 1.6rem; height: 1.6rem; }
+body.layout-phone.orient-portrait .po-seek { padding: 0.5rem 0.3rem; gap: 0.3rem; }
+body.layout-phone.orient-portrait .po-seek-times { font-size: 0.95rem; }
+body.layout-phone.orient-portrait #player-overlay { background: linear-gradient(0deg, var(--overlay-from) 0%, var(--overlay-mid) 55%, transparent 100%); }
+body.layout-phone.orient-portrait .corner-badge { font-size: 0.85rem; top: 0.5rem; right: 0.5rem; }
+body.layout-phone.orient-portrait #ad-badge { left: 0.5rem; }
+body.layout-phone #player-status { font-size: 1.1rem; padding: 0.8rem 1.2rem; }
+body.layout-phone .chat-title { display: none; }
+
+/* A phone held sideways: the video fills the screen; the chat is a panel swiped in from the right. */
+body.layout-phone.orient-landscape #player-stage { margin: 0; }
+body.layout-phone.orient-landscape .po-panel { padding: 0 calc(1rem + var(--sa-right)) calc(0.6rem + var(--sa-bottom)) calc(1rem + var(--sa-left)); gap: 0.3rem; }
+body.layout-phone.orient-landscape #player-screen #chat {
+  display: flex; position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; width: min(21rem, 48vw);
+  padding: var(--sa-top) var(--sa-right) var(--sa-bottom) 0; border: 0; border-left: 1px solid var(--border);
+  background: color-mix(in srgb, var(--chat-bg) 94%, transparent);
+  transform: translateX(100%); visibility: hidden; transition: transform 180ms ease, visibility 0s 180ms;
+}
+body.layout-phone.orient-landscape #player-screen.chat-on #chat { transform: none; visibility: visible; transition: transform 180ms ease; }
+
+/* Pop-overs (quality, chat settings, emotes, quick chat...) become bottom sheets on a phone. */
+body.layout-phone .po-pop {
+  position: fixed; left: 0 !important; right: 0; bottom: 0 !important; top: auto; z-index: 30;
+  width: auto !important; min-width: 0; max-width: none; max-height: 70vh !important;
+  border-radius: 1.2rem 1.2rem 0 0; border-bottom: 0;
+  padding: 1rem calc(1rem + var(--sa-right)) calc(1rem + var(--sa-bottom)) calc(1rem + var(--sa-left));
+}
+body.layout-phone .po-pop::before { content: ""; align-self: center; flex: none; width: 2.6rem; height: 0.3rem; border-radius: 999px; background: var(--border); margin: -0.3rem 0 0.3rem; }
+body.layout-phone .ep-grid { max-height: 40vh; }
