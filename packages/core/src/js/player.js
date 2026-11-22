@@ -20,7 +20,7 @@ import { Slider, handleSliderAction } from './slider.js';
 import { ChatControls } from './chat-controls.js';
 import { chatEnv } from './views/settings-chat.js';
 import { marqueeLine } from './marquee.js';
-import { chatLayout, chatOverActive, chatPanelWidth } from '../shared/chat-layout.js';
+import { chatLayout, chatOverActive, chatPanelWidth, chatBox } from '../shared/chat-layout.js';
 import { twitchChatZoom } from '../shared/tv-zoom.js';
 import { DoubleTap } from '../shared/gestures.js';
 import { bindPointerGestures } from './touch.js';
@@ -920,6 +920,20 @@ export class Player {
     st.setProperty('--chat-over-a', `${L.chatOverlayOpacity}%`);
     this.screen.classList.toggle('chat-left', L.chatSide === 'left');
     this.screen.classList.toggle('chat-over', over);
+    // Height and position: a shorter panel beside the video (which keeps its size), or a shorter box over it that
+    // lifts above the control bar while that is open. Phone and touch portrait ignore it (chatEnv().heightApplies).
+    const box = chatBox({
+      chatHeight: L.chatHeight, chatVPos: L.chatVPos, screenHeight: this.screen.clientHeight || window.innerHeight,
+      over, overlayOpen: !!this.overlay && this.overlayVisible(), barPx: this.ui && this.ui.panel ? this.ui.panel.offsetHeight : 0,
+      applies: chatEnv().heightApplies,
+    });
+    this.screen.classList.toggle('chat-short', !box.full);
+    this.screen.classList.toggle('chat-top', !box.full && box.top != null);
+    this.screen.classList.toggle('chat-bottom', !box.full && box.top == null);
+    if (box.full) { for (const p of ['--chat-h', '--chat-top', '--chat-bottom']) st.removeProperty(p); return; }
+    st.setProperty('--chat-h', `${box.height}px`);
+    st.setProperty('--chat-top', box.top == null ? 'auto' : `${box.top}px`);
+    st.setProperty('--chat-bottom', box.bottom == null ? 'auto' : `${box.bottom}px`);
   }
 
   applyLayout() {
@@ -1114,6 +1128,9 @@ export class Player {
       new ResizeObserver(() => { if (ui.row.clientWidth !== rowWidth) { rowWidth = ui.row.clientWidth; refit(); } }).observe(ui.row);
     }
     window.addEventListener('layoutchange', refit);
+    window.addEventListener('layoutchange', () => this.applyChatLayout()); // the phone and touch portrait ignore the chat height
+    // The bar's height (a seek bar, a wrapped row) decides how far a bottom chat over the video lifts.
+    if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (this.overlayVisible()) this.applyChatLayout(); }).observe(ui.panel);
     this.overlay.addEventListener('focusin', (e) => {
       const b = e.target.closest && e.target.closest('.po-icon');
       if (b && !document.body.classList.contains('input-mouse') && !document.body.classList.contains('input-touch')) this.showTip(b);
@@ -1216,6 +1233,7 @@ export class Player {
     this.overlay.hidden = false;
     document.body.classList.add('overlay-open');
     this.renderOverlay();
+    this.applyChatLayout(); // a short chat at the bottom, over the video, moves above the bar
     if (!was) {
       const mouse = document.body.classList.contains('input-mouse');
       const back = this.lastFocusKey && focusables(this.overlay).find((n) => focusKey(n) === this.lastFocusKey);
@@ -1244,6 +1262,7 @@ export class Player {
     if (a && this.overlay.contains(a)) a.blur();
     this.overlay.hidden = true;
     document.body.classList.remove('overlay-open');
+    this.applyChatLayout();
     // The embed may pause itself while covered (Twitch's visibility check); resume it.
     if (wasOpen && this.active && this.embed && !this.embed.isDirect && !this.userPaused) {
       setTimeout(() => { if (this.safe(() => this.embed.isPaused()) === true && !this.userPaused) { plog('resuming after the overlay closed'); this.kickPlayback('overlay-closed'); } }, 300);

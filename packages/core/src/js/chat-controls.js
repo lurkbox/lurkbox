@@ -4,13 +4,14 @@ import { el, button } from './ui.js';
 import { Slider } from './slider.js';
 import { twitchChatZoom } from '../shared/tv-zoom.js';
 import {
-  chatLayout, chatPanelWidth, widthPercent, chatOverActive, CHAT_LAYOUT_DEFAULTS, TEXT_SIZE, WIDTH, OPACITY,
+  chatLayout, chatPanelWidth, widthPercent, chatOverActive, CHAT_LAYOUT_DEFAULTS, TEXT_SIZE, WIDTH, HEIGHT, OPACITY,
 } from '../shared/chat-layout.js';
 
 const pct = (v) => `${v}%`;
 
 /**
- * What the chat controls show for these settings. env: { windowWidth, screenHeight, remPx, direct }.
+ * What the chat controls show for these settings. env: { windowWidth, screenHeight, remPx, direct, heightApplies }.
+ * heightApplies: false in layouts that ignore the height and position (phone, touch portrait); default true.
  * Each spec: { key, type: 'slider'|'choice'|'toggle', label, value, text, range?, options?, disabled?, hidden?, note?, patch(v) }.
  * hidden: the control can't apply right now (e.g. the background slider in Twitch chat style), so it isn't shown.
  * patch(v) is the settings patch for a new value (the only way the controls change settings).
@@ -25,6 +26,8 @@ export function chatControlSpecs(settings, env = {}) {
   const widthPx = chatPanelWidth({ style, chatWidth: L.chatWidth, windowWidth: W, zoom, remPx: env.remPx });
   const widthNow = L.chatWidth === 'auto' ? widthPercent(widthPx, W) : L.chatWidth;
   const over = chatOverActive({ layout: L, style, direct: env.direct !== false });
+  const heightOk = env.heightApplies !== false;
+  const short = L.chatHeight < HEIGHT.max;
   const specs = [
     { key: 'chatStyle', type: 'choice', label: 'Style', value: style,
       options: [{ value: 'lurkbox', label: 'Lurkbox chat' }, { value: 'twitch', label: 'Twitch chat' }],
@@ -44,6 +47,16 @@ export function chatControlSpecs(settings, env = {}) {
     { key: 'chatSide', type: 'choice', label: 'Side', value: L.chatSide,
       options: [{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }],
       patch: (v) => ({ chatSide: v === 'left' ? 'left' : 'right' }) },
+    { key: 'chatHeight', type: 'slider', label: 'Height', range: HEIGHT, value: L.chatHeight, text: pct(L.chatHeight),
+      disabled: !heightOk,
+      note: !heightOk ? 'Not used in this layout: the chat fills the space under the video.'
+        : !short ? ''
+          : over ? 'At the bottom, the chat moves up while the controls are shown.' : 'The video keeps its size.',
+      patch: (v) => ({ chatHeight: v }) },
+    { key: 'chatVPos', type: 'choice', label: 'Position', value: L.chatVPos,
+      options: [{ value: 'top', label: 'Top' }, { value: 'bottom', label: 'Bottom' }],
+      disabled: !heightOk, hidden: !short,
+      patch: (v) => ({ chatVPos: v === 'top' ? 'top' : 'bottom' }) },
     { key: 'chatBgOpacity', type: 'slider', label: 'Background', range: OPACITY, value: L.chatBgOpacity,
       text: pct(L.chatBgOpacity), disabled: twitch || over, hidden: twitch || over,
       note: twitch ? 'Twitch chat draws its own background.' : over ? 'Over the video, the setting below applies.' : '',
@@ -102,7 +115,7 @@ export class ChatControls {
     }
     const buttons = spec.options.map((o) => button(o.label, () => {
       const c = this.current(spec.key);
-      if (c.value !== o.value) this.onChange(c.patch(o.value), { live: false });
+      if (!c.disabled && c.value !== o.value) this.onChange(c.patch(o.value), { live: false });
     }, { class: 'cc-choice', dataset: { focusKey: `cc-${spec.key}-${o.value}`, value: o.value } }));
     const control = el('div', { class: 'cc-row' }, el('span', { class: 'cc-label' }, spec.label), el('div', { class: 'cc-choices' }, buttons));
     return { spec, buttons, control, noteEl };
@@ -135,7 +148,7 @@ export class ChatControls {
         item.button.classList.toggle('on', !!spec.value);
         item.button.disabled = !!spec.disabled;
       } else if (item.buttons) {
-        for (const b of item.buttons) b.classList.toggle('selected', b.dataset.value === String(spec.value));
+        for (const b of item.buttons) { b.classList.toggle('selected', b.dataset.value === String(spec.value)); b.disabled = !!spec.disabled; }
       }
     }
   }
