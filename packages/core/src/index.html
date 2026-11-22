@@ -3,6 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- What the page may load: its own files, Twitch's player/chat/clip frames and embed script, and the image, media
+       and API hosts of Twitch, 7TV, BTTV and FFZ; lbhls: is the desktop's playlist proxy (see docs/architecture.md). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://player.twitch.tv; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src https://player.twitch.tv https://www.twitch.tv https://clips.twitch.tv; img-src 'self' data: blob: lbhls: https://*.jtvnw.net https://*.twitch.tv https://*.twitchcdn.net https://*.cloudfront.net https://cdn.7tv.app https://cdn.betterttv.net https://cdn.frankerfacez.com; media-src 'self' blob: data: lbhls: https://*.ttvnw.net https://*.twitchcdn.net https://*.twitch.tv https://*.cloudfront.net; connect-src 'self' blob: lbhls: https://*.twitch.tv wss://*.twitch.tv https://*.ttvnw.net https://*.jtvnw.net https://*.twitchcdn.net https://7tv.io https://*.7tv.io wss://*.7tv.io https://*.betterttv.net https://*.frankerfacez.com; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Lurkbox</title>
   <link rel="stylesheet" href="css/app.css">
   <link rel="stylesheet" href="css/chat.css">

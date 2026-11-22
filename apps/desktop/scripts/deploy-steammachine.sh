@@ -18,18 +18,23 @@ export SSH_ASKPASS_REQUIRE=${SSH_ASKPASS_REQUIRE:-force}
 SSH_OPTS=(-o PubkeyAuthentication=no -o ConnectTimeout=10)
 ssh_() { ssh "${SSH_OPTS[@]}" "$HOST" "$@"; }
 scp_() { scp -q "${SSH_OPTS[@]}" "$@"; }
+# A value quoted for the remote shell (paths inside ssh_ command strings).
+q() { printf '%q' "$1"; }
 
 APPIMAGE=$(ls -t dist/Lurkbox-*.AppImage 2>/dev/null | head -1 || true)
 [[ -n $APPIMAGE ]] || { echo "No dist/Lurkbox-*.AppImage; run npm run dist first" >&2; exit 1; }
 REMOTE_DIR=/home/deck/Applications
 STEAMID=${LURKBOX_STEAMID:-$(ssh_ 'ls ~/.local/share/Steam/userdata | grep -E "^[0-9]+$" | grep -v "^0$"' | head -2 | { read -r a; read -r b || true; [[ -z ${b:-} ]] && echo "$a"; })}
 [[ -n $STEAMID ]] || { echo "Several Steam users on the device; set LURKBOX_STEAMID" >&2; exit 1; }
+[[ $STEAMID =~ ^[0-9]+$ ]] || { echo "LURKBOX_STEAMID must be a number" >&2; exit 1; }
 CFG=.local/share/Steam/userdata/$STEAMID/config
+RD=$(q "$REMOTE_DIR")
+RCFG=$(q "$CFG")
 
 echo "== AppImage: $APPIMAGE"
-ssh_ "mkdir -p $REMOTE_DIR/Lurkbox"
+ssh_ "mkdir -p $RD/Lurkbox"
 scp_ "$APPIMAGE" "$HOST:$REMOTE_DIR/Lurkbox.AppImage.new"
-ssh_ "chmod +x $REMOTE_DIR/Lurkbox.AppImage.new && mv -f $REMOTE_DIR/Lurkbox.AppImage.new $REMOTE_DIR/Lurkbox.AppImage"
+ssh_ "chmod +x $RD/Lurkbox.AppImage.new && mv -f $RD/Lurkbox.AppImage.new $RD/Lurkbox.AppImage"
 scp_ assets/steam/icon.png "$HOST:$REMOTE_DIR/Lurkbox/icon.png"
 
 echo "== Backing up shortcuts.vdf"
@@ -41,22 +46,24 @@ echo "   $BACKUPS/shortcuts.vdf.$stamp"
 echo "== Shortcut"
 # Steam keeps shortcuts in memory and rewrites shortcuts.vdf from it, so the file is only edited when the shortcut is
 # missing, and only while Steam is stopped (--restart-steam). Updating the AppImage never touches the file.
-if ssh_ "grep -q Lurkbox.AppImage $CFG/shortcuts.vdf"; then
-  APPID=$(ssh_ "python3 - --appid $REMOTE_DIR/Lurkbox.AppImage" < "$SCRIPTS/steam_shortcut.py")
+if ssh_ "grep -q Lurkbox.AppImage $RCFG/shortcuts.vdf"; then
+  APPID=$(ssh_ "python3 - --appid $RD/Lurkbox.AppImage" < "$SCRIPTS/steam_shortcut.py")
   echo "   already present, appid $APPID (shortcuts.vdf not touched)"
 else
   [[ ${1:-} == --restart-steam ]] || { echo "!! No Lurkbox shortcut yet; re-run with --restart-steam to add it with Steam stopped" >&2; exit 2; }
   if ssh_ "pgrep -f '[S]teamLaunch AppId=' >/dev/null"; then echo "!! A game is running; not stopping Steam." >&2; exit 2; fi
   old=$(ssh_ "pgrep -of '[s]teamrt64/steam .*-gamepadui' || true")
   ssh_ "steam -shutdown >/dev/null 2>&1 || true"
+  [[ -z $old || $old =~ ^[0-9]+$ ]] || old=''
   for _ in $(seq 60); do sleep 1; [[ -z $old ]] || ! ssh_ "kill -0 $old 2>/dev/null" && break; done
-  APPID=$(ssh_ "python3 - $CFG/shortcuts.vdf $REMOTE_DIR/Lurkbox.AppImage $REMOTE_DIR/Lurkbox/icon.png" < "$SCRIPTS/steam_shortcut.py")
+  APPID=$(ssh_ "python3 - $RCFG/shortcuts.vdf $RD/Lurkbox.AppImage $RD/Lurkbox/icon.png" < "$SCRIPTS/steam_shortcut.py")
   echo "   added with Steam stopped, appid $APPID; Game Mode restarts Steam on its own"
   RESTARTED=1
 fi
 
 echo "== Artwork"
-ssh_ "mkdir -p $CFG/grid"
+[[ $APPID =~ ^[0-9]+$ ]] || { echo "!! Unexpected appid from the device" >&2; exit 1; }
+ssh_ "mkdir -p $RCFG/grid"
 scp_ assets/steam/capsule.png "$HOST:$CFG/grid/${APPID}p.png"
 scp_ assets/steam/wide.png "$HOST:$CFG/grid/${APPID}.png"
 scp_ assets/steam/hero.png "$HOST:$CFG/grid/${APPID}_hero.png"
@@ -71,13 +78,14 @@ if [[ ${1:-} == --restart-steam && -z ${RESTARTED:-} ]]; then
   old=$(ssh_ "pgrep -of '[s]teamrt64/steam .*-gamepadui' || true")
   ssh_ "steam -shutdown >/dev/null 2>&1 || true"
   # Wait for the old client to exit, then for the session to start a new one.
+  [[ -z $old || $old =~ ^[0-9]+$ ]] || old=''
   for _ in $(seq 60); do sleep 2; [[ -z $old ]] || ! ssh_ "kill -0 $old 2>/dev/null" && break; done
   for _ in $(seq 90); do sleep 2; new=$(ssh_ "pgrep -of '[s]teamrt64/steam .*-gamepadui' || true"); [[ -n $new && $new != "$old" ]] && break; done
   sleep 10
   # Steam can rewrite shortcuts.vdf on exit; make sure the entry survived.
-  if ! ssh_ "grep -q Lurkbox $CFG/shortcuts.vdf"; then
+  if ! ssh_ "grep -q Lurkbox $RCFG/shortcuts.vdf"; then
     echo "!! Shortcut was overwritten during restart; re-adding (restart Steam again to see it)" >&2
-    ssh_ "python3 - $CFG/shortcuts.vdf $REMOTE_DIR/Lurkbox.AppImage $REMOTE_DIR/Lurkbox/icon.png" < "$SCRIPTS/steam_shortcut.py" >/dev/null
+    ssh_ "python3 - $RCFG/shortcuts.vdf $RD/Lurkbox.AppImage $RD/Lurkbox/icon.png" < "$SCRIPTS/steam_shortcut.py" >/dev/null
     exit 3
   fi
 fi
