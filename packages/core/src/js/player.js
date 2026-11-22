@@ -324,7 +324,7 @@ export class Player {
   async openClip(clip, list = [], channel = {}) {
     if (this.current && this.current.kind === 'video') this.saveResume();
     if (this.vodTimeline) { vlog(this.vodTimeline.finish('left before PLAYING')); this.vodTimeline = null; }
-    if (Array.isArray(list) && list.length) this.clipList = list;
+    if (Array.isArray(list)) this.clipList = list.some((c) => c.id === clip.id) ? list : [clip]; // null: keep (next/previous)
     const cur = { kind: 'clip', login: channel.login || null, name: channel.name || clip.broadcaster_name, userId: clip.broadcaster_id, title: clip.title, clip };
     this.current = cur;
     this.resetSeek();
