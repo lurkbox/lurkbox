@@ -106,6 +106,19 @@ app.on('browser-window-created', (_e, win) => {
       await waitFor('the on-screen keyboard', "!!document.querySelector('.osk .osk-key')");
       await typeOnOsk('hi chat');
       await shot('keyboard');
+      // The layout toggle: symbols and numbers, focus stays on the toggle, then back to letters (the grid keeps its rows).
+      const oskRows = () => js("new Set([...document.querySelectorAll('.osk .osk-key')].map((k) => k.dataset.row)).size");
+      const rowsBefore = await oskRows();
+      await js("document.querySelector('.osk .osk-key[data-key=layout]').focus(); true");
+      await press('A');
+      await waitFor('the symbols layout', "!!document.querySelector('.osk .osk-key[data-ch=\"$\"]') && document.activeElement.dataset.key === 'layout'");
+      if (await oskRows() !== rowsBefore) throw new Error('the symbols layout has a different number of rows');
+      await press('UP');
+      await waitFor('up from the layout toggle keeping its column', "document.activeElement.dataset.ch === '«'", 5000);
+      await press('DOWN');
+      await waitFor('focus back on the layout toggle', "document.activeElement.dataset.key === 'layout'", 5000);
+      await press('A');
+      await waitFor('the letters layout', "!!document.querySelector('.osk .osk-key[data-ch=q]')");
       await press('START'); // Done
       await waitFor('the text in the composer', "document.querySelector('#chat .cm-input').value === 'hi chat'");
       await waitFor('focus on Send', "document.activeElement && document.activeElement.classList.contains('cm-send')");

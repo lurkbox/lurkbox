@@ -31,6 +31,7 @@ const SETUP = {
   'quick-chat': { settings: { chatDefault: true, quickChat: { global: ['gg', 'LUL', 'hype!', 'o7', 'PogChamp'], channels: { 7100004: { login: 'pixelmoth', phrases: ['moth gang lurkerLove', 'world 6 lets go boxHype'] } } } } },
   categories: {},
   search: {},
+  keyboard: {},
   settings: {},
   theme: { settings: { theme: THEME, customTheme: CUSTOM } },
   'whos-watching': { settings: { profilePicker: 'ask' } },
@@ -289,6 +290,21 @@ app.on('browser-window-created', (_e, win) => {
       await js("document.querySelector('[data-view=search] .card').focus(); true");
       await settle();
       await shoot('search');
+    },
+    async keyboard() {
+      // The built-in on-screen keyboard over Search: a grid of equal keys, typed on with the D-pad.
+      await following();
+      await press('RB', 'RB', 'RB');
+      await waitFor('search', "!!document.querySelector('[data-view=search] input')");
+      await js("document.querySelector('[data-view=search] input').focus(); true");
+      await press('A');
+      await waitFor('the on-screen keyboard', "!!document.querySelector('.osk .osk-key[data-ch=q]')");
+      await waitFor('focus on q', "document.activeElement && document.activeElement.dataset.ch === 'q'");
+      // q → down to a → right to s, d, f → A; then on to the rest of "fun" with the D-pad.
+      await press('DOWN', 'RIGHT', 'RIGHT', 'RIGHT', 'A', 'UP', 'RIGHT', 'RIGHT', 'RIGHT', 'A', 'DOWN', 'DOWN', 'LEFT', 'A', 'DOWN');
+      await waitFor('the typed text', "document.querySelector('.osk-field').textContent === 'fun'");
+      await settle();
+      await shoot('keyboard');
     },
     async settings() {
       await following();
