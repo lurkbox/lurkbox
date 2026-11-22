@@ -10,7 +10,7 @@ const path = require('path');
 const { openSteamKeyboard, inGameMode } = require('./steam-keyboard');
 const { JoydevReader } = require('./joydev');
 const { app, BrowserWindow, ipcMain, Menu, session, nativeImage, safeStorage, net, protocol } = require('electron');
-const { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, CHROME_UA } = require('./player-session');
+const { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, keepTwitchCookiesThirdParty, CHROME_UA } = require('./player-session');
 const { TvSignIn } = require('./tv-signin');
 const qrcode = require('qrcode-generator');
 const { JsonFile, DEFAULT_SETTINGS, sanitizeSettings } = require('./store');
@@ -570,7 +570,7 @@ function registerIpc() {
     if (login !== pointsLogin) return;
     const { events, state } = tracker.update(scan);
     for (const ev of events) {
-      if (ev.type === 'signed-in') note(`[points] ${login}: chat ${ev.signedIn ? 'shows the points balance' : 'shows no points (signed out in the frame, or the channel has no points)'}`);
+      if (ev.type === 'signed-in') note(`[points] ${login}: chat ${ev.signedIn ? 'shows the points balance' : `shows no points (signed out in the frame, or the channel has no points; sign-in prompt ${scan.signInPrompt ? 'shown' : 'absent'}, auth-token cookie ${scan.authCookie === true ? 'visible' : scan.authCookie === false ? 'NOT visible' : 'unknown'} in the frame)`}`);
       else if (ev.type === 'claim-clicked') appLog(`[points] ${login}: clicked Claim Bonus`);
       else if (ev.type === 'claimed') appLog(`[points] ${login}: claimed bonus ${ev.amount != null ? `+${ev.amount}` : '(amount not seen)'}, balance ${ev.balance}`);
       else if (ev.type === 'prediction' || ev.type === 'poll') { appLog(`[points] ${login}: ${ev.type} shown`); send('points:event', { login, ...ev }); }
@@ -594,14 +594,27 @@ function registerIpc() {
     if (!frame) return { ok: false, reason: 'chat not loaded' };
     try {
       await frame.executeJavaScript(navSource(points.NAV_OPTIONS));
-      const opened = opts.rewards ? await frame.executeJavaScript(points.openRewardsSource()) : false;
+      // The button may not be there yet (the frame still loading, or Twitch rendering the chat input late): retry for
+      // up to 4 s, and log which strategies found nothing.
+      let res = null;
+      if (opts.rewards) {
+        for (let i = 0; i < 16; i++) {
+          const f = chatFrames(pointsLogin)[0] || frame;
+          res = await f.executeJavaScript(points.openRewardsSource({ detail: true })).catch((e) => ({ opened: false, tried: [`error: ${e.message}`] }));
+          if (res && res.opened) break;
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      }
+      const opened = !!(res && res.opened);
       await frame.executeJavaScript(points.fitRewardsSource());
       // The popover renders after the click; start the focus on its first target once there is one.
       let tries = 0;
       const startNav = () => frame.executeJavaScript('window.__lbFit && window.__lbFit.run(), window.__lbNav ? window.__lbNav.start() : true')
         .then((ok) => { if (!ok && ++tries < 10) setTimeout(startNav, 300); }).catch(() => {});
       setTimeout(startNav, 300);
-      appLog(`[points] ${pointsLogin}: panel opened${opts.rewards ? (opened ? ' (rewards)' : ' (rewards button not found)') : ''}`);
+      const how = !opts.rewards ? '' : opened ? ` (rewards${res.already ? ', already open' : ` via ${res.via}`})`
+        : ` (rewards button not found after 4 s; points summary ${res && res.summary ? 'present' : 'missing'}, sign-in prompt ${res && res.signedOut ? 'shown' : 'absent'}; tried ${res && res.tried ? res.tried.join(' | ') : '?'})`;
+      appLog(`[points] ${pointsLogin}: panel opened${how}`);
       return { ok: true, opened };
     } catch (e) { return { ok: false, reason: e.message }; }
   });
@@ -755,6 +768,12 @@ app.whenReady().then(async () => {
 
   session.defaultSession.protocol.handle(hlsProxy.SCHEME, hlsProxy.makeHandler({ fetch: (u, o) => net.fetch(u, o), hosts: proxyHosts, log: appLog }));
   await restorePlayerSession().catch((e) => appLog(`[player-cookies] startup check failed: ${e.message}`));
+  // The chat frame (channel points) and the Drops frame are third-party frames of the localhost page: they only get
+  // twitch.tv cookies marked SameSite=None. Repair any that aren't, and keep it so (player-session.js).
+  try {
+    const fixed = await keepTwitchCookiesThirdParty(session.defaultSession.cookies, appLog).repair();
+    if (fixed.length) appLog(`[player-cookies] startup: made ${fixed.length} twitch.tv cookies SameSite=None for the chat frame: ${fixed.join(', ')}`);
+  } catch (e) { appLog(`[player-cookies] SameSite repair failed: ${e.message}`); }
 
   // Only allow what the embed needs.
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => {
