@@ -59,6 +59,7 @@ const SETUP = {
   'phone-following': { touch: true, env: { LURKBOX_DEMO_SIZE: '412x915' } },
   'phone-channel': { touch: true, env: { LURKBOX_DEMO_SIZE: '412x915' } },
   'phone-player': { touch: true, env: { LURKBOX_DEMO_SIZE: '412x915' } },
+  'phone-clip': { touch: true, settings: { clipPeriod: 'all', clipAutoplay: false }, env: { LURKBOX_DEMO_SIZE: '412x915' } },
   'phone-landscape': { touch: true, settings: { chatDefault: true }, env: { LURKBOX_DEMO_SIZE: '915x412' } },
   'tablet-following': { touch: true, env: { LURKBOX_DEMO_SIZE: '1280x800' } },
   'tablet-player': { touch: true, settings: { chatDefault: true }, env: { LURKBOX_DEMO_SIZE: '1280x800' } },
@@ -496,8 +497,18 @@ app.on('browser-window-created', (_e, win) => {
       await following();
       await waitFor('offline channels', "document.querySelectorAll('[data-view=following] .grid-offline .card').length >= 4");
       if (await js("!!document.querySelector('#rail .brand') && __shot.visible(document.querySelector('#rail .brand'))")) throw new Error('the rail brand shows on the phone');
+      // Every bottom tab is a 44 px target at least.
+      const small = await js("[...document.querySelectorAll('#rail .rail-item')].filter((b) => __shot.visible(b)).map((b) => b.getBoundingClientRect()).filter((r) => r.width < 44 || r.height < 44).length");
+      if (small) throw new Error(`${small} bottom tabs are smaller than 44 px`);
       await settle();
       await shoot('phone-following');
+      // Pull to refresh: a drag down from the top of the list re-mounts the section.
+      await js("(() => { const n = window.__lurkbox.nav; window.__shotRefreshes = 0; const r = n.refresh; n.refresh = function () { window.__shotRefreshes++; return r.apply(this, arguments); }; document.getElementById('content').scrollTop = 0; return true; })()");
+      await swipe(206, 300, 206, 520, { steps: 10, ms: 300 });
+      await waitFor('a pull-to-refresh', 'window.__shotRefreshes === 1', 5000);
+      // Tabs: Categories, by tap.
+      await tap('#rail .rail-item[data-view=categories]');
+      await waitFor('categories', "document.querySelectorAll('[data-view=categories] .card').length >= 6 && /Categories/.test(document.querySelector('.appbar-title').textContent)");
     },
     async 'phone-channel'() {
       // A long-press on a live card opens its channel page; a left swipe goes to the next tab.
@@ -528,6 +539,39 @@ app.on('browser-window-created', (_e, win) => {
       await waitFor('the overlay', "!document.getElementById('player-overlay').hidden");
       await settle();
       await shoot('phone-player');
+    },
+    async 'phone-clip'() {
+      // A clip from the channel's Clips tab: double tap the right half seeks +10 s, the seek bar drags, swipe down closes.
+      await layoutIs('phone');
+      await following();
+      await tap('[data-view=following] .grid .card', { hold: 750 });
+      await waitFor('the channel page', "!!document.querySelector('.channel-tabs .channel-tab.selected')");
+      await tap('.channel-tabs .channel-tab[data-tab=clips], .channel-tabs .channel-tab:nth-child(3)');
+      await waitFor('the clips', "document.querySelectorAll('.channel-body .card-clip').length >= 4");
+      await tap('.channel-body .card-clip');
+      await waitFor('the clip', "!document.getElementById('player-screen').hidden && window.__lurkbox.player.current && window.__lurkbox.player.current.kind === 'clip'");
+      await playing(1);
+      const t = () => js('__shot.video().currentTime');
+      await js('__shot.video().pause(); true');
+      const t0 = await t();
+      await tapXY(330, 40);
+      await sleep(120);
+      await tapXY(330, 40);
+      await waitFor('a seek of +10 s', `(() => { const v = __shot.video(); return v.currentTime > ${t0} + 8 && v.currentTime < ${t0} + 12; })()`, 5000);
+      if (await js("document.querySelector('.seek-flash').hidden")) throw new Error('no +10 s flash');
+      if (!(await js("/\\+10 s/.test(document.querySelector('.seek-flash').textContent)"))) throw new Error('the flash does not say +10 s');
+      await waitFor('the overlay', "!document.getElementById('player-overlay').hidden");
+      await settle({ noSpinner: false });
+      await shoot('phone-clip');
+      // Drag the seek bar's track with a finger to a quarter of the clip.
+      const r = await js("(() => { const b = document.querySelector('.po-seek-track').getBoundingClientRect(); return [b.left, b.right, b.top + b.height / 2]; })()");
+      const dur = await js('__shot.video().duration');
+      await swipe(r[0] + (r[1] - r[0]) * 0.7, r[2], r[0] + (r[1] - r[0]) * 0.25, r[2], { steps: 10, ms: 900 });
+      await waitFor('the drag to seek', `Math.abs(__shot.video().currentTime - ${dur} * 0.25) < ${dur} * 0.08`, 5000);
+      // Swipe down on the video closes the player and comes back to the channel page.
+      await js("window.__lurkbox.player.hideOverlay(); true");
+      await swipe(206, 40, 206, 220, { steps: 8, ms: 200 });
+      await waitFor('the player closed', "document.getElementById('player-screen').hidden && !!document.querySelector('.channel-tabs')", 5000);
     },
     async 'phone-landscape'() {
       await layoutIs('phone');

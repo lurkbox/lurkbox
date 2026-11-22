@@ -1,7 +1,7 @@
 import { el, button, toast } from '../ui.js';
 import { state, saveSettings } from '../state.js';
 import { tw } from '../api.js';
-import { KeyedGrid, channelCard, gameCard, errorState, listSort } from '../grid.js';
+import { KeyedGrid, channelCard, gameCard, errorState, listSort, onLongPress } from '../grid.js';
 import { categoryStreamsView } from './categories.js';
 import { searchesFor, recordSearch, deleteSearch, clearSearches } from '../../shared/search-history.js';
 import { SEARCH_SORTS, sortSearch } from '../../shared/sorts.js';
@@ -59,7 +59,8 @@ export function searchView() {
         const items = list.map((e) => button([
           el('span', { class: 'search-recent-q' }, e.q),
           e.pick ? el('span', { class: 'search-recent-pick' }, `${e.pick.kind === 'category' ? 'Category' : 'Channel'}: ${e.pick.name}`) : null,
-        ], () => { input.value = e.q; run(); }, { class: 'search-recent', dataset: { q: e.q }, 'aria-label': `Search again: ${e.q}` }));
+        ], () => { input.value = e.q; run(); }, { class: 'search-recent', dataset: { q: e.q }, 'aria-label': `Search again: ${e.q}` }))
+          .map((b) => onLongPress(b, () => this.forget(b))); // touch: a long-press deletes it (X on a controller)
         const clearBtn = button('Clear history', async () => {
           await saveSettings({ searchHistory: clearSearches(state.settings.searchHistory, me()) });
           showHistory();
