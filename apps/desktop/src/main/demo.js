@@ -171,6 +171,7 @@ function createDemoHost(opts = {}) {
     'points:openPanel': () => ({ ok: false, reason: 'not in demo mode' }),
     'points:pad': () => null,
     'points:closePanel': () => true,
+    'points:mode': () => true,
     'points:minute': () => ({ ok: false, reason: 'demo mode' }),
     'drops:status': () => ({ signedIn: false, lastCheckAt: null, nextCheckAt: null }),
     'drops:open': () => ({ ok: false, reason: 'not in demo mode' }),

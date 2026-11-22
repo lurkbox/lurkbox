@@ -33,7 +33,7 @@ const { logGpu, watchDecoders } = require('./gpu-diag');
 const { setupChatExtensions } = require('./chat-extensions');
 const { WEB_ROOT, ASSETS_DIR, HLS_JS } = require('./paths');
 const { createAppLog } = require('./app-log');
-const { twitchChatZoom, zoomFrameSource } = require('@lurkbox/core/src/shared/tv-zoom.js');
+const { twitchChatZoom, chatFrameZoom, zoomFrameSource } = require('@lurkbox/core/src/shared/tv-zoom.js');
 let chatExt = null; // experimental 7TV/BTTV/FFZ extensions in Twitch's chat frame (Settings → Chat)
 
 const argv = process.argv.slice(1);
@@ -170,23 +170,30 @@ function patchPlayerFrames() {
 
 // Twitch's embedded chat (chat style "Twitch chat", rewards, predictions, polls) is drawn at desktop size, so it is
 // zoomed for the TV inside the frame: Settings → Chat → Twitch chat size, Auto = the login window's rule.
-// Re-applied on every load of the frame, on every points scan and when the setting or the UI scale changes.
+// Re-applied on every load of the frame, on every points scan, when the frame's mode changes (points:mode) and when the
+// setting or the UI scale changes. Only the chat panel and the rewards view are zoomed: the hidden frame (Lurkbox chat
+// style) keeps a desktop layout, or Twitch leaves out the points summary (chatFrameZoom).
 let lastChatZoomLog = '';
+let chatFrameMode = 'hidden'; // the core's TwitchChatFrame mode: 'hidden', 'panel' or 'modal'
 function chatZoom() {
   return twitchChatZoom(settings.get(), require('electron').screen.getPrimaryDisplay().size.height);
 }
 function zoomChatFrames() {
   if (!win || win.isDestroyed()) return;
   const z = chatZoom();
+  const mode = chatFrameMode;
+  const opts = chatFrameZoom(mode, z);
+  const jobs = [];
   for (const f of win.webContents.mainFrame.framesInSubtree) {
     let chat = false;
     try { chat = points.isChatFrameUrl(f.url); } catch { /* frame gone */ }
     if (!chat) continue;
-    f.executeJavaScript(zoomFrameSource(z)).then((computed) => {
-      const line = `[chat] Twitch chat frame zoom ${z} (computed ${computed}) ${f.url.split('?')[0]}`;
+    jobs.push(f.executeJavaScript(zoomFrameSource(opts.zoom, opts)).then((m) => {
+      const line = `[chat] Twitch chat frame zoom ${opts.zoom} in ${mode} mode (computed ${m && m.zoom}; CSS viewport ${m && m.vw}x${m && m.vh}, layout ${m && m.lw}x${m && m.lh}) ${f.url.split('?')[0]}`;
       if (line !== lastChatZoomLog) { lastChatZoomLog = line; appLog(line); }
-    }).catch(() => {});
+    }).catch(() => {}));
   }
+  return Promise.all(jobs);
 }
 
 // ---- Twitch Drops (drops.js): the Drops section's frame of Twitch's inventory page, and the background auto-claim ----
@@ -556,13 +563,13 @@ function registerIpc() {
     if (!web.signedIn) { note(`[points] ${login}: no twitch.tv session; channel points inactive (sign in on the TV to use them)`); send('points:state', { login, signedIn: false, balance: null }); return; }
     const frame = chatFrames(login)[0];
     if (!frame) { note(`[points] ${login}: chat frame not loaded yet`); return; }
-    frame.executeJavaScript(zoomFrameSource(chatZoom())).catch(() => {});
+    zoomChatFrames();
     let scan;
     try { scan = await frame.executeJavaScript(points.scanSource({ autoClaim: settings.get().autoClaimPoints !== false })); } catch (e) { note(`[points] ${login}: scan failed (${e.message})`); return; }
     if (login !== pointsLogin) return;
     const { events, state } = tracker.update(scan);
     for (const ev of events) {
-      if (ev.type === 'signed-in') note(`[points] ${login}: chat ${ev.signedIn ? 'shows the points balance' : `shows no points (signed out in the frame, or the channel has no points; sign-in prompt ${scan.signInPrompt ? 'shown' : 'absent'}, auth-token cookie ${scan.authCookie === true ? 'visible' : scan.authCookie === false ? 'NOT visible' : 'unknown'} in the frame)`}`);
+      if (ev.type === 'signed-in') note(`[points] ${login}: chat ${ev.signedIn ? 'shows the points balance' : `shows no points (signed out in the frame, or the channel has no points; sign-in prompt ${scan.signInPrompt ? 'shown' : 'absent'}, auth-token cookie ${scan.authCookie === true ? 'visible' : scan.authCookie === false ? 'NOT visible' : 'unknown'} in the frame; frame ${chatFrameMode}, CSS viewport ${scan.vw}x${scan.vh} at zoom ${scan.zoom}, layout ${scan.lw} px wide)`}`);
       else if (ev.type === 'claim-clicked') appLog(`[points] ${login}: clicked Claim Bonus`);
       else if (ev.type === 'claimed') appLog(`[points] ${login}: claimed bonus ${ev.amount != null ? `+${ev.amount}` : '(amount not seen)'}, balance ${ev.balance}`);
       else if (ev.type === 'prediction' || ev.type === 'poll') { appLog(`[points] ${login}: ${ev.type} shown`); send('points:event', { login, ...ev }); }
@@ -581,16 +588,24 @@ function registerIpc() {
   });
   // The rewards view: the renderer shows the chat frame as a large modal; here the rewards popover (or just the chat
   // with the prediction/poll pinned) is opened, fitted to the whole frame and driven by the controller (frame-nav).
+  // The renderer's TwitchChatFrame reports its mode, so the frame gets the zoom of that mode.
+  ipcMain.handle('points:mode', (_e, mode) => {
+    const m = ['hidden', 'panel', 'modal'].includes(mode) ? mode : 'hidden';
+    if (m !== chatFrameMode) { chatFrameMode = m; zoomChatFrames(); }
+    return true;
+  });
   ipcMain.handle('points:openPanel', async (_e, opts = {}) => {
     const frame = pointsLogin && chatFrames(pointsLogin)[0];
     if (!frame) return { ok: false, reason: 'chat not loaded' };
     try {
+      chatFrameMode = 'modal'; // the renderer made the frame the large view just before this
+      await zoomChatFrames();
       await frame.executeJavaScript(navSource(points.NAV_OPTIONS));
-      // The button may not be there yet (the frame still loading, or Twitch rendering the chat input late): retry for
-      // up to 4 s, and log which strategies found nothing.
+      // Wait for the balance button, then click it: the frame may still be loading, or Twitch re-renders the chat
+      // input after the zoom change. Retry for up to 6 s, and log which strategies found nothing.
       let res = null;
       if (opts.rewards) {
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < 24; i++) {
           const f = chatFrames(pointsLogin)[0] || frame;
           res = await f.executeJavaScript(points.openRewardsSource({ detail: true })).catch((e) => ({ opened: false, tried: [`error: ${e.message}`] }));
           if (res && res.opened) break;
@@ -605,7 +620,7 @@ function registerIpc() {
         .then((ok) => { if (!ok && ++tries < 10) setTimeout(startNav, 300); }).catch(() => {});
       setTimeout(startNav, 300);
       const how = !opts.rewards ? '' : opened ? ` (rewards${res.already ? ', already open' : ` via ${res.via}`})`
-        : ` (rewards button not found after 4 s; points summary ${res && res.summary ? 'present' : 'missing'}, sign-in prompt ${res && res.signedOut ? 'shown' : 'absent'}; tried ${res && res.tried ? res.tried.join(' | ') : '?'})`;
+        : ` (rewards button not found after 6 s; points summary ${res && res.summary ? 'present' : 'missing'}, sign-in prompt ${res && res.signedOut ? 'shown' : 'absent'}; CSS viewport ${res && res.vw}x${res && res.vh} at zoom ${res && res.zoom}, layout ${res && res.lw} px wide; tried ${res && res.tried ? res.tried.join(' | ') : '?'})`;
       appLog(`[points] ${pointsLogin}: panel opened${how}`);
       return { ok: true, opened };
     } catch (e) { return { ok: false, reason: e.message }; }

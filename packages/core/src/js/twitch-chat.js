@@ -46,6 +46,8 @@ export class TwitchChatFrame {
     this.mode = mode;
     this.host.className = `tc-${mode}`;
     this.host.setAttribute('aria-hidden', mode === 'hidden' ? 'true' : 'false');
+    // The host zooms the frame for the TV in the panel and the large view only (the hidden one keeps a desktop layout).
+    if (window.lurkbox.pointsMode) window.lurkbox.pointsMode(mode);
     if (mode === 'modal' && this.frame) this.frame.focus();
   }
 }
