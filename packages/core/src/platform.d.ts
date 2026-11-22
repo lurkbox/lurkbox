@@ -248,6 +248,8 @@ export interface LurkboxPlatform {
 
   /** Optional. Watch the channel's embedded chat frame for the points balance, bonus chest (auto-claim), predictions and polls; null stops. */
   pointsWatch?(login: string | null): Promise<boolean>;
+  /** Optional. The chat frame's mode ('hidden', 'panel' or 'modal'): the host zooms it for the TV in the panel and the large view only. */
+  pointsMode?(mode: 'hidden' | 'panel' | 'modal'): Promise<boolean>;
   /** The chat frame is shown as the large rewards view: open the rewards popover (rewards: true) or focus the chat's prediction/poll, fitted to the frame, for controller navigation inside it. */
   pointsOpenPanel(opts?: { rewards?: boolean }): Promise<{ ok: boolean; opened?: boolean; reason?: string }>;
   /** Forward a controller key ('up', 'down', 'left', 'right', 'a' or 'b') to the frame's navigation. Resolves the frame's answer ('keyboard' after A on a text box; for 'b', 'back' when a sub-view closed, else 'close'), or null. */

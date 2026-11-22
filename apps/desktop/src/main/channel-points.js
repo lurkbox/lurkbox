@@ -75,7 +75,8 @@ function scanSource({ autoClaim }) {
     // a signed-in session means the cookie isn't SameSite=None, so the third-party frame doesn't get it.
     let authCookie = null;
     try { authCookie = /(^|;\\s*)auth-token=/.test(document.cookie); } catch (e) { /* no access */ }
-    const out = { signedIn: !!summary && !q(S.signedOut), signInPrompt: !!q(S.signedOut), authCookie, balanceText: text(q(S.balance)), claimed: false, prediction: null, poll: null };
+    const zoom = Number(getComputedStyle(document.documentElement).zoom) || 1;
+    const out = { signedIn: !!summary && !q(S.signedOut), signInPrompt: !!q(S.signedOut), authCookie, vw: innerWidth, vh: innerHeight, zoom, lw: Math.round(innerWidth / zoom), balanceText: text(q(S.balance)), claimed: false, prediction: null, poll: null };
     if (${autoClaim ? 'true' : 'false'}) {
       // Only ever a real button (the wrapper around the chest stays in the page after a claim).
       let b = null;
@@ -100,7 +101,8 @@ function openRewardsSource({ detail = false } = {}) {
     const S = ${JSON.stringify(SELECTORS)};
     const shown = (n) => { const r = n.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
     const has = (list) => list.some((s) => { try { return !!document.querySelector(s); } catch (e) { return false; } });
-    const out = { opened: false, already: false, via: null, tried: [], summary: has(S.summary), signedOut: has(S.signedOut) };
+    const zoom = Number(getComputedStyle(document.documentElement).zoom) || 1;
+    const out = { opened: false, already: false, via: null, tried: [], summary: has(S.summary), signedOut: has(S.signedOut), vw: innerWidth, vh: innerHeight, zoom, lw: Math.round(innerWidth / zoom) };
     const done = () => (${detail ? 'out' : 'out.opened'});
     for (const s of S.rewardsPopover) for (const n of document.querySelectorAll(s)) if (shown(n)) { out.opened = out.already = true; return done(); }
     for (const s of S.rewardsButton) {

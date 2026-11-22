@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('lurkbox', {
   directMaster: (req) => ipcRenderer.invoke('direct:master', req),
   pointsWatch: (login) => ipcRenderer.invoke('points:watch', login),
   pointsOpenPanel: (opts) => ipcRenderer.invoke('points:openPanel', opts),
+  pointsMode: (mode) => ipcRenderer.invoke('points:mode', mode),
   pointsPad: (key) => ipcRenderer.invoke('points:pad', key),
   pointsClosePanel: () => ipcRenderer.invoke('points:closePanel'),
   onPointsState: on('points:state'),

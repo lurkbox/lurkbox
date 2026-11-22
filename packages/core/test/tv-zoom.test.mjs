@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tvZoom, twitchChatZoom, twitchChatPanelWidth, zoomFrameSource, TWITCH_CHAT_SIZES } from '../src/shared/tv-zoom.js';
+import { tvZoom, twitchChatZoom, twitchChatPanelWidth, zoomFrameSource, chatFrameZoom, TWITCH_CHAT_SIZES } from '../src/shared/tv-zoom.js';
 import { DEFAULT_SETTINGS, sanitizeSettings } from '../src/shared/settings.js';
 import { twitchChatSizeItems } from '../src/js/views/settings-chat.js';
 
@@ -39,8 +39,16 @@ test('twitch chat panel: 340 CSS px of layout at the zoom, capped at 45% of the 
 
 test('twitch chat frame zoom script: a clamped, idempotent <html> zoom style', () => {
   const src = zoomFrameSource(1.74);
-  assert.match(src, /html \{ zoom: 1\.74 !important; \}/);
+  assert.match(src, /let z = 1\.74;/);
+  assert.match(src, /html \{ zoom: ' \+ z \+ ' !important; \}/);
   assert.match(src, /lurkbox-tv-zoom/);
-  assert.match(zoomFrameSource(99), /zoom: 3 /);
-  assert.match(zoomFrameSource('x'), /zoom: 1 /);
+  assert.match(zoomFrameSource(99), /let z = 3;/);
+  assert.match(zoomFrameSource('x'), /let z = 1;/);
+  assert.match(zoomFrameSource(1.74, { minWidth: 400 }), /innerWidth \/ 400/);
+});
+
+test('twitch chat frame zoom by mode: the hidden frame keeps a desktop layout, the rewards view keeps 400 CSS px', () => {
+  assert.deepEqual(chatFrameZoom('hidden', 1.74), { zoom: 1 });
+  assert.deepEqual(chatFrameZoom('panel', 1.74), { zoom: 1.74 });
+  assert.deepEqual(chatFrameZoom('modal', 2.35), { zoom: 2.35, minWidth: 400 });
 });

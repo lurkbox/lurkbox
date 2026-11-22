@@ -135,5 +135,18 @@
     ed.textContent = '';
   }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRewards(); });
+  // Like Twitch's chat, the points summary in the chat input row is only rendered when the chat's layout is wide
+  // enough. The layout width is what the page's own code measures (offsetWidth), so a CSS zoom on <html> narrows it
+  // while innerWidth and media queries stay the same. (The real breakpoint isn't known; 300 CSS px models it.)
+  const SUMMARY_MIN_LAYOUT = 300;
+  const summary = document.querySelector('[data-test-selector=community-points-summary]');
+  const summarySlot = summary.parentNode;
+  function layoutSummary() {
+    const wide = document.querySelector('.chat-room').offsetWidth >= SUMMARY_MIN_LAYOUT;
+    if (wide && !summary.isConnected) summarySlot.prepend(summary);
+    else if (!wide && summary.isConnected) summary.remove();
+  }
+  layoutSummary();
+  setInterval(layoutSummary, 50);
 </script>
 </body></html>
