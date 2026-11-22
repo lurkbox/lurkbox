@@ -144,3 +144,26 @@ test('demo clips: signed-looking qualities of the clip MP4, served with byte ran
   assert.equal(h.serveMedia('/hls/clip15.mp4', { range: 'bytes=20-' }).status, 416);
   assert.equal(h.serveMedia('/hls/clip30.mp4').status, 404, 'not rendered');
 });
+
+test('demo Continue watching: a seeded row for the first account, a deleted VOD Helix answers 404 for, per account', async () => {
+  const { continueWatching, checkVideos } = await import('@lurkbox/core/src/shared/continue-watching.js');
+  const { DEMO_NOW } = await import('@lurkbox/core/src/js/demo/data.js');
+  const H = host().handlers;
+  const all = H['resume:list']();
+  const rows = continueWatching(all, DEMO_NOW);
+  assert.equal(rows.length, 7, 'six part-watched broadcasts and the deleted one; finished and old ones left out');
+  assert.ok(all.length > rows.length);
+  assert.ok(rows.every((r, i) => i === 0 || rows[i - 1].at >= r.at), 'newest first');
+  assert.ok(rows.every((r) => r.title && r.login && r.thumb), 'with their details');
+  const ids = rows.map((r) => r.id);
+  const check = checkVideos(ids, H.helix({ path: '/videos', query: { id: ids } }));
+  assert.deepEqual(check.gone, ['2299999999'], 'the deleted VOD is gone from Helix');
+  assert.equal(H.helix({ path: '/videos', query: { id: ['2299999999'] } }).status, 404);
+  // Per account: the second account starts empty; positions follow the active account.
+  H['auth:switch'](H['auth:state']().accounts[1].id);
+  assert.deepEqual(H['resume:list'](), []);
+  H['resume:set'](rows[0].id, 300, 3600, { title: 'x' });
+  assert.equal(H['resume:get'](rows[0].id).position, 300);
+  assert.equal(H['resume:clear'](), true);
+  assert.deepEqual(H['resume:list'](), []);
+});

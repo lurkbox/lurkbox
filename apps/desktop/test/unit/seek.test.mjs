@@ -214,3 +214,23 @@ test('signed out: the GQL archive match needs RECORDING and a start within 10 mi
   assert.equal(matchGqlArchive(stream, { ...node, createdAt: '2026-11-20T14:01:30Z' }), null);
   assert.equal(matchGqlArchive(stream, null), null);
 });
+
+test('resume store: video details per account for Continue watching, list and clear', () => {
+  const file = path.join(tmpDir(), 'resume.json');
+  let now = 100;
+  const st = new ResumeStore(file, { now: () => now });
+  st.set('111', '2001', 600, 3600, { title: 'Late night', login: 'abc', name: 'Abc', userId: '9', thumb: 'https://static-cdn.jtvnw.net/x-%{width}x%{height}.jpg' });
+  now = 200;
+  st.set('111', '2001', 900, 3600); // a later save without details keeps them
+  st.set('222', '2002', 300, 1800, { title: 'Other account', thumb: 'javascript:alert(1)' });
+  const again = new ResumeStore(file);
+  assert.deepEqual(again.list('111'), [{ title: 'Late night', login: 'abc', name: 'Abc', userId: '9', thumb: 'https://static-cdn.jtvnw.net/x-%{width}x%{height}.jpg', id: '2001', position: 900, duration: 3600, at: 200 }]);
+  assert.deepEqual(again.list('222'), [{ title: 'Other account', id: '2002', position: 300, duration: 1800, at: 200 }], 'a bad thumbnail is dropped');
+  assert.deepEqual(again.list('333'), []);
+  assert.equal(again.clear('111'), true);
+  assert.deepEqual(new ResumeStore(file).list('111'), [], 'cleared on disk');
+  assert.equal(new ResumeStore(file).list('222').length, 1, 'only that account');
+  const mem = new ResumeStore(null);
+  mem.set('1', '5', 40, 100, { title: 'x' });
+  assert.equal(mem.list('1').length, 1, 'in memory (demo mode)');
+});

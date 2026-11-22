@@ -110,6 +110,23 @@ export type HelixResult =
   | { ok: true; status: number; data: any }
   | { ok: false; status: number; error: string; data: any; resetAt: number | null };
 
+/** A VOD's details stored with its resume position. */
+export interface ResumeMeta {
+  title?: string;
+  login?: string;
+  name?: string;
+  userId?: string;
+  thumb?: string; // Helix thumbnail_url (with %{width}x%{height})
+}
+
+/** resumeList(): a saved position (seconds) and when it was saved (ms). */
+export interface ResumeEntry extends ResumeMeta {
+  id: string;
+  position: number;
+  duration: number | null;
+  at: number;
+}
+
 export interface ChatExtensionStatus {
   key: string;
   name: string;
@@ -241,8 +258,15 @@ export interface LurkboxPlatform {
 
   /** Optional. Saved position for a VOD, or null. */
   resumeGet?(videoId: string): Promise<{ position: number; duration: number; at: number } | null>;
-  /** Optional. Save a VOD position (0 clears it, e.g. watched to the end). */
-  resumeSet?(videoId: string, position: number, duration?: number): Promise<boolean>;
+  /**
+   * Optional. Save a VOD position (0 clears it, e.g. watched to the end) and the video's details for Continue
+   * watching (validated with shared/continue-watching.js sanitizeResumeMeta; kept from the last save when left out).
+   */
+  resumeSet?(videoId: string, position: number, duration?: number, meta?: ResumeMeta): Promise<boolean>;
+  /** Optional. Every saved position of the active account with its details (Following → Continue watching). */
+  resumeList?(): Promise<ResumeEntry[]>;
+  /** Optional. Forget every saved position of the active account (Settings → Clear watch history). */
+  resumeClear?(): Promise<boolean>;
 
   // ---- channel points (Twitch's embedded chat page, scanned by the host) ----
 

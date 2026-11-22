@@ -146,6 +146,12 @@ test('PrefValue and ResumePositions keep the desktop shapes', async () => {
   assert.equal(r.get('42', '100'), null);
   await v.saving;
   assert.deepEqual(JSON.parse(prefs.store.get('resume')), { accounts: { 42: {} } });
+  r.set('42', '200', 600, 3600, { title: 'Late night', login: 'abc' });
+  r.set('43', '201', 600, 3600, { title: 'Other' });
+  assert.deepEqual(r.list('42'), [{ title: 'Late night', login: 'abc', id: '200', position: 600, duration: 3600, at: 5 }]);
+  assert.equal(r.clear('42'), true);
+  assert.deepEqual(r.list('42'), []);
+  assert.equal(r.list('43').length, 1, 'other accounts stay');
 });
 
 // ---- HTTP (CapacitorHttp) ----

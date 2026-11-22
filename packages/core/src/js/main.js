@@ -201,6 +201,8 @@ const nav = {
   closePlayer() {
     player.close();
     setTimeout(() => nav.pokePollers(), 0); // back from the player: refresh right away
+    // Views that show what was watched (Following's Continue watching) refresh now, after the player saved its position.
+    for (const e of stack) if (e.view.onPlayerClosed) setTimeout(() => e.view.onPlayerClosed(), 150);
     if (playerReturnFocus && playerReturnFocus.isConnected) focusEl(playerReturnFocus, { instant: true });
     else { pendingFocus = { index: 0, force: true }; tryPendingFocus(); }
     playerReturnFocus = null;

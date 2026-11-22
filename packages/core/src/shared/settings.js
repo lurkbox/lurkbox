@@ -61,6 +61,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   chatExtensions: false, // experimental: the real 7TV/BTTV/FFZ browser extensions in Twitch chat mode
   quickChat: DEFAULT_QUICK_CHAT, // saved phrases: { global: [...], channels: { <broadcaster id>: { login, phrases } } } (./quick-chat.js)
   searchHistoryOn: true, // remember searches (per account)
+  continueWatchingOn: true, // Following → Continue watching row (positions are saved either way, for the resume prompt)
   searchHistory: Object.freeze({}), // Search → Recent searches, per account: { <user id>: [{ q, at, pick? }] } (shared/search-history.js)
   emoteRecents: Object.freeze({}), // the emote picker's Recent tab, per account: { <user id>: [names] }
   // Chat layout (chat pop-over in the player and Settings → Chat; see ./chat-layout.js): chatTextSize, twitchChatSize
@@ -75,7 +76,7 @@ export function sanitizeSettings(patch) {
   const out = {};
   if ('clientId' in patch) out.clientId = String(patch.clientId || '').trim().replace(/[^A-Za-z0-9]/g, '');
   if ('defaultQuality' in patch) out.defaultQuality = String(patch.defaultQuality || 'auto');
-  for (const k of ['chatDefault', 'raidFollow', 'skipContentGate', 'inputWhenUnfocused', 'confirmExit', 'videoOnlyUnfocused', 'hwDecode', 'lowLatency', 'autoCatchUp', 'steamArtSync', 'autoClaimPoints', 'autoClaimDrops', 'earnWatchPoints', 'chatEmotes7tv', 'chatEmotesBttv', 'chatEmotesFfz', 'chatAnimatedEmotes', 'chat7tvCosmetics', 'chatExtensions', 'navSounds', 'searchHistoryOn', 'clipAutoplay']) {
+  for (const k of ['chatDefault', 'raidFollow', 'skipContentGate', 'inputWhenUnfocused', 'confirmExit', 'videoOnlyUnfocused', 'hwDecode', 'lowLatency', 'autoCatchUp', 'steamArtSync', 'autoClaimPoints', 'autoClaimDrops', 'earnWatchPoints', 'chatEmotes7tv', 'chatEmotesBttv', 'chatEmotesFfz', 'chatAnimatedEmotes', 'chat7tvCosmetics', 'chatExtensions', 'navSounds', 'searchHistoryOn', 'continueWatchingOn', 'clipAutoplay']) {
     if (k in patch) out[k] = !!patch[k];
   }
   if ('screenMargin' in patch) out.screenMargin = [0, 2.5, 5].includes(Number(patch.screenMargin)) && patch.screenMargin !== 'auto' ? Number(patch.screenMargin) : 0;

@@ -76,7 +76,7 @@ app.on('browser-window-created', (_e, win) => {
       await sleep(400);
       await waitFor('Following', "document.querySelectorAll('[data-view=following] .grid .card').length >= 5");
       // X on the second live card opens its channel page.
-      await js("document.querySelectorAll('[data-view=following] .grid .card')[1].focus(); true");
+      await js("document.querySelectorAll('[data-view=following] .grid-live .card')[1].focus(); true");
       const login = await js("document.activeElement.dataset.channelLogin");
       await press('X');
       await waitFor('the channel page', `!!document.querySelector('[data-view="channel:${login}"] .channel-tab.selected')`);

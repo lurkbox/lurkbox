@@ -10,6 +10,7 @@ import { DEFAULT_SETTINGS, sanitizeSettings } from '@lurkbox/core/src/shared/set
 import { Twitch, Emitter } from '@lurkbox/core/src/shared/twitch-auth.js';
 import { fetchMaster, fetchLiveInfo, fetchStoryboard } from '@lurkbox/core/src/shared/direct.js';
 import { fetchClipSources } from '@lurkbox/core/src/shared/clips.js';
+import { resumeUpdate, resumeEntries, RESUME_MAX_PER_ACCOUNT } from '@lurkbox/core/src/shared/continue-watching.js';
 import { ProxyHosts, rewriteMaster } from '@lurkbox/core/src/shared/hls-rewrite.js';
 
 /** Same-origin prefix the WebView answers natively (MainActivity's HLS proxy): <prefix><host>/<path>?<query>. */
@@ -45,25 +46,29 @@ export class PrefValue {
   }
 }
 
-/** VOD resume positions per account, like the desktop's resume.json: { accounts: { id|anon: { videoId: { pos, dur, at } } } }. */
+/**
+ * VOD resume positions per account, like the desktop's resume.json: { accounts: { id|anon: { videoId: { pos, dur, at, m? } } } }
+ * (m: the video's details for Continue watching). The entry maths are shared (shared/continue-watching.js).
+ */
 export class ResumePositions {
-  constructor(value, { now = () => Date.now(), max = 300 } = {}) { this.value = value; this.now = now; this.max = max; }
+  constructor(value, { now = () => Date.now(), max = RESUME_MAX_PER_ACCOUNT } = {}) { this.value = value; this.now = now; this.max = max; }
   key(accountId) { return VIDEO_ID.test(String(accountId || '')) ? String(accountId) : 'anon'; }
   get(accountId, videoId) {
     if (!VIDEO_ID.test(String(videoId))) return null;
     const e = ((this.value.get().accounts || {})[this.key(accountId)] || {})[String(videoId)];
     return e ? { position: e.pos, duration: e.dur, at: e.at } : null;
   }
-  set(accountId, videoId, position, duration) {
+  set(accountId, videoId, position, duration, meta) {
     if (!VIDEO_ID.test(String(videoId))) return false;
     const accounts = { ...(this.value.get().accounts || {}) };
-    const acct = { ...(accounts[this.key(accountId)] || {}) };
-    const p = Number(position);
-    if (!Number.isFinite(p) || p <= 0) delete acct[String(videoId)];
-    else acct[String(videoId)] = { pos: Math.round(p), dur: Number.isFinite(Number(duration)) ? Math.round(Number(duration)) : null, at: this.now() };
-    const ids = Object.keys(acct);
-    if (ids.length > this.max) ids.sort((a, b) => acct[b].at - acct[a].at).slice(this.max).forEach((id) => delete acct[id]);
-    accounts[this.key(accountId)] = acct;
+    accounts[this.key(accountId)] = resumeUpdate(accounts[this.key(accountId)], videoId, position, duration, meta, { now: this.now(), max: this.max });
+    this.value.replace({ accounts });
+    return true;
+  }
+  list(accountId) { return resumeEntries((this.value.get().accounts || {})[this.key(accountId)]); }
+  clear(accountId) {
+    const accounts = { ...(this.value.get().accounts || {}) };
+    delete accounts[this.key(accountId)];
     this.value.replace({ accounts });
     return true;
   }
@@ -201,7 +206,9 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
 
     // ---- VOD resume positions ----
     resumeGet: after((videoId) => resume.get(twitch.store().active, String(videoId))),
-    resumeSet: after((videoId, position, duration) => resume.set(twitch.store().active, String(videoId), position, duration)),
+    resumeSet: after((videoId, position, duration, meta) => resume.set(twitch.store().active, String(videoId), position, duration, meta)),
+    resumeList: after(() => resume.list(twitch.store().active)),
+    resumeClear: after(() => resume.clear(twitch.store().active)),
 
     // ---- channel points, Drops: Twitch's own pages in a twitch.tv session; not on Android yet ----
     pointsOpenPanel: async () => ({ ok: false, reason: UNAVAILABLE }),

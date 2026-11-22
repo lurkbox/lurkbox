@@ -208,6 +208,10 @@ export function settingsView() {
             if (!n) { toast('No search history for this account'); return; }
             confirmDialog({ title: 'Clear search history?', message: `${n} recent ${n === 1 ? 'search' : 'searches'} of this account.`, yes: 'Clear', onYes: async () => { await saveSettings({ searchHistory: clearSearches(state.settings.searchHistory, id) }); toast('Search history cleared'); } });
           }, { class: 'clear-search-history' }), 'Removes the recent searches of the account you are signed in with.'),
+          row('Continue watching row', toggle('continueWatchingOn'), 'Videos you started but didn\'t finish, at the top of Following (per account). Off hides the row; the player still offers to resume.'),
+          window.lurkbox.resumeClear ? row('Clear watch history', button('Clear', () => {
+            confirmDialog({ title: 'Clear watch history?', message: 'Forgets where you stopped in every video, for this account. Continue watching starts empty.', yes: 'Clear', onYes: async () => { await window.lurkbox.resumeClear().catch(() => false); toast('Watch history cleared'); } });
+          }, { class: 'clear-watch-history' }), 'Removes the saved positions of the account you are signed in with.') : null,
           row('Refresh live lists', pickRow('refreshInterval', 'Refresh live lists every', [10, 15, 30, 60].map((v) => ({ value: v, label: `${v} s` })))),
           row('Hide chat and controls when Lurkbox isn\'t focused', toggle('videoOnlyUnfocused'), 'Shows just the video while another app (e.g. a game under Floater) has focus.'),
           row('Confirm before exiting', toggle('confirmExit'), 'B on the home screen exits Lurkbox.'),
