@@ -47,6 +47,9 @@ test('row fit: lowest priority controls move into More; play, chat, quick chat a
   // Clips: back, channel, follow and then the broadcast link go first; previous/next stay longer.
   const clip = overlayControls({ kind: 'clip', prev: true, next: true, vod: true, follow: true });
   assert.deepEqual(fitControls(clip, { width: width(6), ...size }).shown, ['play', 'volume', 'quality', 'prev', 'next', 'more']);
+  // The TV layout pins "Send a message" too (the controller's way into the composer).
+  const tv = fitControls(keys, { width: width(10), ...size, pinned: new Set([...PINNED_CONTROLS, 'compose']) });
+  assert.deepEqual(tv.overflow, ['points', 'channel', 'back']);
   // Not laid out yet (hidden overlay): keep them all.
   assert.deepEqual(fitControls(keys, { width: 0, ...size }).overflow, []);
   assert.deepEqual(fitControls(keys, { width: 300, button: 0 }).overflow, []);

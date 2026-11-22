@@ -38,14 +38,14 @@ export const PINNED_CONTROLS = new Set(['play', 'chat', 'quick', 'more']);
 /**
  * Fits the row of `keys` (row order) into `width` px, every button `button` px wide with `gap` px between them.
  * Drops the lowest-priority unpinned controls until the rest fit. Returns { shown, overflow }, both in row order.
- * A width or button size of 0 (not laid out yet) keeps them all.
+ * A width or button size of 0 (not laid out yet) keeps them all. `pinned` can add to the controls that always stay.
  */
-export function fitControls(keys, { width, button, gap = 0 }) {
+export function fitControls(keys, { width, button, gap = 0, pinned = PINNED_CONTROLS }) {
   if (!(width > 0) || !(button > 0)) return { shown: [...keys], overflow: [] };
   const rank = (k) => { const i = CONTROL_PRIORITY.indexOf(k); return i < 0 ? CONTROL_PRIORITY.length : i; };
   const fits = (n) => n * button + Math.max(0, n - 1) * gap <= width + 0.5;
   const kept = new Set(keys);
-  const drop = keys.filter((k) => !PINNED_CONTROLS.has(k)).sort((a, b) => rank(b) - rank(a));
+  const drop = keys.filter((k) => !pinned.has(k)).sort((a, b) => rank(b) - rank(a));
   for (const k of drop) {
     if (fits(kept.size)) break;
     kept.delete(k);

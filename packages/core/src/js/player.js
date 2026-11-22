@@ -14,7 +14,7 @@ import { state, onState, saveSettings, previewSettings } from './state.js';
 import { tw, followedLive, usersByIds, isFollowing } from './api.js';
 import { pressFollow } from './follow.js';
 import { icon } from './icons.js';
-import { overlayControls, fitControls, POPOVER_CONTROLS, controlIcon, controlLabel, shortCount, liveLabel, anchorPopover, OVERLAY_HIDE_MS, POPOVER_HIDE_MS } from './player-ui.js';
+import { overlayControls, fitControls, PINNED_CONTROLS, POPOVER_CONTROLS, controlIcon, controlLabel, shortCount, liveLabel, anchorPopover, OVERLAY_HIDE_MS, POPOVER_HIDE_MS } from './player-ui.js';
 import { Popover } from './popover.js';
 import { Slider, handleSliderAction } from './slider.js';
 import { ChatControls } from './chat-controls.js';
@@ -1323,7 +1323,9 @@ export class Player {
     const row = this.ui.row;
     const cs = getComputedStyle(row);
     const width = row.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
-    return fitControls(keys, { width, button: this.ui.buttons.play.offsetWidth, gap: parseFloat(cs.columnGap) || 0 }).overflow;
+    // With a controller (TV layout), "Send a message" is the way into the composer, so it stays too.
+    const pinned = isTouchLayout() ? PINNED_CONTROLS : new Set([...PINNED_CONTROLS, 'compose']);
+    return fitControls(keys, { width, button: this.ui.buttons.play.offsetWidth, gap: parseFloat(cs.columnGap) || 0, pinned }).overflow;
   }
 
   /** The channel's avatar (Helix, cached), else its initial. */
