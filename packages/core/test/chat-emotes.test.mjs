@@ -138,20 +138,23 @@ const stvActive = {
 
 test('7TV normaliser: webp, 1x size for the aspect ratio, zero-width, static frame when animation is off', () => {
   const e = from7tv(stvActive);
-  assert.deepEqual(e, { provider: '7tv', id: 'E1', name: 'RainTime', url: 'https://cdn.7tv.app/emote/E1/2x.webp', w: 32, h: 16, zeroWidth: true, animated: true });
+  assert.deepEqual(e, { provider: '7tv', id: 'E1', name: 'RainTime', url: 'https://cdn.7tv.app/emote/E1/2x.webp', w: 32, h: 16, zeroWidth: true, animated: true, author: '' });
+  assert.equal(from7tv({ ...stvActive, data: { ...stvActive.data, owner: { username: 'rainy', display_name: 'Rainy' } } }).author, 'Rainy', 'the owner, for the Emotes tab');
   assert.equal(from7tv(stvActive, { animated: false }).url, 'https://cdn.7tv.app/emote/E1/2x_static.webp');
   assert.equal(from7tv({ ...stvActive, flags: 0, data: { ...stvActive.data, flags: 0 } }).zeroWidth, false);
   assert.equal(from7tv({ id: 'x', name: 'x' }), null);
 });
 
 test('BTTV and FFZ normalisers', () => {
-  assert.deepEqual(fromBttv({ id: 'b1', code: 'cvHazmat', animated: false }), { provider: 'bttv', id: 'b1', name: 'cvHazmat', url: 'https://cdn.betterttv.net/emote/b1/2x.webp', w: 0, h: 0, zeroWidth: true, animated: false });
+  assert.deepEqual(fromBttv({ id: 'b1', code: 'cvHazmat', animated: false }), { provider: 'bttv', id: 'b1', name: 'cvHazmat', url: 'https://cdn.betterttv.net/emote/b1/2x.webp', w: 0, h: 0, zeroWidth: true, animated: false, author: '' });
+  assert.equal(fromBttv({ id: 'b3', code: 'Shared', user: { name: 'maker', displayName: 'Maker' } }).author, 'Maker', 'a shared emote\'s owner');
   assert.equal(fromBttv({ id: 'b2', code: 'Jam', animated: true }, { animated: false }).url, 'https://cdn.betterttv.net/emote/b2/2x.png');
   assert.equal(fromBttv({ id: 'm', code: 'h!', modifier: true }), null, 'text modifiers are not emotes');
   const f = fromFfz({ id: 9, name: 'Z', width: 33, height: 30, urls: { 1: 'https://cdn.frankerfacez.com/emote/9/1', 2: 'https://cdn.frankerfacez.com/emote/9/2' }, modifier: true, modifier_flags: 3 });
   assert.equal(f.url, 'https://cdn.frankerfacez.com/emote/9/2');
   assert.equal(f.ffzModifier, true);
   assert.equal(f.ffzFlags, 3);
+  assert.equal(fromFfz({ id: 8, name: 'O', urls: { 1: 'o' }, owner: { name: 'own', display_name: 'Own' } }).author, 'Own');
   const a = { id: 5, name: 'A', urls: { 2: 'u/2' }, animated: { 2: 'https://cdn.frankerfacez.com/emote/5/animated/2' } };
   assert.equal(fromFfz(a).url, 'https://cdn.frankerfacez.com/emote/5/animated/2.webp');
   assert.equal(fromFfz(a, { animated: false }).url, 'u/2');

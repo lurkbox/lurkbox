@@ -13,13 +13,17 @@ export function focusables(scope) {
 
 // The focus ring is driven by an .is-focused class as well as :focus, because
 // :focus doesn't match while the window lacks OS focus (and DOM focus events
-// are deferred then), which can happen under Gamescope.
+// are deferred then), which can happen under Gamescope. For the same reason a newly marked node gets a bubbling
+// 'lurkbox-focus' event: listen to it, not to focusin, to follow the D-pad.
 let marked = null;
 export function markFocused(node) {
   if (marked === node) return;
   if (marked) marked.classList.remove('is-focused');
   marked = node && node.classList && node.classList.contains('focusable') ? node : null;
-  if (marked) marked.classList.add('is-focused');
+  if (marked) {
+    marked.classList.add('is-focused');
+    if (typeof marked.dispatchEvent === 'function' && typeof Event === 'function') marked.dispatchEvent(new Event('lurkbox-focus', { bubbles: true }));
+  }
 }
 if (typeof document !== 'undefined') {
   document.addEventListener('focusin', (e) => markFocused(e.target));

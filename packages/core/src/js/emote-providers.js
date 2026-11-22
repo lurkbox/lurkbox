@@ -1,6 +1,8 @@
 // Third-party emote sets: 7TV (v3), BetterTTV and FrankerFaceZ. Public APIs, fetched straight from the renderer
 // (all three send CORS headers), so this works the same in Electron and in the Android build. Results are normalised
-// to { provider, id, name, url, w, h, zeroWidth, animated } and cached per channel for the session.
+// to { provider, id, name, url, w, h, zeroWidth, animated, author } and cached per channel for the session (one cache,
+// `emoteCache`, shared by the chat and the channel page's Emotes tab). author: the emote's owner's name when the
+// provider says (7TV, BetterTTV shared emotes, FrankerFaceZ), else ''.
 
 const SEVENTV = 'https://7tv.io/v3';
 const BTTV = 'https://api.betterttv.net/3/cached';
@@ -9,6 +11,13 @@ const FFZ = 'https://api.frankerfacez.com/v1';
 const BTTV_ZERO_WIDTH = new Set(['SoSnowy', 'IceCold', 'SantaHat', 'TopHat', 'ReinDeer', 'CandyCane', 'cvMask', 'cvHazmat']);
 
 // ---- normalisers (pure) ----
+
+/** An owner object's display name (else its login), as a short plain string. */
+function authorName(o, display, login) {
+  if (!o || typeof o !== 'object') return '';
+  const v = o[display] || o[login];
+  return typeof v === 'string' ? v.slice(0, 40) : '';
+}
 
 /** A 7TV "active emote" (from an emote set) → emote, or null if it has no usable image. */
 export function from7tv(ae, { animated = true } = {}) {
@@ -32,6 +41,7 @@ export function from7tv(ae, { animated = true } = {}) {
     // Zero-width: the active emote's flag 1, or the emote's own flag 256 (ZERO_WIDTH).
     zeroWidth: !!((ae.flags & 1) || (d.flags & 256)),
     animated: isAnim,
+    author: authorName(d.owner, 'display_name', 'username'),
   };
 }
 
@@ -47,6 +57,7 @@ export function fromBttv(e, { animated = true } = {}) {
     h: e.height || 0,
     zeroWidth: BTTV_ZERO_WIDTH.has(e.code),
     animated: anim,
+    author: authorName(e.user, 'displayName', 'name'),
   };
 }
 
@@ -67,6 +78,7 @@ export function fromFfz(e, { animated = true } = {}) {
     ffzModifier: !!e.modifier,
     ffzFlags: Number(e.modifier_flags) || 0,
     animated: !!anim,
+    author: authorName(e.owner, 'display_name', 'name'),
   };
 }
 
@@ -137,3 +149,6 @@ export class EmoteCache {
 
   clear() { this.entries.clear(); }
 }
+
+/** The session's cache, shared by the chat and the channel page's Emotes tab. */
+export const emoteCache = new EmoteCache();

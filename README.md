@@ -17,8 +17,11 @@ Lurkbox is not affiliated with or endorsed by Twitch.
   <img src="docs/screenshots/player-rewind.png" width="49%" alt="Live rewind: scrubbing back along the seek bar with a preview frame above it, the stream marked Rewound">
 </p>
 <p>
-  <img src="docs/screenshots/channel.png" width="49%" alt="A channel page: banner, avatar, name, follower count and Following heart, a LIVE card with a Watch button, the tabs Home, Videos, Clips, Schedule and About, and the Home tab with the live stream and the next scheduled stream">
+  <img src="docs/screenshots/channel.png" width="49%" alt="A channel page: banner, avatar, name, follower count and Following heart, a LIVE card with a Watch button, the tabs Home, Videos, Clips, Schedule, Emotes and About, and the Home tab with the live stream and the next scheduled stream">
   <img src="docs/screenshots/channel-clips.png" width="49%" alt="A channel's Clips tab: period pills 24 hours, 7 days, 30 days and All time, the Y sort chip on Most viewed, and clip cards with length, views, title and who clipped them">
+</p>
+<p>
+  <img src="docs/screenshots/channel-emotes.png" width="49%" alt="A channel's Emotes tab: pills 7TV 17, BTTV 0, FFZ 4 and Twitch 3, a search box, a grid of large emote pictures with their names, overlay emotes marked ZW, and the focused partyHat in a detail panel: provider 7TV, by BoxDoodles, zero-width yes, with Add to message and Add to quick chat">
 </p>
 <p>
   <img src="docs/screenshots/continue-watching.png" width="49%" alt="Following with the Continue watching row above Live: past broadcasts you started, each with a progress bar along the bottom of its picture, the minutes left, the channel, the title and when you last watched it">
@@ -54,6 +57,7 @@ More in [docs/screenshots/](docs/screenshots/): the Undo toast after removing fr
   - **Videos:** Past broadcasts, Highlights or Uploads (Helix `/videos` type), sorted with Y.
   - **Clips:** from the last 24 hours, 7 days, 30 days or all time, sorted by views (default), newest or oldest with Y.
   - **Schedule:** the upcoming streams from Helix `/schedule`, with category and time in your time zone, and a channel's break; "No schedule" when there is none.
+  - **Emotes:** the channel's 7TV, BetterTTV, FrankerFaceZ and Twitch (subscriber, follower and Bits; Helix `GET /chat/emotes`) emotes, each with its count: large pictures with their names (animated ones play unless Settings → Chat → Animated emotes is off), overlay (zero-width) emotes marked ZW, and a search box that filters by name (A opens the Steam keyboard or the built-in one). The focused emote shows bigger, with its provider, who made it (7TV, BetterTTV, FrankerFaceZ) and whether it is zero-width. A (or Add to message) adds it to your message for this channel, which is waiting in the chat box when you watch the channel (signed in, Lurkbox chat style); Y (or Add to quick chat) adds it to the channel's quick-chat phrases. On a touchscreen a tap selects an emote and the buttons do the rest.
   - **About:** the description, partner or affiliate, since when, category, language and tags. Panels and social links aren't in Twitch's public API, so "Open on twitch.tv" shows Twitch's own page for them.
   - The filters and sorts are remembered.
 - **Clips.** A clip plays in the player like a video: quality, the seek bar and its scrubbing, LB/RB (or the overlay's icons) for the previous and next clip of the list, and "next clip" autoplay when one ends (Settings → Player → Next clip, on by default). The overlay shows the clip's title, CLIP, who clipped it, its views and date; **Watch from here** opens its broadcast at the clip's moment (Helix `vod_offset`) when Twitch still has it. Clips play from Twitch's MP4s (see [Unofficial Twitch interfaces](#unofficial-twitch-interfaces)); with the Twitch player chosen, or if that fails, Twitch's own clip embed plays them (no quality or seeking there).

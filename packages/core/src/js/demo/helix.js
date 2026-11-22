@@ -116,6 +116,14 @@ export function demoHelix(db, req = {}, ctx = {}) {
       const next = start + 2 < all.length ? String(start + 2) : null;
       return ok({ data: all.slice(start, start + 2), template: `${db.media('img/emote/')}{{id}}.svg`, pagination: next ? { cursor: next } : {} });
     }
+    case '/chat/emotes': {
+      // A channel's own emotes (the channel page's Emotes tab → Twitch): two subscriber tiers and a follower emote.
+      const id = String(q.broadcaster_id || '');
+      if (!db.users.some((u) => u.id === id)) return { ok: false, status: 400, error: 'Bad Request', data: { message: 'broadcaster_id is required' }, resetAt: null };
+      const tiers = { lurkerHi: '1000', lurkerLove: '2000', lurkerGG: '' };
+      const data = OWN_EMOTES.filter(([name]) => name in tiers).map(([name, type]) => ({ id: name, name, tier: tiers[name], emote_type: type, emote_set_id: `demo-${type}`, format: ['static'], scale: ['1.0', '2.0'], theme_mode: ['dark', 'light'] }));
+      return ok({ data, template: `${db.media('img/emote/')}{{id}}.svg` });
+    }
     case '/chat/messages': {
       // Sending: accepted, except the same text twice within 30 s (Twitch's msg_duplicate rule). The renderer's fake IRC
       // echoes accepted messages back (install.js), like the real anonymous chat connection does.

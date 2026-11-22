@@ -5,7 +5,7 @@ import { readableOn } from './color.js';
 import { state, onState } from './state.js';
 import { helix } from './api.js';
 import { EmoteIndex, tokenize, PROVIDERS } from './chat-emotes.js';
-import { EmoteCache } from './emote-providers.js';
+import { emoteCache } from './emote-providers.js';
 import { BadgeCache, parseBadgesTag, lookupBadge } from './chat-badges.js';
 import { SevenTVEvents } from './seventv-events.js';
 import { renderParts, renderBadges, applyPaint, attachChatTips } from './chat-render.js';
@@ -123,7 +123,6 @@ function chatBg() {
   return getComputedStyle(document.documentElement).getPropertyValue('--chat-bg').trim() || '#000000';
 }
 
-const emoteCache = new EmoteCache();
 const badgeCache = new BadgeCache((path, query) => helix(path, query));
 const log = (line) => { try { window.lurkbox.log(`[chat] ${line}`); } catch { /* no platform log */ } };
 

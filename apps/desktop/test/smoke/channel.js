@@ -2,7 +2,8 @@
 // Channel page smoke test, offline, in demo mode (LURKBOX_DEMO=1: made-up data, no network): X on a live card in
 // Following opens the channel page; its header (followers, LIVE card, Follow), then every tab with the virtual gamepad:
 // Home (live, next stream, highlights, clips), Videos (the Highlights filter, Y sort), Clips (a period filter, Y sort),
-// Schedule (times in the local zone) and About; a clip plays in the player (qualities, seek bar, next-clip
+// Schedule (times in the local zone), Emotes (7TV grid, detail, A to the draft, Y to quick chat, search, empty
+// states) and About; a clip plays in the player (qualities, seek bar, next-clip
 // autoplay, "Watch from here" opens its broadcast at vod_offset); RB wraps around, B goes back to Following with the focus where it was.
 // LURKBOX_SHOT_DIR=<dir> saves channel-*.png. Exits 0 on success.
 const fs = require('fs');
@@ -180,6 +181,38 @@ app.on('browser-window-created', (_e, win) => {
       log(`schedule: ${await js("(document.querySelector('.channel-body .schedule-row') || document.querySelector('.channel-body .schedule-list')).textContent.replace(/\\s+/g, ' ').slice(0, 80)")}`);
       await shot('schedule');
 
+      // RB → Emotes: the 7TV grid with counts, the detail panel, A adds to the chat draft (the player takes it), Y adds a
+      // quick-chat phrase, the search filters, BTTV's empty state and the Twitch channel emotes.
+      await press('RB');
+      await waitFor('the emotes tab', "document.querySelector('.channel-body').dataset.tab === 'emotes' && document.querySelectorAll('.channel-body .eb-emote').length >= 15 && /^7TV \\d+$/.test(document.querySelector('[data-focus-key=eb-7tv]').textContent)");
+      if (!(await js("!!document.querySelector('.eb-emote.overlay .eb-badge')"))) throw new Error('no zero-width badge');
+      await js("document.querySelector('.channel-body .eb-emote').focus(); true");
+      const emote = await js("document.activeElement.querySelector('.eb-name').textContent");
+      await waitFor('the detail panel', `document.querySelector('.eb-detail-name') && document.querySelector('.eb-detail-name').textContent === ${JSON.stringify(emote)} && /Provider7TV/.test(document.querySelector('.eb-facts').textContent)`);
+      await press('A');
+      await waitFor('the draft toast', "[...document.querySelectorAll('#toasts .toast')].some((t) => t.textContent === 'Added to message')", 5000);
+      await press('Y');
+      await waitFor('the quick-chat phrase', `(() => { const q = window.__lurkbox.state.settings.quickChat; return Object.values(q.channels || {}).some((c) => c.login === ${JSON.stringify(login)} && c.phrases.includes(${JSON.stringify(emote)})); })()`, 5000);
+      await shot('emotes');
+      await js("(() => { const i = document.querySelector('.eb-search'); i.value = 'blob'; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
+      await waitFor('the search', "(() => { const n = [...document.querySelectorAll('.eb-emote .eb-name')].map((x) => x.textContent); return n.length >= 2 && n.every((x) => /blob/i.test(x)); })()", 5000);
+      await js("document.querySelector('[data-focus-key=eb-bttv]').click(); true");
+      await waitFor('the BTTV empty state', "/has no BetterTTV emote set/.test(document.querySelector('.eb-grid').textContent) && document.querySelector('[data-focus-key=eb-bttv]').textContent === 'BTTV 0'", 5000);
+      await js("(() => { const i = document.querySelector('.eb-search'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
+      await waitFor('the search cleared', "/has no BetterTTV emote set/.test(document.querySelector('.eb-grid').textContent)", 5000);
+      await sleep(300); // the box's 150 ms debounce
+      await js("document.querySelector('[data-focus-key=eb-twitch]').click(); true");
+      await waitFor('the Twitch emotes', "document.querySelectorAll('.eb-emote').length === 3 && /TypeFollower/.test(document.querySelector('.eb-facts').textContent)", 5000);
+      await js("document.querySelector('[data-focus-key=eb-twitch-lurkerGG]').focus(); true");
+      await press('RIGHT'); // the D-pad moves the detail panel along (lurkerHi)
+      await waitFor('a subscriber tier', "/TypeSubscriber · Tier 1/.test(document.querySelector('.eb-facts').textContent)", 5000);
+      await js("document.querySelector('[data-focus-key=channel-watch]').focus(); true");
+      await press('A');
+      await waitFor('the draft in the player', `!document.getElementById('player-screen').hidden && window.__lurkbox.player.composer.input.value.trim() === ${JSON.stringify(emote)}`, 8000);
+      for (let i = 0; i < 3 && !(await js("document.getElementById('player-screen').hidden")); i++) await press('B');
+      await waitFor('back on the channel page', "document.getElementById('player-screen').hidden && document.querySelector('.channel-body').dataset.tab === 'emotes'", 5000);
+      log(`emotes: ${emote} added to the message and to quick chat`);
+
       // RB → About; RB again wraps to Home.
       await press('RB');
       await waitFor('about', "document.querySelector('.channel-body').dataset.tab === 'about' && /made-up channel/.test(document.querySelector('.about-desc').textContent)");
@@ -192,7 +225,7 @@ app.on('browser-window-created', (_e, win) => {
       // B → Following, focus back on the card.
       await press('B');
       await waitFor('Following again', "!document.querySelector('[data-view^=\"channel:\"]') && document.activeElement && document.activeElement.dataset.channelLogin === " + JSON.stringify(login));
-      finish(0, `channel page of ${login}: header, all five tabs, filters, sorts, a clip made from the live player and listed in My clips, a clip played (qualities, autoplay, watch from here), LB/RB wrap, back to the same card`);
+      finish(0, `channel page of ${login}: header, all six tabs, filters, sorts, a clip made from the live player and listed in My clips, a clip played (qualities, autoplay, watch from here), LB/RB wrap, back to the same card`);
     } catch (e) {
       await shot('FAILED').catch(() => {});
       finish(1, e.message);

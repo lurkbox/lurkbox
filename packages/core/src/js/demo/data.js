@@ -288,4 +288,12 @@ export const EMOTES = [
   ['lurkWave', '7tv', false], ['lurkCozy', '7tv', false], ['boxHype', '7tv', false], ['peekbox', '7tv', false],
   ['partyHat', '7tv', true], ['teaSip', 'ffz', false], ['wowie', '7tv', false], ['hehe', 'ffz', false],
   ['gigaGG', 'ffz', false], ['heartbeat', 'ffz', false], ['rainyday', 'ffz', false], ['clapclap', 'ffz', false],
+  // More of the channel's 7TV set, for the channel page's Emotes tab (faces drawn from parts in images.js).
+  ['blobNod', '7tv', false], ['blobSleepy', '7tv', false], ['blobShock', '7tv', false], ['blobSmug', '7tv', false],
+  ['blobBlep', '7tv', false], ['blobHmm', '7tv', false], ['mintJoy', '7tv', false], ['mintMeh', '7tv', false],
+  ['plumYay', '7tv', false], ['plumOof', '7tv', false], ['skyGrin', '7tv', false], ['skyWink', '7tv', false],
+  ['sparkles', '7tv', true], ['sunnyLaugh', '7tv', false],
 ];
+
+/** Made-up 7TV emote owners (the Emotes tab's "By"), picked by index. */
+export const EMOTE_AUTHORS = ['MothArtist', 'BoxDoodles', 'CozyInk', 'PixelPaws'];
