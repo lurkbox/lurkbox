@@ -1,5 +1,6 @@
 // Renderer entry: router, left rail, input dispatch and startup routing.
 import { initState, state, onState, applyTheme, applyDisplay, flushSettings } from './state.js';
+import { flushRemovals } from './continue-watching.js';
 import { handleSliderAction } from './slider.js';
 import { Input, A, B, X, Y, LB, RB, LEFT, RIGHT, DIRECTIONS } from './input.js';
 import { moveFocus, focusFirst, focusEl, focusables } from './focus.js';
@@ -358,6 +359,7 @@ function exitNow() {
     () => player && player.watcher.shutdown(), // delete the EventSub subscription
     () => player && player.chat.leave(),
     () => player && player.saveResume(), // where this VOD was, for next time
+    () => flushRemovals(), // Continue watching removals still waiting out their Undo toast
     () => flushSettings(), // a slider moved in the last moment
   ], () => window.lurkbox.quit(), 500);
 }

@@ -513,11 +513,18 @@ app.on('browser-window-created', (_e, win) => {
       if (row.h > row.card * 1.5) throw new Error(`the row wraps on the phone: ${JSON.stringify(row)}`);
       await settle();
       await shoot('phone-continue-watching');
-      // A long-press offers Remove from Continue watching.
+      // The ✕ removes a card (a 44 px target); the toast's Undo brings it back; a long-press offers the menu.
+      const x = await js("(() => { const r = document.querySelector('.cw-row .card .cw-x').getBoundingClientRect(); return [r.width, r.height]; })()");
+      if (x[0] < 44 || x[1] < 44) throw new Error(`the ✕ is ${x.join('x')} px`);
+      await tap('[data-view=following] .cw-row .card .cw-x');
+      await waitFor('one card fewer', "document.querySelectorAll('[data-view=following] .cw-row .card').length === 5");
+      await waitFor('the Undo toast', "!!document.querySelector('#toasts .undo-toast .undo-toast-btn')");
+      await settle({ noSpinner: false });
+      await shoot('phone-continue-watching-undo');
+      await tap('#toasts .undo-toast-btn');
+      await waitFor('the card back', "document.querySelectorAll('[data-view=following] .cw-row .card').length === 6");
       await tap('[data-view=following] .cw-row .card', { hold: 750 });
       await waitFor('the menu', "[...document.querySelectorAll('.modal .pick-item')].some((b) => /Remove from Continue watching/.test(b.textContent))");
-      await tap('.modal .pick-item');
-      await waitFor('one card fewer', "document.querySelectorAll('[data-view=following] .cw-row .card').length === 5");
     },
     async 'phone-following'() {
       await layoutIs('phone');

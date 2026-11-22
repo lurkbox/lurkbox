@@ -25,11 +25,38 @@ export async function loadContinueWatching({ account = state.auth.active, now = 
       rows = rows.filter((e) => !gone.includes(e.id));
     }
   }
+  rows = rows.filter((e) => !pending.has(e.id));
   return rows.map((e) => ({ id: e.id, position: e.position, duration: e.duration, at: e.at, video: videoOfEntry(e, checked.videos.get(e.id)) }));
 }
 
 /** Tests: forget the Helix checks. */
 export function resetContinueWatchingChecks() { checked.account = null; checked.videos = new Map(); }
+
+// Removals waiting out their Undo toast: id → timer. The row leaves them out meanwhile; the position is only
+// forgotten when the time is up (or at exit, flushRemovals), so Undo puts the card back exactly as it was.
+export const UNDO_MS = 6000;
+const pending = new Map();
+
+/** Remove with Undo: hidden at once, forgotten after `ms` unless undoRemoval(id) comes first. */
+export function scheduleRemoval(id, ms = UNDO_MS) {
+  const k = String(id);
+  clearTimeout(pending.get(k));
+  pending.set(k, setTimeout(() => { pending.delete(k); removeFromContinueWatching(k); }, ms));
+}
+/** Undo: true if the removal was still pending. */
+export function undoRemoval(id) {
+  const k = String(id);
+  if (!pending.has(k)) return false;
+  clearTimeout(pending.get(k));
+  pending.delete(k);
+  return true;
+}
+/** At exit: forget every pending removal now. */
+export function flushRemovals() {
+  for (const [k, t] of pending) { clearTimeout(t); removeFromContinueWatching(k); }
+  pending.clear();
+}
+export const isPendingRemoval = (id) => pending.has(String(id));
 
 /** "Remove from Continue watching": forgets the saved position too (the video would start over next time). */
 export function removeFromContinueWatching(id) {

@@ -110,14 +110,20 @@ export function videoCard(v, onSelect) {
  * "x min left"; the channel, the title and when it was last watched. A plays from the saved position; X (or a
  * long-press) calls onMenu (Remove from Continue watching).
  */
-export function continueCard(item, onSelect, onMenu) {
+export function continueCard(item, onSelect, onMenu, onRemove = onMenu) {
   const v = item.video;
   const p = cwProgress(item.position, item.duration);
   const img = v.thumbnail_url ? thumb(v.thumbnail_url, 440, 248) : '';
-  const card = el('button', { class: 'card card-cw focusable', type: 'button', onclick: () => onSelect(item), dataset: { focusKey: `cw-${item.id}`, cwId: item.id }, 'aria-label': `${v.user_name || v.user_login}: ${v.title || 'Video'}, ${p.label}` },
+  const card = el('button', { class: 'card card-cw focusable', type: 'button', onclick: () => onSelect(item), dataset: { focusKey: `cw-${item.id}`, cwId: item.id }, 'aria-label': `${v.user_name || v.user_login}: ${v.title || 'Video'}, ${p.label}. X removes it.` },
     el('div', { class: 'card-thumb' },
       img ? el('img', { src: img, alt: '', loading: 'lazy' }) : el('div', { class: 'thumb-missing' }, 'Video'),
       el('span', { class: 'badge cw-left' }, p.label),
+      // On the focused card (controller or keyboard): how to remove it.
+      el('span', { class: 'badge cw-hint' }, hint('{X} remove')),
+      // ✕ for mouse and touch (the D-pad uses X). A span, not a nested button; its click doesn't reach the card.
+      el('span', { class: 'cw-x', role: 'button', 'aria-label': 'Remove from Continue watching', title: 'Remove from Continue watching',
+        onclick: (e) => { e.stopPropagation(); e.preventDefault(); onRemove(item); },
+        onpointerdown: (e) => e.stopPropagation() }, '\u2715'),
       el('div', { class: 'cw-progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(p.fraction * 100)) },
         el('div', { class: 'cw-progress-fill', style: `width: ${(p.fraction * 100).toFixed(1)}%` }))),
     el('div', { class: 'card-body' },

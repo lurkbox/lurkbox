@@ -237,6 +237,23 @@ img { display: block; }
 .grid.cw-row::-webkit-scrollbar { display: none; }
 .grid.cw-row[hidden], .cw-title[hidden] { display: none; }
 .badge.cw-left { bottom: 0.75rem; right: 0.5rem; font-variant-numeric: tabular-nums; }
+.badge.cw-hint { top: 0.5rem; left: 0.5rem; display: none; align-items: center; }
+.badge.cw-hint .hint { color: inherit; font-size: inherit; }
+body:not(.input-touch):not(.input-mouse) .card-cw:is(:focus, .is-focused) .cw-hint { display: inline-flex; }
+/* ✕: with a mouse on the hovered or focused card; always on the touch layouts (touch.css). The D-pad uses X. */
+.cw-x {
+  position: absolute; top: 0.4rem; right: 0.4rem; width: 2.2rem; height: 2.2rem; border-radius: 50%; display: none;
+  place-items: center; background: var(--badge-bg); color: var(--badge-fg); font-size: 1rem; font-weight: 800; cursor: pointer;
+}
+body.input-mouse .card-cw:is(:hover, :focus, .is-focused) .cw-x { display: grid; }
+.cw-x:hover { background: var(--live); color: var(--on-live); }
+.cw-chip .cw-chip-touch { display: none; }
+body.input-mouse .cw-chip .hint { display: none; }
+body.input-mouse .cw-chip .cw-chip-touch { display: inline; }
+.toast.undo-toast { pointer-events: auto; }
+.undo-toast-body { display: inline-flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; }
+.undo-toast-btn { border: 1px solid var(--border); background: var(--raised); color: var(--fg); border-radius: 999px; padding: 0.25rem 0.8rem; font: inherit; font-size: 0.95rem; cursor: pointer; }
+.undo-toast-btn .hint { color: inherit; font-size: inherit; margin-right: 0.2rem; }
 .cw-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 0.3rem; background: var(--badge-bg); }
 .cw-progress-fill { height: 100%; background: var(--accent); }
 .card-body { padding: 0.7rem 0.9rem 0.9rem; display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }

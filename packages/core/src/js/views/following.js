@@ -6,7 +6,7 @@ import { tw, setFollowedCache, followedChannels, followsAge, usersByIds, lastLiv
 import { KeyedGrid, streamCard, continueCard, errorState, listSort, sortChip, withGameHeaders, gameHeader } from '../grid.js';
 import { pickFromList } from '../modal.js';
 import { focusEl, scrollToFocus } from '../focus.js';
-import { loadContinueWatching, removeFromContinueWatching } from '../continue-watching.js';
+import { loadContinueWatching, scheduleRemoval, undoRemoval, UNDO_MS } from '../continue-watching.js';
 import { LIVE_SORTS, sortStreams } from '../../shared/sorts.js';
 import { mergeFollows, sortOffline, SORTS, fmtAgo } from '../follows.js';
 import { Poller } from '../refresher.js';
@@ -49,7 +49,8 @@ export function followingView() {
     destroy() { if (poller) { poller.stop(); this.nav && this.nav.unregisterPoller(poller); } },
     onPlayerClosed() { if (this.refreshCw) this.refreshCw(); },
     onAction(action) {
-      if (action === 'X' && this.cwRemove && this.cwRemove()) return true; // X on a Continue watching card: its menu
+      if (action === 'X' && this.cwRemove && this.cwRemove()) return true; // X on a Continue watching card: remove it
+      if (action === 'Y' && this.cwUndo && this.cwUndo()) return true; // while the Undo toast shows
       if (action === 'Y' && this.inCw && this.inCw()) return true; // the row has no sort (most recent first)
       if (action !== 'Y' || !this.cycleSort) return false;
       this.cycleSort();
@@ -68,7 +69,10 @@ export function followingView() {
       const offGridEl = el('div', { class: 'grid grid-offline' });
       const liveEmpty = el('p', { class: 'empty', hidden: true }, 'Nobody you follow is live right now.');
       // Continue watching: above Live, only when there is something to continue.
-      const cwTitle = el('h2', { class: 'section-title cw-title', hidden: true }, 'Continue watching ', hint('{X} remove'));
+      // The header's chip says how to remove (like the sort chips); a tap or click removes the focused card, else explains.
+      const cwChip = el('button', { class: 'sort-chip cw-chip', type: 'button', tabindex: '-1', 'aria-label': 'Remove from Continue watching', onclick: () => { if (!this.cwRemove()) toast(document.body.classList.contains('touch-ui') ? 'Tap ✕ on a card, or long-press it' : 'Press X on a card, or click its ✕', 2500); } },
+        hint('{X} remove'), el('span', { class: 'cw-chip-touch' }, '✕ remove'));
+      const cwTitle = el('h2', { class: 'section-title cw-title', hidden: true }, 'Continue watching ', cwChip);
       const cwGridEl = el('div', { class: 'grid cw-row hscroll', hidden: true });
       host.append(
         el('header', { class: 'view-header' }, el('h1', {}, 'Following'), hint('{X} channel page'), status),
@@ -108,15 +112,40 @@ export function followingView() {
           items,
           onPick: (what) => {
             if (what === 'channel') { nav.openChannel({ login: v.user_login, id: v.user_id, name: v.user_name }); return; }
-            cwGen++;
-            removeFromContinueWatching(cur.id);
-            cwItems.delete(cur.id);
-            paintCw([...cwItems.values()], { keepPosition: true });
-            toast('Removed from Continue watching', 1800);
+            cwRemoveItem(cur);
           },
         });
       };
-      const cw = new KeyedGrid(cwGridEl, { key: (it) => it.id, render: (it) => continueCard(it, cwPlay, cwMenu) });
+      // Remove (X, the card's ✕, or the long-press menu): the card goes at once; an Undo toast (Y, or its button)
+      // brings it back for a few seconds before the position is forgotten (continue-watching.js scheduleRemoval).
+      let undoable = null; // { item, toast }
+      const cwRemoveItem = (it) => {
+        const cur = cwItems.get(it.id) || it;
+        cwGen++;
+        scheduleRemoval(cur.id);
+        cwItems.delete(cur.id);
+        paintCw([...cwItems.values()], { keepPosition: true });
+        if (undoable && undoable.toast) undoable.toast.remove();
+        const t = toast(el('span', { class: 'undo-toast-body' },
+          `Removed “${cur.video.title || 'video'}” from Continue watching`,
+          el('button', { class: 'undo-toast-btn', type: 'button', tabindex: '-1', onclick: () => this.cwUndo() }, hint('{Y} '), 'Undo')), UNDO_MS - 400, 'undo-toast');
+        undoable = { item: cur, toast: t };
+        setTimeout(() => { if (undoable && undoable.item === cur) undoable = null; }, UNDO_MS - 400);
+      };
+      this.cwUndo = () => {
+        if (!undoable) return false;
+        const { item, toast: t } = undoable;
+        undoable = null;
+        if (t) t.remove();
+        if (!undoRemoval(item.id)) return true;
+        cwGen++;
+        paintCw([...cwItems.values(), item].sort((a, b) => b.at - a.at));
+        const back = cwGridEl.querySelector(`[data-cw-id="${item.id}"]`);
+        if (back && document.body.classList.contains('input-pad')) focusEl(back, { instant: true });
+        toast('Back in Continue watching', 1500);
+        return true;
+      };
+      const cw = new KeyedGrid(cwGridEl, { key: (it) => it.id, render: (it) => continueCard(it, cwPlay, cwMenu, cwRemoveItem) });
       const paintCw = (items, opts) => {
         lastCw = { account: state.auth.active, items };
         cwItems = new Map(items.map((it) => [it.id, it]));
@@ -147,7 +176,7 @@ export function followingView() {
           } while (cwAgain && host.isConnected);
         } catch (e) { console.warn('[cw] load failed', e); } finally { cwLoading = false; }
       };
-      this.cwRemove = () => { const c = document.activeElement && cwGridEl.contains(document.activeElement) ? document.activeElement.closest('[data-cw-id]') : null; if (c && cwItems.has(c.dataset.cwId)) cwMenu(cwItems.get(c.dataset.cwId)); return !!c; };
+      this.cwRemove = () => { const c = document.activeElement && cwGridEl.contains(document.activeElement) ? document.activeElement.closest('[data-cw-id]') : null; if (c && cwItems.has(c.dataset.cwId)) cwRemoveItem(cwItems.get(c.dataset.cwId)); return !!c; };
       this.refreshCw = refreshCw;
       this.inCw = () => cwGridEl.contains(document.activeElement);
       const cachedCw = lastCw && lastCw.account === state.auth.active ? lastCw : null;
