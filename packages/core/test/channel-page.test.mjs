@@ -62,6 +62,8 @@ test('the saved choices go through the settings schema', () => {
   assert.equal(DEFAULT_SETTINGS.clipSort, 'views');
   assert.deepEqual(sanitizeSettings({ videoFilter: 'highlight', clipPeriod: '30d', clipSort: 'newest' }), { videoFilter: 'highlight', clipPeriod: '30d', clipSort: 'newest' });
   assert.deepEqual(sanitizeSettings({ videoFilter: 'live', clipPeriod: '1y', clipSort: 'random' }), { videoFilter: 'archive', clipPeriod: '7d', clipSort: 'views' });
+  assert.equal(DEFAULT_SETTINGS.clipAutoplay, true, 'the next clip plays by default');
+  assert.deepEqual(sanitizeSettings({ clipAutoplay: 0 }), { clipAutoplay: false });
 });
 
 test('lengths and follower counts', () => {

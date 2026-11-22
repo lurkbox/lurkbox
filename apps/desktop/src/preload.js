@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('lurkbox', {
   onDropsEvent: on('drops:event'),
   watchMinute: (info) => ipcRenderer.invoke('points:minute', info),
   liveInfo: (login) => ipcRenderer.invoke('direct:liveInfo', login),
+  clipSources: (slug) => ipcRenderer.invoke('direct:clip', slug),
   storyboard: (vodId) => ipcRenderer.invoke('direct:storyboard', vodId),
   resumeGet: (videoId) => ipcRenderer.invoke('resume:get', videoId),
   resumeSet: (videoId, position, duration) => ipcRenderer.invoke('resume:set', videoId, position, duration),

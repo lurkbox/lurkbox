@@ -44,12 +44,13 @@ import { UserEmoteCache } from './user-emotes.js';
 import { pushRecent } from '../shared/quick-chat.js';
 import { RaidCountdown } from './raid.js';
 import { DirectEngine, EVENTS as DIRECT_EVENTS } from './direct-engine.js';
+import { ClipEngine, ClipEmbed, clipSourcePlan } from './clip-engine.js';
 import { liveBadge, catchUpDecision, backgroundCap } from './hls-util.js';
 
 const EMBED_URL = 'https://player.twitch.tv/js/embed/v1.js';
 const EMBED_PARENT = ['localhost']; // must match the host the UI is served from
 /** Every control the bar can show, in order (overlayControls() picks the ones for what is playing). */
-const ALL_CONTROLS = ['play', 'volume', 'quality', 'chat', 'compose', 'quick', 'live', 'points', 'follow', 'channel', 'more', 'back'];
+const ALL_CONTROLS = ['play', 'volume', 'quality', 'chat', 'compose', 'quick', 'live', 'points', 'prev', 'next', 'vod', 'follow', 'channel', 'more', 'back'];
 const LONG_PRESS_MS = 450;
 
 const RAID_STATUS_TEXT = {
@@ -60,6 +61,11 @@ const RAID_STATUS_TEXT = {
   error: 'Raid follow: error, retrying',
   'signed-out': 'Raid follow needs sign-in',
 };
+
+/** "Clipped by x · 1.2K views · Mar 3, 2026" */
+function clipMeta(c) {
+  return [c.creator_name ? `Clipped by ${c.creator_name}` : null, `${fmtViewers(c.view_count)} views`, c.created_at ? fmtDate(c.created_at) : null].filter(Boolean).join(' · ');
+}
 
 function qualityHeight(q) {
   const m = /(\d{3,4})p(\d+)?/.exec(q || '');
@@ -282,6 +288,93 @@ export class Player {
     if (this.chatOn) this.chat.leave(); // live chat doesn't match a VOD
   }
 
+  /**
+   * Plays a clip (Helix /clips item). list: the clips it came from (next/previous and "next clip" autoplay go through
+   * it); channel: { login, name } of the broadcaster (Helix clips carry no login).
+   */
+  async openClip(clip, list = [], channel = {}) {
+    if (this.current && this.current.kind === 'video') this.saveResume();
+    if (this.vodTimeline) { vlog(this.vodTimeline.finish('left before PLAYING')); this.vodTimeline = null; }
+    if (Array.isArray(list) && list.length) this.clipList = list;
+    const cur = { kind: 'clip', login: channel.login || null, name: channel.name || clip.broadcaster_name, userId: clip.broadcaster_id, title: clip.title, clip };
+    this.current = cur;
+    this.resetSeek();
+    this.show();
+    this.cancelRaid();
+    this.setStatus('');
+    this.qualityApplied = true; // the clip engine picks its own quality
+    this.watcher.watch(null);
+    this.closePointsPanel();
+    this.tchat.close();
+    if (this.chatOn) this.chat.leave();
+    this.destroyEngine();
+    if (!cur.login && cur.userId && state.auth.signedIn) {
+      usersByIds([cur.userId]).then((m) => { const u = m.get(cur.userId); if (u && cur === this.current) { cur.login = u.login; if (this.overlayVisible()) this.renderOverlay(true); } }).catch(() => {});
+    }
+    this.loadFollow(cur);
+    const engine = state.settings.playerEngine === 'embed' ? 'embed' : 'direct';
+    const hasHost = !!window.lurkbox.clipSources;
+    let hostResult = null;
+    if (engine === 'direct' && hasHost) hostResult = await window.lurkbox.clipSources(clip.id).catch((e) => ({ ok: false, reason: e.message }));
+    if (cur !== this.current) return;
+    const plan = clipSourcePlan({ engine, hasHost, hostResult });
+    plog(`clip ${clip.id}: ${plan.kind}${plan.reason ? ` (${plan.reason})` : ` (${plan.qualities.map((q) => q.name).join(', ')})`}`);
+    if (plan.kind === 'direct') {
+      this.embed = new ClipEngine(this.host, { log: plog, preferred: () => state.settings.defaultQuality || 'auto' });
+      this.embed.addEventListener('error', (code) => { if (cur === this.current && this.embed && this.embed.isDirect) { plog(`clip media error ${code}; Twitch's clip player`); this.playClipEmbed(cur); } });
+      this.bindEngineEvents(DIRECT_EVENTS);
+      this.applyBackground();
+      this.embed.load({ qualities: plan.qualities });
+    } else {
+      if (hostResult && hostResult.reason === 'not-found') { this.setStatus('This clip was deleted.'); return; }
+      this.playClipEmbed(cur);
+    }
+    this.armPlayWatchdog();
+    if (this.overlayVisible()) this.renderOverlay();
+  }
+
+  /** Twitch's clip embed (the fallback; no quality or seeking). */
+  playClipEmbed(cur) {
+    this.destroyEngine();
+    this.embed = new ClipEmbed(this.host, { slug: cur.clip.id, duration: cur.clip.duration });
+    document.body.classList.add('embed-active');
+    this.bindEngineEvents(DIRECT_EVENTS);
+    if (this.overlayVisible()) this.renderOverlay(true);
+  }
+
+  /** The clip after (dir 1) or before (-1) this one in its list, or null. */
+  clipNeighbour(dir) {
+    const cur = this.current;
+    const list = this.clipList || [];
+    if (!cur || cur.kind !== 'clip' || list.length < 2) return null;
+    const i = list.findIndex((c) => c.id === cur.clip.id);
+    const j = i + dir;
+    return i >= 0 && j >= 0 && j < list.length ? list[j] : null;
+  }
+
+  stepClip(dir, { auto = false } = {}) {
+    const cur = this.current;
+    const next = this.clipNeighbour(dir);
+    if (!next) { if (!auto) toast(dir > 0 ? 'That was the last clip' : 'This is the first clip', 2000); return false; }
+    toast(`${auto ? 'Next clip' : dir > 0 ? 'Next' : 'Previous'}: ${next.title || 'clip'}`, 2500);
+    this.openClip(next, null, { login: cur.login, name: cur.name });
+    return true;
+  }
+
+  /** "Watch from here": the clip's moment in its broadcast (Helix vod_offset), when Twitch still has the video. */
+  async watchClipVod() {
+    const cur = this.current;
+    if (!cur || cur.kind !== 'clip' || !cur.clip.video_id) return;
+    let v = null;
+    try { v = state.auth.signedIn ? await tw.videoById(cur.clip.video_id) : null; } catch { v = null; }
+    if (cur !== this.current) return;
+    if (state.auth.signedIn && !v) { toast('The broadcast of this clip is no longer on Twitch', 3500, 'warn'); return; }
+    const video = v || { id: cur.clip.video_id, user_login: cur.login || '', user_name: cur.name, user_id: cur.userId, title: cur.clip.title };
+    const at = Math.max(0, Number(cur.clip.vod_offset) || 0);
+    this.destroyEngine(); // a fresh engine for the video
+    this.openVideo(video, { startAt: at });
+  }
+
   /** Looks up the broadcaster id (needed for EventSub) and fresh stream info. */
   async resolveChannel(cur) {
     if (!state.auth.signedIn) {
@@ -334,6 +427,7 @@ export class Player {
   }
 
   async ensureEmbed(opts) {
+    if (this.embed && this.embed.isClip) this.destroyEngine();
     const wantDirect = state.settings.playerEngine !== 'embed' && !this.embedOnly;
     if (this.embed && this.embed.isDirect !== wantDirect) this.destroyEngine();
     let switching = false;
@@ -403,6 +497,11 @@ export class Player {
       this.embed.addEventListener(P.ONLINE, () => this.setStatus(''));
       this.embed.addEventListener(P.ENDED, () => {
         if (this.current && this.current.kind === 'live' && this.rewind) { this.goLive('caught up'); return; }
+        if (this.current && this.current.kind === 'clip') {
+          if (state.settings.clipAutoplay !== false && this.clipNeighbour(1)) { this.stepClip(1, { auto: true }); return; }
+          this.setStatus('Clip ended. B to go back.');
+          return;
+        }
         if (this.current && this.current.kind === 'video') {
           if (window.lurkbox.resumeSet) window.lurkbox.resumeSet(this.current.videoId, 0).catch(() => {}); // watched to the end
           this.setStatus('Video ended. B to go back.');
@@ -439,6 +538,7 @@ export class Player {
     const c = this.current;
     if (!c) return;
     if (c.kind === 'live') this.ensureEmbed({ channel: c.login });
+    else if (c.kind === 'clip') this.playClipEmbed(c);
     else this.ensureEmbed({ video: `v${c.videoId}` });
   }
 
@@ -636,6 +736,7 @@ export class Player {
   onPaused() {
     clearTimeout(this.resumeTimer);
     if (!this.active || this.userPaused) return;
+    if (this.embed && this.embed.getEnded && this.safe(() => this.embed.getEnded()) === true) return; // the end, not a stall
     if (performance.now() - (this.loadedAt || 0) < 5000) {
       this.lastStall = 'paused right after load';
       plog('PAUSE within 5 s of load; retrying play()');
@@ -652,7 +753,7 @@ export class Player {
 
   applyDefaultQuality() {
     const want = state.settings.defaultQuality || 'auto';
-    if (!this.embed || want === 'auto') return;
+    if (!this.embed || want === 'auto' || this.embed.isClip) return; // a clip picks its own from the same setting
     const qs = (this.embed.getQualities() || []).filter((q) => q.group && q.group !== 'auto');
     if (!qs.length) return;
     let pick = qs.find((q) => q.group === want);
@@ -913,7 +1014,9 @@ export class Player {
     ui.badge = el('span', { class: 'po-live', hidden: true });
     ui.title = el('span', { class: 'po-title marquee-line' });
     ui.drops = el('span', { class: 'po-drops', hidden: true });
-    ui.top = el('div', { class: 'po-top' }, ui.avatar, ui.name, ui.badge, ui.drops, ui.title);
+    ui.clipMeta = el('span', { class: 'po-clip-meta' });
+    ui.clip = el('span', { class: 'po-clip', hidden: true }, el('span', { class: 'po-clip-badge' }, 'CLIP'), ui.clipMeta);
+    ui.top = el('div', { class: 'po-top' }, ui.avatar, ui.name, ui.badge, ui.clip, ui.drops, ui.title);
     ui.buttons = {};
     for (const key of ALL_CONTROLS) {
       const b = el('button', {
@@ -970,6 +1073,7 @@ export class Player {
       const q = this.embed && this.embed.getQuality();
       const found = q && (this.embed.getQualities() || []).find((x) => x.group === q);
       quality = found ? found.name : (q && q !== 'auto' ? q : 'Auto');
+      if ((!q || q === 'auto') && this.embed.playingName && this.embed.playingName()) quality = `Auto (${this.embed.playingName()})`;
     } catch { /* not ready */ }
     const ls = this.liveState || {};
     return {
@@ -983,6 +1087,9 @@ export class Player {
       points: this.points.signedIn && Number.isFinite(this.points.balance) ? this.points.balance : null,
       name: cur.name || cur.login || '',
       following: cur.following == null ? null : cur.following,
+      vodOffset: cur.kind === 'clip' && cur.clip.vod_offset != null ? fmtTime(cur.clip.vod_offset) : null,
+      next: cur.kind === 'clip' ? (this.clipNeighbour(1) || {}).title || null : null,
+      prev: cur.kind === 'clip' ? (this.clipNeighbour(-1) || {}).title || null : null,
     };
   }
 
@@ -1084,6 +1191,7 @@ export class Player {
     const ctx = this.labelCtx();
     const shown = new Set(overlayControls({
       kind: cur.kind, points: !!this.tchat.login, follow: !!(cur.login && window.lurkbox.followChannel && state.auth.signedIn),
+      vod: cur.kind === 'clip' && !!cur.clip.video_id, prev: !!this.clipNeighbour(-1), next: !!this.clipNeighbour(1),
       compose: state.auth.signedIn && state.settings.chatStyle !== 'twitch',
       quick: state.auth.signedIn,
     }));
@@ -1103,11 +1211,17 @@ export class Player {
     const s = cur.stream;
     const name = cur.name || cur.login || '';
     if (ui.name.textContent !== name) ui.name.textContent = name;
-    const title = cur.kind === 'video' ? (cur.title || '') : ((s && s.title) || '');
+    const title = cur.kind !== 'live' ? (cur.title || '') : ((s && s.title) || '');
     if (ui.title.textContent !== title) { ui.title.textContent = title; requestAnimationFrame(() => marqueeLine(ui.title)); }
     const chip = cur.kind === 'live' ? cur.dropsChip : null;
     ui.drops.hidden = !chip;
     if (chip && ui.drops.textContent !== chip.label) { ui.drops.textContent = chip.label; ui.drops.title = chip.label; }
+    // Clips: a CLIP badge and who clipped it, its views and date.
+    ui.clip.hidden = cur.kind !== 'clip';
+    if (cur.kind === 'clip') {
+      const meta = clipMeta(cur.clip);
+      if (ui.clipMeta.textContent !== meta) ui.clipMeta.textContent = meta;
+    }
     this.renderAvatar(cur);
     // The seek bar is one persistent node (it keeps focus and drag state), between the top line and the buttons.
     const seekable = !!this.seekModel();
@@ -1144,8 +1258,12 @@ export class Player {
       case 'live': this.jumpToLive(); break;
       case 'follow': this.toggleFollow(); break;
       case 'compose': this.openComposer(); break;
+      case 'vod': this.watchClipVod(); break;
+      case 'prev': this.stepClip(-1); break;
+      case 'next': this.stepClip(1); break;
       case 'channel': {
-        const c = { login: cur.login, id: cur.userId, name: cur.name };
+        if (!cur.login && !cur.userId) break;
+        const c = { login: cur.login || '', id: cur.userId, name: cur.name };
         this.nav.closePlayer();
         this.nav.openChannel(c);
         break;
@@ -1279,7 +1397,9 @@ export class Player {
       const cur = this.current;
       if (!cur) return;
       const s = cur.stream;
-      const meta = cur.kind === 'video'
+      const meta = cur.kind === 'clip'
+        ? ['Clip', clipMeta(cur.clip), cur.clip.video_id ? (cur.clip.vod_offset != null ? `from a broadcast at ${fmtTime(cur.clip.vod_offset)}` : 'from a broadcast') : 'broadcast not saved']
+        : cur.kind === 'video'
         ? ['Video', cur.video && cur.video.created_at ? fmtDate(cur.video.created_at) : null]
         : s ? [s.game_name, s.viewer_count != null ? `${fmtViewers(s.viewer_count)} watching` : null, s.started_at ? `up ${fmtUptime(s.started_at)}` : null] : ['Live'];
       info.textContent = meta.filter(Boolean).join(' · ');
@@ -1297,6 +1417,7 @@ export class Player {
     const cur = this.current;
     if (!cur) return;
     if (cur.kind === 'live') this.openLive({ login: cur.login, name: cur.name, userId: cur.userId, stream: cur.stream });
+    else if (cur.kind === 'clip') this.openClip(cur.clip, null, { login: cur.login, name: cur.name });
     else if (cur.video) { this.saveResume(true); this.openVideo(cur.video); }
   }
 
@@ -1447,7 +1568,7 @@ export class Player {
     const cur = this.current;
     if (!e || !cur || !this.active) return null;
     const num = (f) => { const v = this.safe(f); return typeof v === 'number' && Number.isFinite(v) ? v : 0; };
-    if (cur.kind === 'video') {
+    if (cur.kind === 'video' || cur.kind === 'clip') {
       const dur = num(() => e.getDuration());
       if (!(dur > 0)) return null;
       const sb = this.storyboard;
@@ -1559,7 +1680,7 @@ export class Player {
     if (onBar && dir) { this.bumpOverlay(); this.scrubber.press(dir); return true; }
     const j = seekJump(action, { onBar });
     // A plain direction with the overlay closed starts a scrub on a VOD (the bar opens focused).
-    const startScrub = !this.overlayVisible() && dir && this.current.kind === 'video';
+    const startScrub = !this.overlayVisible() && dir && (this.current.kind === 'video' || this.current.kind === 'clip');
     if (!j && !startScrub) return false;
     const m = this.seekModel();
     if (!m) {
@@ -1582,11 +1703,11 @@ export class Player {
   seekTo(t) {
     const cur = this.current;
     if (!cur || !this.embed) return;
-    if (cur.kind === 'video') {
+    if (cur.kind === 'video' || cur.kind === 'clip') {
       plog(`seek to ${fmtTime(t)}`);
       this.safe(() => this.embed.seek(t));
       if (this.embed.isPaused && this.safe(() => this.embed.isPaused()) === true && !this.userPaused) this.kickPlayback('seek');
-      setTimeout(() => this.saveResume(true), 1500);
+      if (cur.kind === 'video') setTimeout(() => this.saveResume(true), 1500);
     } else {
       this.liveSeekTo(t).catch((e) => plog(`live seek failed: ${e.message}`));
     }
@@ -1782,8 +1903,8 @@ export class Player {
         return true;
       case Y: this.toggleChat(); return true;
       case X: this.jumpToLive(); return true;
-      case LB: this.step(-1); return true;
-      case RB: this.step(1); return true;
+      case LB: if (this.current && this.current.kind === 'clip') this.stepClip(-1); else this.step(-1); return true;
+      case RB: if (this.current && this.current.kind === 'clip') this.stepClip(1); else this.step(1); return true;
       case UP:
       case DOWN: {
         // With Lurkbox chat showing, up/down scroll it; otherwise they bring the controls back.

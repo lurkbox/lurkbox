@@ -1,7 +1,7 @@
 // The channel page: a header (banner, avatar, name, followers, Follow, a LIVE card with Watch) and tabs: Home, Videos,
 // Clips, Schedule and About. LB/RB (or the tabs themselves) switch tabs; Y sorts the Videos and Clips grids. Everything
 // comes from the official Helix API (users, streams, videos, clips, schedule, channels, followers).
-import { el, button, toast, fmtViewers, fmtUptime, fmtDate, thumb } from '../ui.js';
+import { el, button, fmtViewers, fmtUptime, fmtDate, thumb } from '../ui.js';
 import { hint } from '../input.js';
 import { tw, usersByIds } from '../api.js';
 import { pagedGrid, videoCard, clipCard, errorState, listSort, filterPills } from '../grid.js';
@@ -239,10 +239,7 @@ export function channelView({ login, id, name, tab }) {
       }
 
       function playClip(c, list) {
-        // Until clips play in the player: the moment in its broadcast, when Twitch still has it.
-        void list;
-        if (!c.video_id) { toast('This clip’s broadcast is no longer on Twitch', 3000); return; }
-        nav.playVideo({ id: c.video_id, user_login: ch.login, user_name: ch.name, user_id: ch.id, title: c.title }, { startAt: Math.max(0, Number(c.vod_offset) || 0) });
+        nav.playClip(c, list, { login: ch.login, name: ch.name });
       }
 
       view.showTab(view.tab);

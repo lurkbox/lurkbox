@@ -5,10 +5,14 @@
  * The row of icon buttons, in order, for what is playing.
  * ctx: { kind: 'live'|'video', points: bool (Twitch's chat frame is loaded), follow: bool (the channel is known and
  * follow/unfollow is available), compose: bool (signed in, Lurkbox chat style: "Send a message"), quick: bool (signed in:
- * quick chat, in either chat style), fullscreen: bool }
+ * quick chat, in either chat style), fullscreen: bool, vod: bool (a clip whose broadcast Twitch still has), prev/next:
+ * bool (a clip with a clip before/after it in its list) }
  */
 export function overlayControls(ctx) {
   const live = ctx.kind === 'live';
+  if (ctx.kind === 'clip') {
+    return ['play', 'volume', 'quality', ctx.prev ? 'prev' : null, ctx.next ? 'next' : null, ctx.vod ? 'vod' : null, ctx.follow ? 'follow' : null, 'channel', 'more', 'back'].filter(Boolean);
+  }
   return [
     'play', 'volume', 'quality',
     live ? 'chat' : null,
@@ -65,6 +69,9 @@ export function controlLabel(key, ctx = {}) {
     case 'points': return Number.isFinite(ctx.points) ? `Channel points${dot}${Math.round(ctx.points).toLocaleString('en-US')}` : 'Channel points';
     case 'follow': return ctx.following ? `Following${dot}Unfollow?` : 'Follow';
     case 'channel': return ctx.name ? `${ctx.name}${dot}Channel` : 'Channel';
+    case 'vod': return ctx.vodOffset ? `Watch from here${dot}${ctx.vodOffset}` : 'Watch the broadcast';
+    case 'prev': return ctx.prev ? `Previous clip${dot}${ctx.prev}` : 'Previous clip';
+    case 'next': return ctx.next ? `Next clip${dot}${ctx.next}` : 'Next clip';
     case 'more': return 'More';
     case 'back': return 'Back';
     default: return key;

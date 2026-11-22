@@ -31,7 +31,7 @@ Lurkbox is not affiliated with or endorsed by Twitch.
 
 ![All seven themes on the Following screen: Lurkbox, Game Mode, Classic Purple, OLED, Daylight, High Contrast and a custom theme](docs/screenshots/themes.png)
 
-More in [docs/screenshots/](docs/screenshots/): a channel's schedule, pop-overs, chat over the video, the chat composer, categories, search, the on-screen keyboard, settings, "Who's watching?" and the phone sign-in. They come from demo mode (`npm run screenshots`): every channel, picture, chat message and emote is made up for Lurkbox, and nothing is real Twitch content.
+More in [docs/screenshots/](docs/screenshots/): a clip in the player, a channel's schedule, pop-overs, chat over the video, the chat composer, categories, search, the on-screen keyboard, settings, "Who's watching?" and the phone sign-in. They come from demo mode (`npm run screenshots`): every channel, picture, chat message and emote is made up for Lurkbox, and nothing is real Twitch content.
 
 ## Features (v0.1)
 
@@ -47,6 +47,7 @@ More in [docs/screenshots/](docs/screenshots/): a channel's schedule, pop-overs,
   - **Schedule:** the upcoming streams from Helix `/schedule`, with category and time in your time zone, and a channel's break; "No schedule" when there is none.
   - **About:** the description, partner or affiliate, since when, category, language and tags. Panels and social links aren't in Twitch's public API, so "Open on twitch.tv" shows Twitch's own page for them.
   - The filters and sorts are remembered.
+- **Clips.** A clip plays in the player like a video: quality, the seek bar and its scrubbing, LB/RB (or the overlay's icons) for the previous and next clip of the list, and "next clip" autoplay when one ends (Settings → Player → Next clip, on by default). The overlay shows the clip's title, CLIP, who clipped it, its views and date; **Watch from here** opens its broadcast at the clip's moment (Helix `vod_offset`) when Twitch still has it. Clips play from Twitch's MP4s (see [Unofficial Twitch interfaces](#unofficial-twitch-interfaces)); with the Twitch player chosen, or if that fails, Twitch's own clip embed plays them (no quality or seeking there).
 - **Search history.** Search finds channels and categories. Opening it with an empty box shows your recent searches (per account, newest first, up to 20): A searches again, X deletes the highlighted one, and "Clear history" removes them all. A search is remembered when you pick a channel or category from its results, together with what you picked. Settings → General turns it off ("Search history") or clears it ("Clear search history"). It stays on the device, in Lurkbox's settings.
 - **Sorting.** Y re-sorts the list you're on, and a small chip shows the current order ("Y sort: Most viewers"; tap or click it too). The focus stays in the same place, and the choice is remembered.
   - Following → Live: Most viewers (default), Recently started, Live longest, A–Z, or By game (grouped under small game headers). Following → Offline: Recently live, A–Z, Followed date. Y sorts whichever of the two has focus. Both are also in Settings → General.
@@ -118,7 +119,7 @@ npm run test:points # channel-points scanning against a local fixture
 npm run test:drops  # drops: inventory scanning, claiming and controller navigation against a local fixture, and the Drops section's focus (stable while idle, the D-pad moves)
 npm run test:follow # follow/unfollow against a local fixture of a channel page: selectors, the flip check, retry, captcha, wrong channel
 npm run test:chat   # Lurkbox chat on a busy live channel: emotes, overlays, badges, paints (LURKBOX_SHOT=x.png saves a screenshot)
-npm run test:channel     # offline, in demo mode: X on a live card opens its channel page; every tab, the video and clip filters and sorts, LB/RB, back
+npm run test:channel     # offline, in demo mode: X on a live card opens its channel page; every tab, the video and clip filters and sorts, a clip played (qualities, next-clip autoplay, "Watch from here"), LB/RB, back
 npm run test:chat-send   # offline, in demo mode: sends a message with the controller and the on-screen keyboard, sees it echoed, a refused duplicate marked, an emote inserted from the picker, and quick-chat phrases sent and echoed
 LURKBOX_CHAT_STYLE=twitch npm run test:chat   # Twitch chat style: the frame's TV zoom, panel width, no overlap with the video (LURKBOX_CHAT_SIZE=175 for a fixed size)
 LURKBOX_CHAT_EXT=1 npm run test:chat   # the experimental real extensions in Twitch chat style
@@ -141,6 +142,7 @@ The unit tests cover:
 - the chat layout: width (Auto, percentages, at most half the window, Twitch chat's minimum layout width), text size and Twitch chat zoom, "over the video" rules, and one settings source for the pop-over and Settings → Chat (live preview, delayed save, echoes never move a slider back);
 - Drops: the auto-claim loop (first check after 1 min, then every 15, never twice in 5 min, error backoff, inert with the setting off or without a twitch.tv session, names only in logs), the framing headers, the Claim button text, the player's chip for a stream's game, and which keys go to the inventory page;
 - follow/unfollow: unfollow only after Lurkbox's confirmation (also when "Following" is stale), the flip check, one retry on timeout and none after a captcha, inert without a twitch.tv session, only valid channel logins, the sign-in prompt and the "open on twitch.tv" fallback, the heart's label and icon;
+- clip playback: the GQL request (persisted query, then the plain one), signing each MP4 quality, host checks, a deleted clip, network errors; which quality plays (the default quality setting, a chosen one, the background cap); the MP4-or-embed choice; the overlay's clip controls and labels; the demo's clip MP4s with byte ranges;
 - the channel page: the Helix wrappers for videos (by type), clips (the period's window), clip by id, the schedule (404 = no schedule), followers and channel info, and their pagination over every page; schedule segments (upcoming, cancelled, vacation) and their times across time zones (Today/Tomorrow by the zone's calendar); clip sorting; the saved filters;
 - theme tokens and chat colour contrast;
 - Steam library art: appid derivation, the allow-listed Steam expressions, grid file names, and backup before the first overwrite.
@@ -187,7 +189,7 @@ Settings → Appearance → **Match Steam library artwork to theme** (off by def
 | Emote picker, quick chat (in the chat box) | X, Y | | smiley, lightning buttons |
 | In quick chat: send, edit, add | A, Y, X | Enter | click |
 | Jump to live | X | L | Jump to live (overlay) |
-| Previous / next channel (in player); sections (elsewhere) | LB / RB | Q / E, PageUp / PageDown | |
+| Previous / next channel (in player; a clip: previous / next clip); sections (elsewhere) | LB / RB | Q / E, PageUp / PageDown | |
 | Fullscreen | | F11 | |
 
 Button hints change with the last input used: Xbox-style letters, PlayStation symbols, Nintendo labels, or key names. Raw controllers (with Steam Input off) use fallback tables for Xbox, DualShock/DualSense, Switch Pro, 8BitDo and Valve pads, plus a generic mapping.
@@ -207,6 +209,7 @@ Most of Lurkbox uses Twitch's official, documented API (Helix, EventSub, the dev
 | Feature | What it uses | How to turn it off |
 |---|---|---|
 | **Direct playback** (default player), VOD seek previews, live rewind | Twitch web GQL `PlaybackAccessToken` (Twitch's web client ID, plus your twitch.tv session so subs and Turbo apply) and the usher HLS playlists; GQL `seekPreviewsURL` for the scrubbing thumbnails; when signed out, GQL for the live stream's start time and archive VOD (signed in, Helix) | Settings → Player → Player: **Twitch player** (the official embed) |
+| **Clip playback** | Twitch web GQL `VideoAccessToken_Clip` (Twitch's web client ID, anonymous): the clip's MP4 qualities and a signed playback token, the same way twitch.tv and Streamlink play clips | Settings → Player → Player: **Twitch player** (clips then use the official clip embed, `clips.twitch.tv/embed`) |
 | **Channel points** (claim the bonus, balance, rewards, predictions, polls) | Twitch's own embedded chat page, signed in with your twitch.tv session; Lurkbox clicks the bonus button for you | Settings → Player → Auto-claim bonus points; Chat style |
 | **Drops** (the Drops section, auto-claim, the player's progress chip) | Twitch's own Drops Inventory page (`www.twitch.tv/drops/inventory`) with your twitch.tv session: shown in the Drops section (Lurkbox removes that page's `X-Frame-Options` and CSP `frame-ancestors` headers so it can be framed in Lurkbox's own window), and loaded in a hidden window every 15 minutes, where Lurkbox reads the campaigns in progress and clicks the page's own Claim buttons for finished drops (at most 5 per check; errors back off up to 4 h). No GQL calls | Settings → Player → **Auto-claim drops** (the Drops section only loads the page while you open it) |
 | **Follow / unfollow** | Twitch's own channel page (`www.twitch.tv/<channel>`) with your twitch.tv session, loaded in a hidden window only when you press Follow, or confirm Unfollow, in Lurkbox. Lurkbox presses the page's own Follow button (or Unfollow and Twitch's confirm dialog) in the channel header for that channel only, and reports success only when the button has flipped (one retry; no retry after a captcha). Twitch removed the public follow API in 2023. Whether you follow comes from the official Helix `GET /channels/followed`. No GQL calls | Don't press Follow: nothing runs in the background |

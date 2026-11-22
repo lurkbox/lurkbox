@@ -120,3 +120,27 @@ test('ensureDemoMedia reports a missing ffmpeg instead of throwing', () => {
   assert.equal(r.ok, false);
   assert.match(r.reason, /ffmpeg not found/);
 });
+
+test('demo clips: signed-looking qualities of the clip MP4, served with byte ranges', () => {
+  const h = host();
+  const clip = h.db.clips.find((c) => c.video_id);
+  const r = h.handlers['direct:clip'](clip.id);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.qualities.map((q) => q.quality), ['1080', '720', '480', '360']);
+  assert.match(r.qualities[0].url, new RegExp(`^lbhls://demo/hls/clip${clip.duration}\\.mp4\\?q=1080`));
+  assert.deepEqual(h.handlers['direct:clip']('NoSuchClip'), { ok: false, reason: 'not-found' });
+  assert.match(host({ media: { ok: false, reason: 'ffmpeg not found' } }).handlers['direct:clip'](clip.id).reason, /ffmpeg not found/);
+  fs.writeFileSync(path.join(h.dir, 'clip15.mp4'), Buffer.from('0123456789'));
+  const all = h.serveMedia('/hls/clip15.mp4?q=720');
+  assert.equal(all.status, 200);
+  assert.equal(all.type, 'video/mp4');
+  assert.equal(all.headers['accept-ranges'], 'bytes');
+  const part = h.serveMedia('/hls/clip15.mp4', { range: 'bytes=2-5' });
+  assert.equal(part.status, 206);
+  assert.equal(Buffer.from(part.body).toString(), '2345');
+  assert.equal(part.headers['content-range'], 'bytes 2-5/10');
+  assert.equal(Buffer.from(h.serveMedia('/hls/clip15.mp4', { range: 'bytes=7-' }).body).toString(), '789');
+  assert.equal(Buffer.from(h.serveMedia('/hls/clip15.mp4', { range: 'bytes=-3' }).body).toString(), '789');
+  assert.equal(h.serveMedia('/hls/clip15.mp4', { range: 'bytes=20-' }).status, 416);
+  assert.equal(h.serveMedia('/hls/clip30.mp4').status, 404, 'not rendered');
+});

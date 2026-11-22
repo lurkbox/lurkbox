@@ -16,9 +16,29 @@ const SB = { cols: 5, rows: 5, width: 220, height: 124 };
 const pad = (i) => String(i).padStart(3, '0');
 
 /** Renders the media into dir unless it is already there. Returns { ok, dir, reason? }. */
+/** Clip lengths the demo has an MP4 for (demo clips are this long), seconds. */
+const CLIP_LENGTHS = [15, 30, 45];
+
+/** The demo clips: the loop's first 15, 30 and 45 s as MP4 (stream copy, so it is quick). Returns true when all exist. */
+function ensureClipMedia(dir, { ffmpeg, log }) {
+  let ok = true;
+  for (const len of CLIP_LENGTHS) {
+    const f = path.join(dir, `clip${len}.mp4`);
+    if (fs.existsSync(f)) continue;
+    const r = spawnSync(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-i', 'loop.m3u8', '-t', String(len), '-c', 'copy', '-bsf:a', 'aac_adtstoasc', '-movflags', '+faststart', `clip${len}.mp4`], { cwd: dir, encoding: 'utf8', timeout: 60000 });
+    if (r.error || r.status !== 0) { log(`[demo] clip ${len}s not rendered: ${r.error ? r.error.message : (r.stderr || '').trim().slice(-200)}`); ok = false; }
+  }
+  return ok;
+}
+
+/** The demo MP4 length for a clip of `sec` seconds (the nearest one there is). */
+function clipLength(sec) {
+  return CLIP_LENGTHS.reduce((a, b) => (Math.abs(b - sec) < Math.abs(a - sec) ? b : a));
+}
+
 function ensureDemoMedia(dir, { sceneSvg, runnerSvg, ffmpeg = process.env.LURKBOX_FFMPEG || 'ffmpeg', log = () => {} }) {
   const stamp = path.join(dir, `ready-${VERSION}`);
-  if (fs.existsSync(stamp)) return { ok: true, dir };
+  if (fs.existsSync(stamp)) { ensureClipMedia(dir, { ffmpeg, log }); return { ok: true, dir }; }
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'scene.svg'), sceneSvg);
   fs.writeFileSync(path.join(dir, 'runner.svg'), runnerSvg);
@@ -60,6 +80,7 @@ function ensureDemoMedia(dir, { sceneSvg, runnerSvg, ffmpeg = process.env.LURKBO
   if (sb.status !== 0) log(`[demo] storyboard not rendered: ${(sb.stderr || '').trim().slice(-200)}`);
   const segs = fs.readdirSync(dir).filter((f) => /^seg\d{3}\.ts$/.test(f)).length;
   if (segs < SEG_COUNT) return { ok: false, dir, reason: `only ${segs} segments rendered` };
+  ensureClipMedia(dir, { ffmpeg, log });
   fs.writeFileSync(stamp, new Date().toISOString());
   log(`[demo] rendered the demo video in ${Date.now() - t0} ms (${dir})`);
   return { ok: true, dir };
@@ -114,4 +135,4 @@ function storyboardFor(durationSec, url) {
   return { count, width: SB.width, height: SB.height, rows: SB.rows, cols: SB.cols, interval: Math.max(1, durationSec / count), images: [url] };
 }
 
-module.exports = { ensureDemoMedia, masterPlaylist, livePlaylist, vodPlaylist, storyboardFor, SEG_DUR, SEG_COUNT, LOOP_SEC, VERSION };
+module.exports = { ensureDemoMedia, ensureClipMedia, clipLength, CLIP_LENGTHS, masterPlaylist, livePlaylist, vodPlaylist, storyboardFor, SEG_DUR, SEG_COUNT, LOOP_SEC, VERSION };

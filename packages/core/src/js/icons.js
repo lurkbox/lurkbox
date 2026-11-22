@@ -32,6 +32,10 @@ export const PLAYER_ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   up: '<path d="M6 14.5l6-6 6 6"/>',
   down: '<path d="M6 9.5l6 6 6-6"/>',
+  // A film frame with a play mark (the clip's source broadcast).
+  vod: '<rect x="3.5" y="5" width="17" height="14" rx="1.5"/><path d="M7 5v14M17 5v14M3.5 9.5H7M3.5 14.5H7M17 9.5h3.5M17 14.5h3.5"/><path d="M10.5 10l3 2-3 2z"/>',
+  prev: '<path d="M18 6l-8 6 8 6zM6 6v12"/>',
+  next: '<path d="M6 6l8 6-8 6zM18 6v12"/>',
 };
 
 /** An inline SVG icon (aria-hidden; the control carries the label). Unknown names draw nothing. */

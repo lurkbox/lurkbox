@@ -179,6 +179,10 @@ const nav = {
   playVideo(v, opts = {}) {
     nav.openPlayer(() => player.openVideo(v, opts));
   },
+  /** A clip; list: the clips around it (next/previous, autoplay); channel: { login, name } of the broadcaster. */
+  playClip(clip, list = [], channel = {}) {
+    nav.openPlayer(() => player.openClip(clip, list, channel));
+  },
   openPlayer(start) {
     if (!player.active) playerReturnFocus = document.activeElement;
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();

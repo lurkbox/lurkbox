@@ -200,7 +200,7 @@ export function buildDemoData({ media = (p) => `demo-media/${p}` } = {}) {
         broadcaster_id: u.id, broadcaster_name: u.display_name, creator_id: String(8800000 + k), creator_name: clippers[(k + hash(u.login)) % clippers.length],
         video_id: v ? v.id : '', game_id: g ? g.id : '', language: 'en', title: clipTitles[(k + hash(u.login)) % clipTitles.length],
         view_count: Math.floor(40 + r() * (k < 5 ? 2400 : 18000)), created_at: iso(DEMO_NOW - ago),
-        thumbnail_url: media(`img/vod/${u.login}~${20 + k}-480x272.svg`), duration: 15 + Math.floor(r() * 45) + 0.5,
+        thumbnail_url: media(`img/vod/${u.login}~${20 + k}-480x272.svg`), duration: [15, 30, 45][Math.floor(r() * 3)], // the demo has MP4s of these lengths (demo-media.js)
         vod_offset: v ? 60 + Math.floor(r() * 3000) : null, is_featured: k === 0,
       });
     }

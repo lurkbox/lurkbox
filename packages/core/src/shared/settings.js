@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   clipSort: 'views', // a channel's clips
   videoFilter: 'archive', // a channel's Videos tab: 'archive' (past broadcasts) | 'highlight' | 'upload' (shared/channel-page.js)
   clipPeriod: '7d', // a channel's Clips tab: '24h' | '7d' | '30d' | 'all'
+  clipAutoplay: true, // the player goes on to the next clip of the list when one ends
   videoOnlyUnfocused: true, // hide chat/controls while unfocused (player only)
   confirmExit: true,
   navSounds: true,
@@ -70,7 +71,7 @@ export function sanitizeSettings(patch) {
   const out = {};
   if ('clientId' in patch) out.clientId = String(patch.clientId || '').trim().replace(/[^A-Za-z0-9]/g, '');
   if ('defaultQuality' in patch) out.defaultQuality = String(patch.defaultQuality || 'auto');
-  for (const k of ['chatDefault', 'raidFollow', 'skipContentGate', 'inputWhenUnfocused', 'confirmExit', 'videoOnlyUnfocused', 'hwDecode', 'lowLatency', 'autoCatchUp', 'steamArtSync', 'autoClaimPoints', 'autoClaimDrops', 'earnWatchPoints', 'chatEmotes7tv', 'chatEmotesBttv', 'chatEmotesFfz', 'chatAnimatedEmotes', 'chat7tvCosmetics', 'chatExtensions', 'navSounds', 'searchHistoryOn']) {
+  for (const k of ['chatDefault', 'raidFollow', 'skipContentGate', 'inputWhenUnfocused', 'confirmExit', 'videoOnlyUnfocused', 'hwDecode', 'lowLatency', 'autoCatchUp', 'steamArtSync', 'autoClaimPoints', 'autoClaimDrops', 'earnWatchPoints', 'chatEmotes7tv', 'chatEmotesBttv', 'chatEmotesFfz', 'chatAnimatedEmotes', 'chat7tvCosmetics', 'chatExtensions', 'navSounds', 'searchHistoryOn', 'clipAutoplay']) {
     if (k in patch) out[k] = !!patch[k];
   }
   if ('screenMargin' in patch) out.screenMargin = [0, 2.5, 5].includes(Number(patch.screenMargin)) && patch.screenMargin !== 'auto' ? Number(patch.screenMargin) : 0;

@@ -221,6 +221,16 @@ export interface LurkboxPlatform {
   /** Optional. VOD scrubbing thumbnails (seekPreviewsURL sprite sheets). Null when unavailable. */
   storyboard?(vodId: string): Promise<{ count: number; width: number; height: number; rows: number; cols: number; interval: number; images: string[] } | null>;
 
+  /**
+   * Optional. A clip's MP4 qualities with a signed playback token (web GQL VideoAccessToken_Clip, anonymous), best
+   * first or in any order: [{ quality: '1080', frameRate: 60, url }]. reason 'not-found' for a deleted clip. Without
+   * this member (or when it fails) the core plays Twitch's clip embed (clips.twitch.tv/embed).
+   */
+  clipSources?(slug: string): Promise<
+    | { ok: true; qualities: Array<{ quality: string; frameRate: number; url: string }> }
+    | { ok: false; reason: string }
+  >;
+
   // ---- VOD resume positions (per account) ----
 
   /** Optional. Saved position for a VOD, or null. */

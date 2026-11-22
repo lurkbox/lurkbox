@@ -107,3 +107,14 @@ test('player bar: the heart, its label bubble and icon', () => {
   assert.equal(followButtonLabel(true), 'Following');
   assert.equal(followButtonLabel(false), 'Follow');
 });
+
+test('clip overlay: next/previous, "Watch from here" and their labels', () => {
+  assert.deepEqual(overlayControls({ kind: 'clip', vod: true, next: true, follow: true }), ['play', 'volume', 'quality', 'next', 'vod', 'follow', 'channel', 'more', 'back']);
+  assert.deepEqual(overlayControls({ kind: 'clip', prev: true }), ['play', 'volume', 'quality', 'prev', 'channel', 'more', 'back'], 'no broadcast: no "Watch from here"');
+  assert.ok(!overlayControls({ kind: 'clip' }).some((k) => ['chat', 'compose', 'quick', 'live', 'points'].includes(k)), 'nothing live on a clip');
+  assert.equal(controlLabel('vod', { vodOffset: '17:12' }), 'Watch from here · 17:12');
+  assert.equal(controlLabel('vod', {}), 'Watch the broadcast');
+  assert.equal(controlLabel('next', { next: 'The laugh' }), 'Next clip · The laugh');
+  assert.equal(controlLabel('prev', {}), 'Previous clip');
+  for (const k of ['vod', 'prev', 'next']) assert.ok(PLAYER_ICONS[controlIcon(k)], k);
+});

@@ -35,6 +35,7 @@ const SETUP = {
   channel: {},
   'channel-clips': { settings: { clipPeriod: '30d' } },
   'channel-schedule': {},
+  'player-clip': { settings: { clipPeriod: 'all' } },
   categories: {},
   search: {},
   keyboard: {},
@@ -329,6 +330,20 @@ app.on('browser-window-created', (_e, win) => {
       await js("document.querySelector('.channel-body .schedule-row').focus(); true");
       await settle();
       await shoot('channel-schedule');
+    },
+    async 'player-clip'() {
+      // A clip from the Clips tab in the player: the CLIP line, the seek bar, "Watch from here" focused.
+      await openChannelPage();
+      await press('RB', 'RB');
+      await waitFor('the clips', "document.querySelectorAll('.channel-body .card-clip').length >= 4");
+      await js("document.querySelector('.channel-body .card-clip').focus(); true");
+      await press('A');
+      await waitFor('the clip', "!document.getElementById('player-screen').hidden && window.__lurkbox.player.current && window.__lurkbox.player.current.kind === 'clip'");
+      await playing(2);
+      await overlay();
+      await focusControl('vod');
+      await settle();
+      await shoot('player-clip');
     },
     async categories() {
       await following();

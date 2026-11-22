@@ -186,6 +186,7 @@ export function settingsView() {
           el('h2', { class: 'section-title settings-section' }, 'Player'),
           row('Player', pickRow('playerEngine', 'Player', [{ value: 'direct', label: 'Direct (default)' }, { value: 'embed', label: 'Twitch player' }]), 'Direct plays the stream itself; the official Twitch player is the automatic fallback.'),
           row('Latency', pickRow('lowLatency', 'Latency', [{ value: true, label: 'Low latency' }, { value: false, label: 'Normal' }])),
+          row('Next clip', pickRow('clipAutoplay', 'Next clip', [{ value: true, label: 'Play automatically' }, { value: false, label: 'Stop after each clip' }]), 'When a clip ends, the next one of the list plays.'),
           row('Catch up automatically', toggle('autoCatchUp'), 'Plays slightly faster to stay at the live edge. Far behind? Press X to jump to live.'),
           row('Video codec', pickRow('videoCodec', 'Video codec', [{ value: 'h264', label: 'H.264 (smoothest)' }, { value: 'best', label: 'Best available' }]), 'H.264 decodes cheaply everywhere. Best available also allows AV1 and H.265 when this device decodes them in hardware. Applies to the next stream you open.'),
           row('Quality while in the background', pickRow('backgroundQuality', 'Quality while in the background', [{ value: 'same', label: 'Same' }, { value: '720', label: '720p (default)' }, { value: '480', label: '480p' }]), 'After 3 s without focus (e.g. Floater over a game), drop to this quality to leave the game more CPU and GPU. Restores when Lurkbox gets focus.'),
