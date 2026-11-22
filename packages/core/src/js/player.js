@@ -1,6 +1,6 @@
 // Player screen: Twitch embed, info overlay, chat panel and raid following.
 import { el, button, toast, loadScript, fmtViewers, fmtUptime, fmtDate } from './ui.js';
-import { A, B, X, Y, LB, RB, START, UP, DOWN, LEFT, RIGHT, DIRECTIONS, hint } from './input.js';
+import { A, B, X, Y, LB, RB, START, BACK, UP, DOWN, LEFT, RIGHT, DIRECTIONS, hint } from './input.js';
 import { Scrubber, seekJump, fmtTime, resumeDecision, storyboardFrame, parseHelixDuration, matchArchive, rewindGeometry, rewindTarget } from './seek.js';
 import { SeekBar } from './seekbar.js';
 import { TwitchChatFrame } from './twitch-chat.js';
@@ -963,6 +963,12 @@ export class Player {
     this.chatOn = !this.chatOn;
     this.applyLayout();
     if (this.overlayVisible()) this.renderOverlay();
+  }
+
+  /** True when the message box is on screen and usable: live, Lurkbox chat showing, signed in. */
+  composerReachable() {
+    return !!(this.current && this.current.kind === 'live' && this.chatOn && state.settings.chatStyle !== 'twitch'
+      && sendAuthState(state.auth) === 'ok' && this.composer.node.isConnected && !this.composer.node.hidden);
   }
 
   /** "Send a message": chat on, focus the composer and open a keyboard (Lurkbox chat style, live, signed in). */
@@ -2102,10 +2108,18 @@ export class Player {
         else this.showOverlay();
         return true;
       }
-      case LEFT:
-      case RIGHT:
-        this.showOverlay(); // (on videos, left/right scrub instead: handleSeek)
+      case BACK: // View/Select: straight into the message box with the keyboard, without opening the controls
+        this.openComposer();
         return true;
+      case LEFT:
+      case RIGHT: {
+        // Toward a visible Lurkbox chat: step into its message box (A then opens the keyboard). Otherwise show the controls.
+        // (On videos, left/right scrub instead: handleSeek.)
+        const towardChat = action === (this.screen.classList.contains('chat-left') ? LEFT : RIGHT);
+        if (towardChat && this.composerReachable()) { this.composer.focus({ keyboard: false }); return true; }
+        this.showOverlay();
+        return true;
+      }
       default:
         return true;
     }

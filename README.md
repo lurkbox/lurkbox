@@ -206,7 +206,7 @@ Settings → Appearance → **Match Steam library artwork to theme** (off by def
 | Channel page tabs | LB / RB | Q / E | the tabs |
 | Sort the list (Following, Browse, a category, a channel's videos, Search) | Y | C | the sort chip |
 | Chat | Y | C | chat icon |
-| Send a message | Send a message (overlay), then A types and Send sends | type, Enter sends | click the box |
+| Send a message | View/Select (straight in, with the keyboard), or D-pad toward the chat then A, or Send a message in the overlay; Send sends | type, Enter sends | click the box |
 | Leave the chat box | B | Esc | |
 | Emote picker, quick chat (in the chat box) | X, Y | | smiley, lightning buttons |
 | In quick chat: send, edit, add | A, Y, X | Enter | click |
