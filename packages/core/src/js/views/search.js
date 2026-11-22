@@ -181,10 +181,10 @@ export function searchView() {
         el('header', { class: 'view-header' }, el('h1', {}, 'Search')),
         el('div', { class: 'search-bar' },
           input,
-          button('Keyboard', () => openKeyboard({ title: 'Search', value: input.value, onDone: (v) => { input.value = v; run(); } })),
+          button('Keyboard', () => openKeyboard({ title: 'Search', value: input.value, onDone: (v) => { input.value = v; run(); } }), { class: 'osk-btn' }),
           button('Search', run, { class: 'primary' }),
           watchBtn),
-        el('p', {}, hint('{A} on the text box opens the keyboard. Steam + X opens the Steam keyboard. A physical keyboard types directly.')),
+        el('p', { class: 'osk-note' }, hint('{A} on the text box opens the keyboard. Steam + X opens the Steam keyboard. A physical keyboard types directly.')),
         results);
       run(); // the last query's results, or the recent searches
     },

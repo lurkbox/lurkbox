@@ -115,7 +115,7 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
 
   return {
     // ---- app and window ----
-    appInfo: async () => ({ windowed: false, gamescope: false, startChannel: null, startVod: null, version, defaults: DEFAULT_SETTINGS }),
+    appInfo: async () => ({ windowed: false, gamescope: false, startChannel: null, startVod: null, version, touch: true, defaults: DEFAULT_SETTINGS }),
     quit: async () => { if (app && app.exitApp) await app.exitApp(); },
     onWindowFocus: on('focus'),
     log,

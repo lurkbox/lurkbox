@@ -27,6 +27,7 @@ import { searchView } from './views/search.js';
 import { dropsView } from './views/drops.js';
 import { settingsView } from './views/settings.js';
 import { channelView } from './views/channel.js';
+import { installLayout, applyLayout, isTouchLayout, gamepadConnected } from './layout.js';
 
 const TOP = {
   following: followingView,
@@ -41,6 +42,7 @@ const TOP_ORDER = Object.keys(TOP).filter((id) => id !== 'drops' || !window.lurk
 
 const appEl = document.getElementById('app');
 const rail = document.getElementById('rail');
+const appbar = document.getElementById('appbar'); // phone layout: brand, section title, account
 const content = document.getElementById('content');
 
 /** Stack of { view, host, focus } for the current top-level section. */
@@ -97,7 +99,12 @@ function mount(view) {
 }
 
 function markRail() {
-  for (const b of rail.querySelectorAll('[data-view]')) b.classList.toggle('current', b.dataset.view === currentTop);
+  for (const b of rail.querySelectorAll('[data-view]')) {
+    b.classList.toggle('current', b.dataset.view === currentTop);
+    if (b.dataset.view !== 'account') b.setAttribute('aria-current', b.dataset.view === currentTop ? 'page' : 'false');
+  }
+  const t = appbar.querySelector('.appbar-title');
+  if (t) t.textContent = LABELS[currentTop] || 'Lurkbox';
 }
 
 const pollers = new Set();
@@ -280,7 +287,8 @@ function dispatch(action, source) {
       return;
     }
     case B: {
-      const what = resolveBack({ stackDepth: stack.length, inRail, currentTop });
+      // Touch layouts have no focus to move to the rail: Back goes straight home, then asks to exit.
+      const what = resolveBack({ stackDepth: stack.length, inRail: inRail || isTouchLayout(), currentTop });
       if (what === 'pop') nav.pop();
       else if (what === 'to-rail') { if (inContent) lastContentFocus = active; focusEl(railButton(currentTop)); }
       else if (what === 'home') nav.goTop('following', { focusContent: false });
@@ -365,6 +373,10 @@ function buildRail() {
     el('span', { class: 'rail-icon', html: `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[id]}</svg>` }),
     el('span', { class: 'rail-label' }, LABELS[id])))),
     el('div', { class: 'rail-user' }));
+  appbar.replaceChildren(
+    mascotEl('brand-mark'),
+    el('h1', { class: 'appbar-title' }, LABELS[currentTop] || 'Lurkbox'),
+    el('button', { class: 'appbar-account focusable', type: 'button', 'aria-label': 'Account', onclick: () => accountMenu(nav) }));
   updateRailUser();
 }
 
@@ -376,6 +388,8 @@ function updateRailUser() {
   const me = state.auth.accounts && state.auth.accounts.find((a) => a.id === state.auth.active);
   b.hidden = !(state.auth.accounts && state.auth.accounts.length);
   b.replaceChildren(avatar(me), el('span', { class: 'rail-label' }, me ? (me.display_name || me.login) : 'Sign in'));
+  const ab = appbar.querySelector('.appbar-account');
+  if (ab) { ab.hidden = b.hidden; ab.replaceChildren(avatar(me)); }
 }
 
 // ---------- startup ----------
@@ -405,6 +419,7 @@ async function start() {
   if (state.info.demo) (await import('./demo/install.js')).installDemo(window, state.info.demo);
   applyTheme(state.settings.theme);
   applyDisplay();
+  installLayout(); // TV, tablet or phone (Settings → Layout; Auto is TV on the desktop)
   window.addEventListener('resize', applyDisplay); // the Twitch chat panel width depends on the window width
   document.body.classList.toggle('windowed', !!state.info.windowed);
   const watcher = new RaidWatcher();
@@ -412,6 +427,9 @@ async function start() {
   window.__lurkbox = { nav, player, watcher, state, dispatch }; // for debugging from DevTools
 
   input = new Input(dispatch);
+  // The touch layouts start (and switch) in touch mode: no focus ring until a key or D-pad is pressed.
+  if (isTouchLayout()) input.mode.set('touch');
+  window.addEventListener('layoutchange', (e) => { if (e.detail !== 'tv' && input.mode.mode === 'pad' && !gamepadConnected()) input.mode.set('touch'); });
   input.onRelease = (a) => { if (player.active && !hasModal()) player.release(a); };
   installMarquee();
   input.allowUnfocused = !!state.settings.inputWhenUnfocused;
@@ -444,6 +462,7 @@ async function start() {
   onState((what) => {
     if (input) input.allowUnfocused = !!state.settings.inputWhenUnfocused;
     applyDisplay();
+    applyLayout();
     updateRailUser();
     if (what === 'account') {
       player.watcher.kick(); // move the raid subscription to the new account

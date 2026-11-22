@@ -188,7 +188,7 @@ export function keyAction(key, typing, shift = false) {
 /** Which kind of input was used last; drives cursor hiding and button glyphs. */
 export class InputMode {
   constructor(onChange = () => {}) {
-    this.mode = 'pad'; // 'pad' | 'keyboard' | 'mouse'
+    this.mode = 'pad'; // 'pad' | 'keyboard' | 'mouse' | 'touch'
     this.padType = 'steam';
     this.onChange = onChange;
   }

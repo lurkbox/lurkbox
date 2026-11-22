@@ -54,7 +54,17 @@ const SETUP = {
   theme: { settings: { theme: THEME, customTheme: CUSTOM } },
   'whos-watching': { settings: { profilePicker: 'ask' } },
   signin: { env: { LURKBOX_DEMO_SIGNED_OUT: '1' } },
+  // The touch layouts (Android phones and tablets): a touchscreen (Chromium's touch emulation, LURKBOX_DEMO_TOUCH),
+  // no controller, driven by taps and swipes.
+  'phone-following': { touch: true, env: { LURKBOX_DEMO_SIZE: '412x915' } },
+  'phone-channel': { touch: true, env: { LURKBOX_DEMO_SIZE: '412x915' } },
+  'phone-player': { touch: true, env: { LURKBOX_DEMO_SIZE: '412x915' } },
+  'phone-landscape': { touch: true, settings: { chatDefault: true }, env: { LURKBOX_DEMO_SIZE: '915x412' } },
+  'tablet-following': { touch: true, env: { LURKBOX_DEMO_SIZE: '1280x800' } },
+  'tablet-player': { touch: true, settings: { chatDefault: true }, env: { LURKBOX_DEMO_SIZE: '1280x800' } },
 };
+const TOUCH = !!SETUP[SCENE].touch;
+if (TOUCH) SETUP[SCENE].env.LURKBOX_DEMO_TOUCH = '1';
 if (!SETUP[SCENE]) { console.error(`[shot] unknown scene ${SCENE}; one of ${Object.keys(SETUP).join(', ')}`); process.exit(2); }
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'lurkbox-shot-'));
@@ -91,7 +101,8 @@ const PAGE_HELPERS = `(() => {
   // A virtual standard-mapping gamepad: presses go through Lurkbox's real gamepad polling (and its Xbox glyphs).
   const BUTTON = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
   const pad = { id: 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)', index: 0, connected: true, mapping: 'standard', timestamp: 1, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })), vibrationActuator: null };
-  Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => [pad, null, null, null] });
+  // Touch scenes have no controller (a connected pad would pick the TV layout).
+  if (!window.__shotTouch) Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => [pad, null, null, null] });
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   window.__shot = {
     async press(a) {
@@ -133,6 +144,40 @@ app.on('browser-window-created', (_e, win) => {
     }
   };
   const press = async (...actions) => { for (const a of actions) await js(`__shot.press(${JSON.stringify(a)})`); };
+  // Touch: real touch events through the DevTools protocol (taps become clicks, pointerType 'touch').
+  const cdp = (method, params = {}) => wc.debugger.sendCommand(method, params);
+  const touchAt = async (points) => { for (const [type, x, y] of points) { await cdp('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] }); await sleep(16); } };
+  const centre = async (sel) => {
+    const r = await js(`(() => { const n = [...document.querySelectorAll(${JSON.stringify(sel)})].find((x) => __shot.visible(x)); if (!n) return null; n.scrollIntoView({ block: 'nearest' }); const b = n.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; })()`);
+    if (!r) throw new Error(`nothing to tap: ${sel}`);
+    return r;
+  };
+  const tap = async (sel, { hold = 60 } = {}) => {
+    const [x, y] = await centre(sel);
+    await cdp('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    await sleep(hold);
+    await cdp('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await sleep(250);
+  };
+  const tapXY = async (x, y) => { await touchAt([['touchStart', x, y], ['touchEnd', x, y]]); };
+  /** A finger moving from (x0, y0) to (x1, y1) in `steps` moves over about `ms`. */
+  const swipe = async (x0, y0, x1, y1, { steps = 8, ms = 160 } = {}) => {
+    await cdp('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0 }] });
+    for (let i = 1; i <= steps; i++) {
+      await sleep(ms / steps);
+      await cdp('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0 + ((x1 - x0) * i) / steps, y: y0 + ((y1 - y0) * i) / steps }] });
+    }
+    await cdp('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await sleep(300);
+  };
+  const layoutIs = (mode) => waitFor(`the ${mode} layout`, `document.body.classList.contains('layout-${mode}')`, 10000);
+  /** Following → the first live card, by tap. */
+  const tapFirstLive = async () => {
+    await following();
+    await tap('[data-view=following] .grid .card');
+    await waitFor('the player', "!document.getElementById('player-screen').hidden");
+    await playing();
+  };
   /** Fonts, images, no spinner, two frames; then a capture. */
   const settle = async ({ noSpinner = true } = {}) => {
     await js('document.fonts.ready.then(() => true)');
@@ -446,6 +491,72 @@ app.on('browser-window-created', (_e, win) => {
       await settle();
       await shoot('whos-watching');
     },
+    async 'phone-following'() {
+      await layoutIs('phone');
+      await following();
+      await waitFor('offline channels', "document.querySelectorAll('[data-view=following] .grid-offline .card').length >= 4");
+      if (await js("!!document.querySelector('#rail .brand') && __shot.visible(document.querySelector('#rail .brand'))")) throw new Error('the rail brand shows on the phone');
+      await settle();
+      await shoot('phone-following');
+    },
+    async 'phone-channel'() {
+      // A long-press on a live card opens its channel page; a left swipe goes to the next tab.
+      await layoutIs('phone');
+      await following();
+      await tap('[data-view=following] .grid .card', { hold: 750 });
+      await waitFor('the channel page', "!!document.querySelector('.channel-tabs .channel-tab.selected')");
+      if (!(await js("document.getElementById('player-screen').hidden"))) throw new Error('the long-press also played the stream');
+      await waitFor('the home tab', "document.querySelectorAll('.channel-body .card').length >= 3");
+      const tab = () => js("document.querySelector('.channel-body').dataset.tab");
+      const before = await tab();
+      await swipe(330, 600, 90, 610);
+      await waitFor('the next tab', `document.querySelector('.channel-body').dataset.tab !== ${JSON.stringify(before)}`, 5000);
+      await swipe(90, 600, 330, 610);
+      await waitFor('back to the first tab', `document.querySelector('.channel-body').dataset.tab === ${JSON.stringify(before)}`, 5000);
+      await js("document.getElementById('content').scrollTop = 0; true");
+      await settle();
+      await shoot('phone-channel');
+    },
+    async 'phone-player'() {
+      await layoutIs('phone');
+      await tapFirstLive();
+      await chatReady();
+      await js('window.__lurkboxDemo.pauseChat(); true');
+      await sleep(1500);
+      await chatToEnd();
+      await tapXY(206, 110); // a tap on the video shows the controls
+      await waitFor('the overlay', "!document.getElementById('player-overlay').hidden");
+      await settle();
+      await shoot('phone-player');
+    },
+    async 'phone-landscape'() {
+      await layoutIs('phone');
+      await tapFirstLive();
+      await chatReady();
+      await js('window.__lurkboxDemo.pauseChat(); true');
+      await sleep(1500);
+      await chatToEnd();
+      await settle();
+      await shoot('phone-landscape');
+    },
+    async 'tablet-following'() {
+      await layoutIs('tablet');
+      await following();
+      await settle();
+      await shoot('tablet-following');
+    },
+    async 'tablet-player'() {
+      await layoutIs('tablet');
+      await tapFirstLive();
+      await chatReady();
+      await js('window.__lurkboxDemo.pauseChat(); true');
+      await sleep(1500);
+      await chatToEnd();
+      await tapXY(400, 300);
+      await waitFor('the overlay', "!document.getElementById('player-overlay').hidden");
+      await settle();
+      await shoot('tablet-player');
+    },
     async signin() {
       await waitFor('welcome', "!!__shot.byText('button', 'Sign in with your phone instead')");
       await js("__shot.byText('button', 'Sign in with your phone instead').click(); true");
@@ -461,6 +572,11 @@ app.on('browser-window-created', (_e, win) => {
     ran = true;
     try {
       await waitFor('the app', "!!(window.__lurkbox && window.__lurkbox.dispatch && window.__lurkboxDemo)");
+      if (TOUCH) {
+        wc.debugger.attach('1.3');
+        await cdp('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+        await js('window.__shotTouch = true');
+      }
       await js(PAGE_HELPERS);
       await sleep(400); // the virtual pad is seen with nothing held before the first press
       await SCENES[SCENE]();

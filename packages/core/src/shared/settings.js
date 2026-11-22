@@ -8,6 +8,7 @@ import { sanitizeSearchHistory } from './search-history.js';
 import { VIDEO_FILTERS, CLIP_PERIODS, validChoice } from './channel-page.js';
 import { sanitizeMyClips } from './my-clips.js';
 import { DEFAULT_QUICK_CHAT, sanitizeQuickChat, sanitizeEmoteRecents } from './quick-chat.js';
+import { validLayoutMode } from './layout-mode.js';
 
 export const THEMES = ['lurkbox', 'game-mode', 'classic-purple', 'oled', 'daylight', 'high-contrast', 'custom'];
 export const CUSTOM_KEYS = ['bg', 'surface', 'accent', 'fg', 'muted'];
@@ -25,6 +26,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   volume: 1, // player volume 0..1
   screenMargin: 0, // percent: 0 | 2.5 | 5 (TV overscan)
   uiScale: 100, // percent, 90..150
+  layoutMode: 'auto', // 'auto' | 'tv' | 'tablet' | 'phone' (./layout-mode.js; Auto is TV on the desktop)
   refreshInterval: 15, // seconds: 10 | 15 | 30 | 60
   followSort: 'recent', // Following → Offline
   liveSort: 'viewers', // Following → Live (shared/sorts.js)
@@ -78,6 +80,7 @@ export function sanitizeSettings(patch) {
   }
   if ('screenMargin' in patch) out.screenMargin = [0, 2.5, 5].includes(Number(patch.screenMargin)) && patch.screenMargin !== 'auto' ? Number(patch.screenMargin) : 0;
   if ('uiScale' in patch) { const n = Math.round(Number(patch.uiScale)); out.uiScale = Number.isFinite(n) ? Math.min(150, Math.max(90, n)) : 100; }
+  if ('layoutMode' in patch) out.layoutMode = validLayoutMode(patch.layoutMode);
   if ('playerEngine' in patch) out.playerEngine = patch.playerEngine === 'embed' ? 'embed' : 'direct';
   if ('refreshInterval' in patch) out.refreshInterval = [10, 15, 30, 60].includes(Number(patch.refreshInterval)) ? Number(patch.refreshInterval) : 15;
   if ('followSort' in patch) out.followSort = ['recent', 'az', 'followed'].includes(patch.followSort) ? patch.followSort : 'recent';
