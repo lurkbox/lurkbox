@@ -1,5 +1,9 @@
 package io.github.lurkbox.Lurkbox;
 
+import android.app.UiModeManager;
+import android.content.Context;
+import android.content.pm.ActivityInfo;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -13,6 +17,8 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(LurkboxNativePlugin.class);
         super.onCreate(savedInstanceState);
+        // Phones and tablets rotate freely (the core has portrait and landscape layouts); a TV stays landscape.
+        if (isTelevision(this)) setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         WebView webView = bridge.getWebView();
         WebSettings settings = webView.getSettings();
         // Streams start with sound when opened from the remote or a controller (no tap on the page).
@@ -23,6 +29,11 @@ public class MainActivity extends BridgeActivity {
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         webView.requestFocus();
+    }
+
+    static boolean isTelevision(Context context) {
+        UiModeManager ui = (UiModeManager) context.getSystemService(Context.UI_MODE_SERVICE);
+        return ui != null && ui.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION;
     }
 
     /** TV remotes send DPAD_CENTER for OK; the page understands Enter (the core's A). Game controllers are left alone. */

@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Android TV / Google TV first: no touchscreen needed, the D-pad remote or a game controller drives it.
-         Phones and tablets keep working (nothing here is required), so touch layouts can come later. -->
+    <!-- One app for Android TV / Google TV, tablets and phones: no touchscreen needed (the D-pad remote or a game
+         controller drives the TV layout), and nothing here is required, so phones and tablets install it too and get
+         the touch layouts. Phones and tablets rotate freely; TVs stay landscape (MainActivity). -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.faketouch" android:required="false" />
@@ -24,6 +25,7 @@
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
             android:screenOrientation="unspecified"
+            android:windowSoftInputMode="adjustResize"
             android:banner="@drawable/banner"
             android:exported="true">
 
