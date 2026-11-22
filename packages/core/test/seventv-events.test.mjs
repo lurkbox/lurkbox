@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SevenTVEvents, paintCss, rgba, badgeFrom7tv, emoteSetChanges, entitlementTwitchIds } from '../src/js/seventv-events.js';
+import { SevenTVEvents, paintCss as paintDecls, paintImageUrl, rgba, badgeFrom7tv, emoteSetChanges, entitlementTwitchIds } from '../src/js/seventv-events.js';
 
 const user = (twitchId) => ({ id: 'STV', connections: [{ platform: 'TWITCH', id: twitchId }, { platform: 'DISCORD', id: 'd' }] });
 const emote = (name, id = name) => ({ id, name, flags: 0, data: { id, name, flags: 0, animated: false, host: { url: `//cdn.7tv.app/emote/${id}`, files: [{ name: '1x.webp', width: 28, height: 28, format: 'WEBP' }, { name: '2x.webp', width: 56, height: 56, format: 'WEBP' }] } } });
@@ -11,6 +11,8 @@ test('rgba: 7TV colours are signed 32-bit RGBA', () => {
   assert.equal(rgba(0xff000080), 'rgba(255, 0, 0, 0.502)');
 });
 
+const paintCss = (p) => { const d = paintDecls(p); return d ? d.map(([k, v]) => `${k}: ${v}`).join('; ') : ''; };
+
 test('paintCss: linear, radial, image and layered paints; nothing drawable gives ""', () => {
   const lin = paintCss({ data: { function: 'LINEAR_GRADIENT', angle: 135, repeat: false, stops: [{ at: 0.2, color: 7357951 }, { at: 0.8, color: -16729089 }], shadows: [{ x_offset: 0, y_offset: 0, radius: 4, color: -16729089 }] } });
   assert.match(lin, /background-image: linear-gradient\(135deg, rgba\(0, 112, 69, 1\.000\) 20%, rgba\(255, 0, 187, 1\.000\) 80%\)/);
@@ -18,9 +20,19 @@ test('paintCss: linear, radial, image and layered paints; nothing drawable gives
   assert.match(lin, /filter: drop-shadow\(0px 0px 4px rgba\(255, 0, 187, 1\.000\)\)/);
   assert.match(paintCss({ data: { function: 'RADIAL_GRADIENT', shape: 'circle', repeat: true, stops: [{ at: 0, color: 255 }, { at: 1, color: 255 }] } }), /repeating-radial-gradient\(circle,/);
   assert.match(paintCss({ data: { function: 'URL', image_url: 'https://cdn.7tv.app/paint/x/1x.webp', stops: [] } }), /url\("https:\/\/cdn\.7tv\.app\/paint\/x\/1x\.webp"\)/);
-  assert.equal(paintCss({ data: { function: 'URL', image_url: 'a"); color: red; ("', stops: [] } }).includes('"); color'), false, 'quotes cannot break out of url()');
-  assert.match(paintCss({ data: { gradients: [{ function: 'LINEAR_GRADIENT', angle: 90, stops: [{ at: 0, color: 255 }, { at: 1, color: 255 }] }, { function: 'URL', image_url: 'u' }] } }), /linear-gradient\(90deg.*\), url\("u"\)/);
+  assert.equal(paintCss({ data: { function: 'URL', image_url: 'a"); color: red; ("', stops: [] } }), '', 'not a URL');
+  assert.match(paintCss({ data: { gradients: [{ function: 'LINEAR_GRADIENT', angle: 90, stops: [{ at: 0, color: 255 }, { at: 1, color: 255 }] }, { function: 'URL', image_url: 'https://cdn.7tv.app/paint/u/1x.webp' }] } }), /linear-gradient\(90deg.*\), url\("https:\/\/cdn\.7tv\.app\/paint\/u\/1x\.webp"\)/);
+  assert.equal(paintDecls({ data: { function: 'URL', image_url: 'https://example.com/x.webp' } }), null);
   assert.equal(paintCss({ data: { function: 'LINEAR_GRADIENT', stops: [] } }), '');
+});
+
+test('paint images: https on 7TV\'s CDN only, escaped as a CSS string', () => {
+  assert.equal(paintImageUrl('https://cdn.7tv.app/paint/x/1x.webp'), 'url("https://cdn.7tv.app/paint/x/1x.webp")');
+  for (const bad of ['http://cdn.7tv.app/x.webp', 'https://cdn.7tv.app.evil.com/x', 'https://evil.com/x', 'https://u:p@cdn.7tv.app/x', 'https://cdn.7tv.app:8443/x', 'javascript:alert(1)', 'data:image/png;base64,AA', '', null]) assert.equal(paintImageUrl(bad), '', String(bad));
+  const tricky = paintImageUrl('https://cdn.7tv.app/a?q=\\"); color: red; x:("');
+  assert.ok(tricky.startsWith('url("https://cdn.7tv.app/'), tricky);
+  assert.ok(!/[^\\]"\)/.test(tricky.slice(5, -2)), `no unescaped quote: ${tricky}`);
+  assert.ok(!tricky.slice(5, -2).includes('"'), tricky);
 });
 
 test('helpers: badges, entitlement ids, emote set changes', () => {

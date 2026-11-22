@@ -1,0 +1,17 @@
+{
+  "7tv": {
+    "version": "3.1.6",
+    "url": "https://github.com/SevenTV/Extension/releases/download/v3.1.6/7tv-webextension-mv3.zip",
+    "sha256": "a117dd42f3aa5b1ca65347f900b3e585f93f01ce8a7617294706c628279cad71"
+  },
+  "ffz": {
+    "version": "4.82.0.31",
+    "url": "https://github.com/FrankerFaceZ/Extension/releases/download/chrome-stable/4.82.0.31/frankerfacez-extension-4.82.0.31.zip",
+    "sha256": "ef26172fb51ed6406787b93b9c1283da0bd506ba5c5ecf2a53e03a994072af57"
+  },
+  "bttv": {
+    "version": "7.7.33",
+    "url": "https://github.com/night/betterttv/releases/download/7.7.33/betterttv.tar.gz",
+    "sha256": "376e920b0ec2653ab2ef8235dc9a19985c4fe0e5a8f070ae764f2b15ab37c6b5"
+  }
+}

@@ -57,10 +57,13 @@ let paintSheet = null;
 const paintRules = new Set();
 const safeId = (id) => String(id).replace(/[^A-Za-z0-9]/g, '');
 
-/** Adds the CSS rule for a 7TV paint once (one shared stylesheet; nothing per message). */
-export function ensurePaintRule(id, css) {
+/**
+ * Adds the CSS rule for a 7TV paint once (one shared stylesheet; nothing per message). decls: [property, value] pairs
+ * (seventv-events.js paintCss), set through the CSSOM so a value can only ever be that one property's value.
+ */
+export function ensurePaintRule(id, decls) {
   const sid = safeId(id);
-  if (!sid || !css || paintRules.has(sid)) return sid;
+  if (!sid || !Array.isArray(decls) || !decls.length || paintRules.has(sid)) return sid;
   if (!paintSheet) {
     const style = document.createElement('style');
     style.id = 'chat-paints';
@@ -68,7 +71,8 @@ export function ensurePaintRule(id, css) {
     paintSheet = style.sheet;
   }
   try {
-    paintSheet.insertRule(`.chat-nick.paint[data-paint="${sid}"] { ${css} }`, paintSheet.cssRules.length);
+    const rule = paintSheet.cssRules[paintSheet.insertRule(`.chat-nick.paint[data-paint="${sid}"] {}`, paintSheet.cssRules.length)];
+    for (const [prop, value] of decls) rule.style.setProperty(prop, value);
     paintRules.add(sid);
   } catch { /* the browser rejected it: the plain colour stays */ }
   return sid;
