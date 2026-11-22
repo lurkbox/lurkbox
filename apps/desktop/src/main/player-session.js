@@ -139,6 +139,25 @@ function keepTwitchCookiesThirdParty(cookies, log = () => {}) {
   };
 }
 
+/** Pages the in-app twitch.tv window may show: twitch.tv's own sign-in, activation and site pages. */
+const TWITCH_WINDOW_URL = /^https:\/\/((www|id|passport|m)\.)?twitch\.tv(\/|$)/;
+/** Pages the hidden twitch.tv windows (Drops auto-claim, follow) may show. */
+const TWITCH_SITE_URL = /^https:\/\/(www\.)?twitch\.tv\//;
+
+/**
+ * Keeps a window on the allowed pages: a navigation or a redirect of its top frame anywhere else is cancelled.
+ * Sub-frames (a captcha, the player) are left alone.
+ */
+function restrictNavigation(wc, allowed, log = () => {}) {
+  const guard = (e, url) => {
+    if (allowed.test(String(url || ''))) return;
+    e.preventDefault();
+    log(`[window] blocked navigation to ${String(url || '').split(/[?#]/)[0].slice(0, 120)}`);
+  };
+  wc.on('will-navigate', (e, url) => guard(e, e.url || url));
+  wc.on('will-redirect', (e, url) => { if (e.isMainFrame !== false) guard(e, e.url || url); });
+}
+
 const CHROME_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
 
 /**
@@ -151,7 +170,7 @@ function loginZoom(screenHeight, uiScale = 100) {
 }
 
 /** The in-app twitch.tv window (TV zoom, controller → keyboard preload, popups kept inside). */
-function createLoginWindow({ BrowserWindow, parent, session, fullscreen, preload, zoom = 1, title = 'Sign in to Twitch' }) {
+function createLoginWindow({ BrowserWindow, parent, session, fullscreen, preload, zoom = 1, title = 'Sign in to Twitch', log }) {
   const win = new BrowserWindow({
     parent,
     modal: true,
@@ -164,6 +183,7 @@ function createLoginWindow({ BrowserWindow, parent, session, fullscreen, preload
     webPreferences: { session, preload, contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
   win.webContents.setUserAgent(CHROME_UA);
+  restrictNavigation(win.webContents, TWITCH_WINDOW_URL, log);
   // twitch.tv is laid out for a desktop monitor; scale it up so it's readable from the couch.
   const applyZoom = () => { if (!win.isDestroyed()) win.webContents.setZoomFactor(zoom); };
   win.webContents.on('did-finish-load', applyZoom);
@@ -181,7 +201,7 @@ function createLoginWindow({ BrowserWindow, parent, session, fullscreen, preload
   win.webContents.on('did-navigate-in-page', applyZoom);
   win.webContents.setWindowOpenHandler(({ url }) => {
     // Keep popups (e.g. "Log in with ...") inside this window.
-    if (/^https:\/\/([a-z0-9-]+\.)*twitch\.tv\//.test(url)) win.loadURL(url);
+    if (TWITCH_WINDOW_URL.test(url)) win.loadURL(url);
     return { action: 'deny' };
   });
   return win;
@@ -189,7 +209,7 @@ function createLoginWindow({ BrowserWindow, parent, session, fullscreen, preload
 
 function openPlayerLogin({ BrowserWindow, parent, session, fullscreen, preload, log, zoom = 1 }) {
   return new Promise((resolve) => {
-    const win = createLoginWindow({ BrowserWindow, parent, session, fullscreen, preload, zoom, title: 'Sign in to the player' });
+    const win = createLoginWindow({ BrowserWindow, parent, session, fullscreen, preload, zoom, log, title: 'Sign in to the player' });
     let done = false;
     const finish = async (ok) => {
       if (done) return;
@@ -211,4 +231,4 @@ function openPlayerLogin({ BrowserWindow, parent, session, fullscreen, preload, 
   });
 }
 
-module.exports = { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, isTwitchCookie, keepTwitchCookiesThirdParty, CHROME_UA };
+module.exports = { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, isTwitchCookie, keepTwitchCookiesThirdParty, restrictNavigation, TWITCH_WINDOW_URL, TWITCH_SITE_URL, CHROME_UA };

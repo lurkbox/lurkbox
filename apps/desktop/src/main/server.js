@@ -46,12 +46,13 @@ function handler(root, extra = {}) {
     }
     fs.readFile(file, (err, data) => {
       if (err) {
-        res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
+        res.writeHead(404, { 'Content-Type': 'text/plain', 'X-Content-Type-Options': 'nosniff' }).end('Not found');
         return;
       }
       res.writeHead(200, {
         'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
         'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
       });
       res.end(req.method === 'HEAD' ? undefined : data);
     });

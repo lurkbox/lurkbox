@@ -26,7 +26,7 @@ function get(rawPath, host = `localhost:${srv.port}`) {
     const req = http.request({ host: '127.0.0.1', port: srv.port, path: rawPath, headers: { Host: host } }, (res) => {
       let body = '';
       res.on('data', (d) => { body += d; });
-      res.on('end', () => resolve({ status: res.statusCode, body, type: res.headers['content-type'] }));
+      res.on('end', () => resolve({ status: res.statusCode, body, type: res.headers['content-type'], nosniff: res.headers['x-content-type-options'] }));
     });
     req.on('error', reject);
     req.end();
@@ -39,6 +39,8 @@ test('serves index.html on localhost', async () => {
   assert.equal(r.status, 200);
   assert.equal(r.body, '<h1>ok</h1>');
   assert.match(r.type, /text\/html/);
+  assert.equal(r.nosniff, 'nosniff');
+  assert.equal((await get('/missing.js')).nosniff, 'nosniff');
 });
 
 test('blocks path traversal', async () => {

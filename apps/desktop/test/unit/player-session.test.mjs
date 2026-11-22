@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { tmpDir } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
-const { CookieJar, playerStatus, mismatchWarning, keepTwitchCookiesThirdParty } = require('../../src/main/player-session.js');
+const { CookieJar, playerStatus, mismatchWarning, keepTwitchCookiesThirdParty, restrictNavigation, TWITCH_WINDOW_URL, TWITCH_SITE_URL } = require('../../src/main/player-session.js');
 
 /** In-memory stand-in for Electron's session.cookies. */
 function fakeCookies(initial = []) {
@@ -130,4 +130,22 @@ test('keepTwitchCookiesThirdParty: twitch.tv cookies that are not SameSite=None 
   assert.ok(!log.join().includes('secret'));
   k.stop();
   assert.equal(listeners.length, 0);
+});
+
+test('the twitch.tv windows stay on twitch.tv sign-in and site pages', () => {
+  for (const ok of ['https://www.twitch.tv/login', 'https://www.twitch.tv/activate?device-code=X', 'https://id.twitch.tv/oauth2/authorize', 'https://passport.twitch.tv/x', 'https://m.twitch.tv/', 'https://twitch.tv/']) assert.ok(TWITCH_WINDOW_URL.test(ok), ok);
+  for (const no of ['http://www.twitch.tv/login', 'https://www.twitch.tv.evil.com/', 'https://evil.com/?https://www.twitch.tv/', 'https://clips.twitch.tv/x', 'https://gql.twitch.tv/', 'https://example.com/', 'file:///etc/passwd', 'javascript:alert(1)']) assert.ok(!TWITCH_WINDOW_URL.test(no), no);
+  assert.ok(TWITCH_SITE_URL.test('https://www.twitch.tv/drops/inventory'));
+  assert.ok(!TWITCH_SITE_URL.test('https://id.twitch.tv/'));
+
+  const handlers = {};
+  const wc = { on: (ev, fn) => { handlers[ev] = fn; } };
+  const logs = [];
+  restrictNavigation(wc, TWITCH_WINDOW_URL, (l) => logs.push(l));
+  const ev = (url, extra = {}) => { const e = { url, ...extra, prevented: false, preventDefault() { this.prevented = true; } }; return e; };
+  let e = ev('https://www.twitch.tv/'); handlers['will-navigate'](e, e.url); assert.equal(e.prevented, false);
+  e = ev('https://evil.example.com/x?token=1'); handlers['will-navigate'](e, e.url); assert.equal(e.prevented, true);
+  e = ev('https://evil.example.com/', { isMainFrame: true }); handlers['will-redirect'](e, e.url); assert.equal(e.prevented, true);
+  e = ev('https://captcha.example.com/', { isMainFrame: false }); handlers['will-redirect'](e, e.url); assert.equal(e.prevented, false);
+  assert.ok(logs.every((l) => !l.includes('token=')), 'no query strings in the log');
 });

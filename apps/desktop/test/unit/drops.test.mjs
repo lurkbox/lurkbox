@@ -217,3 +217,18 @@ test('the Drops frame never takes DOM focus, and re-preparing it keeps a running
   await host.close();
   assert.equal(host.engaged, false);
 });
+
+test('framing is only allowed for the Drops frame directly in Lurkbox\'s page', () => {
+  const page = 'http://localhost:4321/';
+  const top = { url: `${page}index.html`, parent: null };
+  const opts = { webContentsId: 7, pageUrl: page };
+  const d = (frame, extra = {}) => ({ resourceType: 'subFrame', webContentsId: 7, frame, ...extra });
+  assert.equal(D.isAppDropsFrame(d({ url: 'about:blank', parent: top }), opts), true);
+  // nested inside another frame
+  assert.equal(D.isAppDropsFrame(d({ url: 'about:blank', parent: { url: 'https://www.twitch.tv/embed/x/chat', parent: top } }), opts), false);
+  // another window, not a frame, no frame info, a foreign top page
+  assert.equal(D.isAppDropsFrame(d({ parent: top }, { webContentsId: 8 }), opts), false);
+  assert.equal(D.isAppDropsFrame(d({ parent: top }, { resourceType: 'mainFrame' }), opts), false);
+  assert.equal(D.isAppDropsFrame(d(null), opts), false);
+  assert.equal(D.isAppDropsFrame(d({ parent: { url: 'https://example.com/', parent: null } }), opts), false);
+});
