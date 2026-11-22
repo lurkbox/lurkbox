@@ -65,7 +65,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   emoteRecents: Object.freeze({}), // the emote picker's Recent tab, per account: { <user id>: [names] }
   // Chat layout (chat pop-over in the player and Settings → Chat; see ./chat-layout.js): chatTextSize, twitchChatSize
   // (Twitch chat style: zoom inside Twitch's chat frame, 'auto' = the TV rule, or 75..250 percent), chatWidth,
-  // chatSide, chatBgOpacity, chatOverlay, chatOverlayOpacity.
+  // chatSide, chatHeight (30..100 percent of the player), chatVPos (top/bottom), chatBgOpacity, chatOverlay, chatOverlayOpacity.
   ...CHAT_LAYOUT_DEFAULTS,
   steamArtSync: false, // recolour the Steam library art on theme changes (Settings → Appearance)
   customTheme: null, // { base, colors: { bg, surface, accent, fg, muted } }

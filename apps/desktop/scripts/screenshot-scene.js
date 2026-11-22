@@ -25,7 +25,7 @@ const SETUP = {
   player: {},
   'player-popover': {},
   'player-chat': { settings: { chatDefault: true } },
-  'player-chat-overlay': { settings: { chatDefault: true, chatOverlay: true, chatOverlayOpacity: 45 } },
+  'player-chat-overlay': { settings: { chatDefault: true, chatOverlay: true, chatOverlayOpacity: 45, chatHeight: 65, chatVPos: 'bottom' } },
   'player-rewind': {},
   // Chat sending: the composer, the emote picker and quick chat (with phrases saved for the demo channel).
   'chat-composer': { settings: { chatDefault: true } },

@@ -1,4 +1,4 @@
-// Live chat layout: text size, panel width, side, background opacity and the "over the video" mode. Pure maths,
+// Live chat layout: text size, panel width, side, height and position, background opacity and the "over the video" mode. Pure maths,
 // shared by the player (chat pop-over), Settings → Chat and the settings schema. ES module.
 import { TWITCH_CHAT_LAYOUT_PX, twitchChatPanelWidth } from './tv-zoom.js';
 
@@ -8,6 +8,8 @@ export const CHAT_LAYOUT_DEFAULTS = Object.freeze({
   twitchChatSize: 'auto', // Twitch chat style: zoom inside Twitch's chat frame, 'auto' or percent (75..250)
   chatWidth: 'auto', // side panel width: 'auto' (26rem, or the Twitch chat rule) or percent of the window (20..50)
   chatSide: 'right', // 'right' | 'left'
+  chatHeight: 100, // percent of the player height (30..100); 100 is the whole height
+  chatVPos: 'bottom', // 'top' | 'bottom': where a shorter chat sits (only used under 100%)
   chatBgOpacity: 100, // side panel background, percent (0..100)
   chatOverlay: false, // Lurkbox chat over the video instead of beside it
   chatOverlayOpacity: 55, // background of the chat over the video, percent (0..100)
@@ -15,6 +17,7 @@ export const CHAT_LAYOUT_DEFAULTS = Object.freeze({
 
 export const TEXT_SIZE = Object.freeze({ min: 75, max: 250, step: 5 });
 export const WIDTH = Object.freeze({ min: 20, max: 50, step: 1 });
+export const HEIGHT = Object.freeze({ min: 30, max: 100, step: 5 });
 export const OPACITY = Object.freeze({ min: 0, max: 100, step: 5 });
 /** In side mode the panel never takes more than half the window, so the video keeps at least the other half. */
 export const MAX_SHARE = 0.5;
@@ -46,6 +49,8 @@ export function sanitizeChatLayout(patch) {
   }
   if ('chatWidth' in patch) out.chatWidth = patch.chatWidth === 'auto' ? 'auto' : (snap(patch.chatWidth, WIDTH) ?? 'auto');
   if ('chatSide' in patch) out.chatSide = patch.chatSide === 'left' ? 'left' : 'right';
+  if ('chatHeight' in patch) out.chatHeight = snap(patch.chatHeight, HEIGHT) ?? CHAT_LAYOUT_DEFAULTS.chatHeight;
+  if ('chatVPos' in patch) out.chatVPos = patch.chatVPos === 'top' ? 'top' : 'bottom';
   if ('chatBgOpacity' in patch) out.chatBgOpacity = snap(patch.chatBgOpacity, OPACITY) ?? CHAT_LAYOUT_DEFAULTS.chatBgOpacity;
   if ('chatOverlay' in patch) out.chatOverlay = !!patch.chatOverlay;
   if ('chatOverlayOpacity' in patch) out.chatOverlayOpacity = snap(patch.chatOverlayOpacity, OPACITY) ?? CHAT_LAYOUT_DEFAULTS.chatOverlayOpacity;
@@ -90,6 +95,30 @@ export function chatPanelWidth({ style = 'lurkbox', chatWidth = 'auto', windowWi
   const min = style === 'twitch' ? Math.max(MIN_PANEL_PX, Math.round(TWITCH_MIN_LAYOUT_PX * z)) : MIN_PANEL_PX;
   px = Math.max(px, min);
   return Math.min(px, cap);
+}
+
+/**
+ * Whether the height and position apply in this layout: not on a phone, and not in portrait on a touch layout (the
+ * chat fills the space under the video there). mode: 'tv' | 'tablet' | 'phone'.
+ */
+export function chatHeightApplies({ mode = 'tv', touch = false, portrait = false } = {}) {
+  return mode !== 'phone' && !(touch && portrait);
+}
+
+/**
+ * The chat's box on the player screen, in px: { full, height, top, bottom } (top/bottom null = not anchored there).
+ * full (100%, or a layout that ignores the height): the whole height, as before. Otherwise chatHeight percent of
+ * screenHeight, anchored at chatVPos. Over the video with the control bar open, a bottom chat lifts above the bar
+ * (barPx) and gets shorter if it no longer fits. Beside the video the bar is on the video, so nothing moves.
+ */
+export function chatBox({ chatHeight = 100, chatVPos = 'bottom', screenHeight, over = false, overlayOpen = false, barPx = 0, applies = true }) {
+  const H = Math.max(0, Number(screenHeight) || 0);
+  const pct = snap(chatHeight, HEIGHT) ?? HEIGHT.max;
+  if (!applies || pct >= HEIGHT.max) return { full: true, height: H, top: 0, bottom: 0 };
+  const h = Math.round(H * pct / 100);
+  if (chatVPos === 'top') return { full: false, height: h, top: 0, bottom: null };
+  const lift = over && overlayOpen ? clampNum(Math.round(Number(barPx) || 0), 0, Math.max(0, H - Math.round(H * HEIGHT.min / 100))) : 0;
+  return { full: false, height: Math.min(h, H - lift), top: null, bottom: lift };
 }
 
 /** The width as a share of the window, for the slider when the setting is Auto. */

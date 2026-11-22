@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chatLayout, chatPanelWidth, chatOverActive, sanitizeChatLayout, widthPercent, twitchLayoutPx, CHAT_LAYOUT_DEFAULTS, MIN_PANEL_PX,
+  chatBox, chatHeightApplies,
 } from '../src/shared/chat-layout.js';
 import { DEFAULT_SETTINGS, sanitizeSettings } from '../src/shared/settings.js';
 import { twitchChatZoom, twitchChatPanelWidth } from '../src/shared/tv-zoom.js';
@@ -114,4 +115,73 @@ test('reset chat layout puts every layout key back, and nothing else', () => {
   assert.deepEqual(Object.keys(patch).sort(), Object.keys(CHAT_LAYOUT_DEFAULTS).sort());
   assert.deepEqual(sanitizeSettings(patch), patch);
   assert.ok(!('chatStyle' in patch));
+});
+
+test('chat height: defaults keep the whole height; the setting snaps to 5, clamps to 30..100, junk is 100', () => {
+  assert.equal(DEFAULT_SETTINGS.chatHeight, 100);
+  assert.equal(DEFAULT_SETTINGS.chatVPos, 'bottom');
+  assert.deepEqual(sanitizeChatLayout({ chatHeight: 12 }), { chatHeight: 30 });
+  assert.deepEqual(sanitizeChatLayout({ chatHeight: 140 }), { chatHeight: 100 });
+  assert.deepEqual(sanitizeChatLayout({ chatHeight: '62' }), { chatHeight: 60 });
+  assert.deepEqual(sanitizeChatLayout({ chatHeight: 'tall' }), { chatHeight: 100 });
+  assert.deepEqual(sanitizeChatLayout({ chatHeight: null }), { chatHeight: 100 });
+  assert.deepEqual(sanitizeChatLayout({ chatVPos: 'top' }), { chatVPos: 'top' });
+  assert.deepEqual(sanitizeChatLayout({ chatVPos: 'middle' }), { chatVPos: 'bottom' });
+  assert.deepEqual(sanitizeSettings({ chatHeight: 47, chatVPos: 'top' }), { chatHeight: 45, chatVPos: 'top' });
+  assert.deepEqual(sanitizeSettings({ chatVPos: 7 }), { chatVPos: 'bottom' });
+});
+
+test('chat box: 100% is the whole height (as before); shorter boxes anchor top or bottom', () => {
+  assert.deepEqual(chatBox({ chatHeight: 100, screenHeight: 800 }), { full: true, height: 800, top: 0, bottom: 0 });
+  assert.deepEqual(chatBox({ chatHeight: 'junk', screenHeight: 800 }), { full: true, height: 800, top: 0, bottom: 0 });
+  assert.deepEqual(chatBox({ chatHeight: 50, chatVPos: 'top', screenHeight: 800 }), { full: false, height: 400, top: 0, bottom: null });
+  assert.deepEqual(chatBox({ chatHeight: 50, chatVPos: 'bottom', screenHeight: 800 }), { full: false, height: 400, top: null, bottom: 0 });
+  assert.equal(chatBox({ chatHeight: 10, screenHeight: 800 }).height, 240, 'clamped to 30%');
+  // Layouts that ignore it (phone, touch portrait) keep the whole height.
+  assert.equal(chatBox({ chatHeight: 50, screenHeight: 800, applies: false }).full, true);
+});
+
+test('chat box over the video: a bottom chat lifts above the open control bar; side panels and top chats stay put', () => {
+  const base = { chatHeight: 50, chatVPos: 'bottom', screenHeight: 800, barPx: 150 };
+  assert.deepEqual(chatBox({ ...base, over: true, overlayOpen: true }), { full: false, height: 400, top: null, bottom: 150 });
+  assert.equal(chatBox({ ...base, over: true, overlayOpen: false }).bottom, 0, 'bar closed: back down');
+  assert.equal(chatBox({ ...base, over: false, overlayOpen: true }).bottom, 0, 'beside the video the bar is on the video');
+  assert.deepEqual(chatBox({ ...base, chatVPos: 'top', over: true, overlayOpen: true }), { full: false, height: 400, top: 0, bottom: null });
+  // A tall chat gets shorter so it still fits above the bar...
+  assert.deepEqual(chatBox({ ...base, chatHeight: 90, over: true, overlayOpen: true }), { full: false, height: 650, top: null, bottom: 150 });
+  // ...and a huge bar never pushes it under 30% of the screen.
+  const big = chatBox({ ...base, barPx: 700, over: true, overlayOpen: true });
+  assert.equal(big.bottom, 560);
+  assert.equal(big.height, 240);
+  // 100% keeps the old behaviour: full height, no lift.
+  assert.deepEqual(chatBox({ ...base, chatHeight: 100, over: true, overlayOpen: true }), { full: true, height: 800, top: 0, bottom: 0 });
+});
+
+test('chat height applies everywhere but the phone layout and touch portrait', () => {
+  assert.equal(chatHeightApplies({ mode: 'tv' }), true);
+  assert.equal(chatHeightApplies({ mode: 'tablet', touch: true, portrait: false }), true);
+  assert.equal(chatHeightApplies({ mode: 'tablet', touch: true, portrait: true }), false);
+  assert.equal(chatHeightApplies({ mode: 'phone', touch: true, portrait: false }), false);
+  assert.equal(chatHeightApplies({ mode: 'tv', touch: false, portrait: true }), true, 'a tall desktop window is still TV');
+});
+
+test('chat controls: Height slider, and Position only under 100%', () => {
+  const at = (s, env = ENV) => Object.fromEntries(chatControlSpecs({ ...DEFAULT_SETTINGS, ...s }, env).map((x) => [x.key, x]));
+  const full = at({});
+  assert.equal(full.chatHeight.value, 100);
+  assert.equal(full.chatHeight.text, '100%');
+  assert.equal(full.chatVPos.hidden, true);
+  assert.deepEqual(full.chatHeight.patch(60), { chatHeight: 60 });
+  const short = at({ chatHeight: 60, chatVPos: 'top' });
+  assert.equal(short.chatVPos.hidden, false);
+  assert.equal(short.chatVPos.value, 'top');
+  assert.deepEqual(short.chatVPos.patch('bottom'), { chatVPos: 'bottom' });
+  assert.match(short.chatHeight.note, /video keeps its size/);
+  assert.match(at({ chatHeight: 60, chatOverlay: true }).chatHeight.note, /moves up/);
+  const twitch = at({ chatHeight: 60, chatStyle: 'twitch' });
+  assert.equal(twitch.chatHeight.disabled, false, 'Twitch chat style follows the height too');
+  const phone = at({ chatHeight: 60 }, { ...ENV, heightApplies: false });
+  assert.equal(phone.chatHeight.disabled, true);
+  assert.equal(phone.chatVPos.disabled, true);
+  assert.match(phone.chatHeight.note, /Not used in this layout/);
 });

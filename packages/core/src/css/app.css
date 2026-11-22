@@ -14,6 +14,9 @@
   --chat-text: 1; /* chat layout (set on #player-screen by the player from the chat settings) */
   --chat-bg-a: 100%;
   --chat-over-a: 55%;
+  --chat-h: 100%; /* chat height and position (used only with .chat-short on #player-screen) */
+  --chat-top: auto;
+  --chat-bottom: 0px;
   --ring-w: 0.28rem;
   --inner-w: 0px;
   --focus-scale: 1.05;
@@ -749,6 +752,14 @@ body.video-only.player-active .raid-card { transform: scale(1.3); }
 #player-screen.chat-over .chat-title { border-bottom: 0; }
 #player-screen.chat-over .chat-msg, #player-screen.chat-over .chat-title { text-shadow: 0 0 0.25rem var(--overlay-from), 0 0.05rem 0.15rem var(--overlay-from); }
 #player-screen.chat-over .chat-nick.paint { --nick-shadow: drop-shadow(0 0 0.2rem var(--overlay-from)) drop-shadow(0 0.05rem 0.1rem var(--overlay-from)); }
+/* Chat height and position (applyChatLayout, chatBox()): under 100% the chat is --chat-h tall, at the top or bottom.
+   Beside the video the panel keeps its width and the video its size (the rest of the column is the player's
+   background); over the video the box moves with --chat-bottom (above the control bar while that is open). Twitch
+   chat style: only the visible panel follows; the hidden points frame and the rewards modal keep their own boxes. */
+#player-screen.chat-short #chat { height: var(--chat-h); align-self: flex-start; }
+#player-screen.chat-short.chat-bottom #chat { align-self: flex-end; }
+#player-screen.chat-short.chat-over #chat { top: var(--chat-top); bottom: var(--chat-bottom); transition: bottom 160ms ease, height 160ms ease; }
+#player-screen.chat-short #twitch-chat-host.tc-panel { top: var(--chat-top); bottom: var(--chat-bottom); height: var(--chat-h); }
 
 /* ---------- Drops: Twitch's inventory page in a large frame, the hint in a strip below it (never over the page) ---------- */
 .drops-stage { position: relative; height: calc(100vh - 12.5rem); min-height: 16rem; border: 0.2rem solid var(--border); border-radius: 0.8rem; overflow: hidden; background: var(--chat-bg); }

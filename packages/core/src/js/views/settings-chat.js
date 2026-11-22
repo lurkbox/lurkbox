@@ -3,6 +3,7 @@ import { el, button, toast } from '../ui.js';
 import { saveSettings, previewSettings, state, onState } from '../state.js';
 import { TWITCH_CHAT_SIZES, twitchChatZoom } from '../../shared/tv-zoom.js';
 import { ChatControls, resetChatLayoutPatch } from '../chat-controls.js';
+import { chatHeightApplies } from '../../shared/chat-layout.js';
 import { confirmDialog } from '../modal.js';
 import { tw } from '../api.js';
 import { phraseEditor, pickChannelList, quickChatSetting } from '../quick-chat.js';
@@ -10,7 +11,12 @@ import { phraseEditor, pickChannelList, quickChatSetting } from '../quick-chat.j
 /** What the chat controls need to know about the screen (also used by the player's chat pop-over). */
 export function chatEnv(direct = true) {
   const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-  return { windowWidth: window.innerWidth, screenHeight: window.screen && window.screen.height, remPx, direct };
+  const b = document.body.classList;
+  const heightApplies = chatHeightApplies({
+    mode: b.contains('layout-phone') ? 'phone' : b.contains('layout-tablet') ? 'tablet' : 'tv',
+    touch: b.contains('touch-ui'), portrait: b.contains('orient-portrait'),
+  });
+  return { windowWidth: window.innerWidth, screenHeight: window.screen && window.screen.height, remPx, direct, heightApplies };
 }
 
 const LAYOUT_HELP = {
@@ -19,6 +25,8 @@ const LAYOUT_HELP = {
   twitchChatSize: 'Zoom for Twitch chat style (Twitch\'s own chat, channel-points rewards, predictions and polls), which Twitch draws at desktop size. Auto fits the screen like the TV sign-in.',
   chatWidth: 'Share of the screen. Beside the video, the video shrinks to make room (the chat takes at most half the screen).',
   chatSide: '',
+  chatHeight: 'Share of the player\'s height. Beside the video, the video keeps its size; over the video, a chat at the bottom moves up while the controls are shown. The phone layout and touch portrait ignore it.',
+  chatVPos: 'Where a chat shorter than the player sits.',
   chatBgOpacity: 'Lurkbox chat beside the video.',
   chatOverlay: 'Lurkbox chat on top of the stream, see-through, instead of beside it. Not for Twitch chat: Twitch\'s chat and player pause when something covers them.',
   chatOverlayOpacity: '',
@@ -96,7 +104,7 @@ export function chatSettingsRows({ row, rerender, pickRow }) {
   });
   rows.push(row('Reset chat layout', button('Reset', () => confirmDialog({
     title: 'Reset chat layout?',
-    message: 'Text size, width, side, background and "over the video" go back to their defaults.',
+    message: 'Text size, width, side, height, position, background and "over the video" go back to their defaults.',
     yes: 'Reset',
     onYes: async () => { await saveSettings(resetChatLayoutPatch()); toast('Chat layout reset', 2000, 'ok'); rerender(); },
   }), { dataset: { setting: 'chatLayoutReset' } }), 'Also in the player: the chat button opens the same controls.'));
