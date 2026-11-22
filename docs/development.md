@@ -13,13 +13,14 @@ npm start -- --windowed   # or: --channel=<login>, --vod=<id>
 - `ELECTRON_RUN_AS_NODE=1` (set by VS Code terminals) makes Electron act as plain Node. The npm scripts unset it; when you run Electron or the AppImage by hand, use `env -u ELECTRON_RUN_AS_NODE`.
 - `LURKBOX_USER_DATA=<dir>` uses a throwaway user-data folder instead of `~/.config/Lurkbox`.
 - `--screenshot=<file.png> --screenshot-delay=<ms>` saves a screenshot of the window and quits.
-- `LURKBOX_DEMO=1 npm start` runs **demo mode**: a made-up signed-in account (`lurker`), channels, categories, videos and chat (messages you send are accepted and echoed back, except the same text twice within 30 s, which is refused like on Twitch; the account has four emotes of its own for the picker's Twitch tab; the channels are followers-only, for the composer's note), with generated pictures and a generated video. Nothing touches the network (requests other than the local page are cancelled and host names don't resolve). It needs ffmpeg with librsvg for the video (rendered once into the temp dir; `LURKBOX_DEMO_MEDIA=<dir>` picks the folder). `LURKBOX_DEMO_SIZE=1280x800` sets the window size, `LURKBOX_DEMO_SIGNED_OUT=1` starts signed out. It only turns on for exactly `LURKBOX_DEMO=1`.
+- `LURKBOX_DEMO=1 npm start` runs **demo mode**: a made-up signed-in account (`lurker`), channels, categories, videos and chat (messages you send are accepted and echoed back, except the same text twice within 30 s, which is refused like on Twitch; the account has four emotes of its own for the picker's Twitch tab; the channels are followers-only, for the composer's note), with generated pictures and a generated video; channel pages have clips, highlights, uploads, follower counts and weekly schedules (some channels have none, one is on a break). Nothing touches the network (requests other than the local page are cancelled and host names don't resolve). It needs ffmpeg with librsvg for the video (rendered once into the temp dir; `LURKBOX_DEMO_MEDIA=<dir>` picks the folder). `LURKBOX_DEMO_SIZE=1280x800` sets the window size, `LURKBOX_DEMO_SIGNED_OUT=1` starts signed out. It only turns on for exactly `LURKBOX_DEMO=1`.
 - Logs go to the terminal and to `<userData>/lurkbox.log` (5 MB, then rotated to `lurkbox.log.1`). Each VOD start writes one timeline line, e.g. `[vod] <id> open → resume prompt shown 2 ms → answered 1503 ms (resume at 3:25) → master 1787 ms (anonymous) → first level 1797 ms → first frame 2214 ms → PLAYING 2215 ms`; a VOD left before it plays ends with `left before PLAYING`.
 
 ## Screenshots
 
 `npm run screenshots` (or `npm run screenshots -- player player-chat` for some) writes the README screenshots to `docs/screenshots/`. Each scene starts Lurkbox in demo mode at 1280×800 under `xvfb-run` (when installed; `SHOT_XVFB=0` uses your display), presses buttons on a virtual gamepad, waits for fonts, images and the video, and captures. The theme montage is built from one capture per theme with ImageMagick, and every PNG is recompressed (quantised only if it stays over 400 KB). Needs ffmpeg and ImageMagick.
 
+- Scenes run with `TZ=UTC` (`SHOT_TZ` changes it), so dates and the schedule's times don't show the machine's time zone.
 - Some scenes also check behaviour and fail when it breaks: `search-history` searches and picks a channel (recorded on top, with the pick), deletes one with X (focus stays in the list), searches again and picks a category, and never shows another account's history; `following-by-game` checks that Y on the Live section switches it to By game.
 - Scenes live in `apps/desktop/scripts/screenshot-scene.js`; the runner is `screenshots.mjs`. They find things by id, role, aria label and `data-key` (the player controls), so after a UI change a rerun is usually all it takes. A scene that fails saves `FAILED-<scene>.png` next to the others.
 - The run fails if demo mode tried to reach the network (`<userData>/demo-blocked.log`).
@@ -48,6 +49,7 @@ npm run test:drops     # drops against test/fixtures/drops-inventory.html: scan,
 npm run test:follow    # follow/unfollow against test/fixtures/channel-page.html at the real channel URL: selectors, flip, retry, captcha, wrong channel
 npm run test:chat      # Lurkbox chat on a busy channel (LURKBOX_SHOT=x.png; LURKBOX_CHAT_STYLE=twitch for Twitch chat style and its TV zoom; LURKBOX_CHAT_EXT=1 for the real extensions)
 npm run test:points-cookies # offline: fake twitch.tv auth cookies reach the chat iframe of the localhost page; a Lax rewrite by a first-party twitch.tv page hides them (reproduced) and is repaired at startup and kept SameSite=None
+npm run test:channel   # offline, in demo mode: X on a live card → its channel page, every tab, the Highlights and All-time filters, Y sorts, LB/RB wrap, B back to the same card (LURKBOX_SHOT_DIR=<dir> saves channel-*.png)
 npm run test:chat-send # offline, in demo mode: "Send a message", the on-screen keyboard (and its layout toggle), the echo, a refused duplicate, the emote picker, quick chat from the composer and the overlay (LURKBOX_SHOT_DIR=<dir> saves chat-send-*.png)
 npm run screenshots    # README screenshots in demo mode (below)
 node packages/core/src/platform-check.js   # the platform interface check on its own, with a readable report
@@ -75,7 +77,7 @@ The electron-builder config is `apps/desktop/electron-builder.config.js` (app id
 | Job | Steps |
 |---|---|
 | Unit tests | `npm ci --ignore-scripts`; `node --check` on every tracked `.js` in `packages/*/src`, `apps/*/src`, `apps/*/test` and `apps/*/*.config.js`; `npm test` |
-| Launch smoke test | `npm ci --ignore-scripts && npm rebuild electron`; `xvfb-run -a npm run test:smoke`; `xvfb-run -a npm run test:drops`; `xvfb-run -a npm run test:follow`; `xvfb-run -a npm run test:points-cookies`; `xvfb-run -a npm run test:chat-send` |
+| Launch smoke test | `npm ci --ignore-scripts && npm rebuild electron`; `xvfb-run -a npm run test:smoke`; `xvfb-run -a npm run test:drops`; `xvfb-run -a npm run test:follow`; `xvfb-run -a npm run test:points-cookies`; `xvfb-run -a npm run test:chat-send`; `xvfb-run -a npm run test:channel` |
 | AppImage builds | the same install; `npm run dist -- --publish never`; uploads `dist/*.AppImage` |
 | Secret scan | gitleaks over the full history |
 

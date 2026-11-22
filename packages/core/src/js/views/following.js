@@ -1,5 +1,6 @@
 import { el, button, toast } from '../ui.js';
 import { mascotEl } from '../mascot.js';
+import { hint } from '../input.js';
 import { state, saveSettings } from '../state.js';
 import { tw, setFollowedCache, followedChannels, followsAge, usersByIds, lastLive, lastLiveKnown, ApiError } from '../api.js';
 import { KeyedGrid, streamCard, errorState, listSort, sortChip, withGameHeaders, gameHeader } from '../grid.js';
@@ -58,7 +59,7 @@ export function followingView() {
       const offGridEl = el('div', { class: 'grid grid-offline' });
       const liveEmpty = el('p', { class: 'empty', hidden: true }, 'Nobody you follow is live right now.');
       host.append(
-        el('header', { class: 'view-header' }, el('h1', {}, 'Following'), status),
+        el('header', { class: 'view-header' }, el('h1', {}, 'Following'), hint('{X} channel page'), status),
         el('h2', { class: 'section-title live-title' }, 'Live ', liveSort.chip),
         liveGridEl, liveEmpty,
         el('h2', { class: 'section-title offline-title' }, 'Offline ', offChip.el),

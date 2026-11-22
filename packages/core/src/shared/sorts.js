@@ -22,6 +22,12 @@ export const VOD_SORTS = [
   { value: 'views', label: 'Most viewed' },
   { value: 'longest', label: 'Longest' },
 ];
+/** A channel's clips (Helix returns them by views). */
+export const CLIP_SORTS = [
+  { value: 'views', label: 'Most viewed' },
+  { value: 'newest', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
+];
 /** Search results (Relevance is Twitch's own order). */
 export const SEARCH_SORTS = [
   { value: 'relevance', label: 'Relevance' },
@@ -35,6 +41,7 @@ export const SORT_SETTINGS = {
   streamSort: { sorts: STREAM_SORTS, fallback: 'viewers' },
   vodSort: { sorts: VOD_SORTS, fallback: 'newest' },
   searchSort: { sorts: SEARCH_SORTS, fallback: 'live' },
+  clipSort: { sorts: CLIP_SORTS, fallback: 'views' },
 };
 
 /** A saved value if it is one of `sorts`, else the fallback. */
@@ -100,6 +107,18 @@ export function sortVideos(list, mode) {
     case 'views': return out.sort((a, b) => (Number(b.view_count) || 0) - (Number(a.view_count) || 0) || time(b.created_at) - time(a.created_at));
     case 'longest': return out.sort((a, b) => durationSec(b.duration) - durationSec(a.duration) || time(b.created_at) - time(a.created_at));
     default: return out.sort((a, b) => time(b.created_at) - time(a.created_at) || title(a, b));
+  }
+}
+
+/** Clips (Helix /clips items). mode: a CLIP_SORTS value. Ties: more views, then newer, then title. */
+export function sortClips(list, mode) {
+  const out = [...list];
+  const views = (a, b) => (Number(b.view_count) || 0) - (Number(a.view_count) || 0);
+  const title = (a, b) => cmpText(a.title, b.title);
+  switch (mode) {
+    case 'newest': return out.sort((a, b) => time(b.created_at) - time(a.created_at) || views(a, b) || title(a, b));
+    case 'oldest': return out.sort((a, b) => time(a.created_at) - time(b.created_at) || views(a, b) || title(a, b));
+    default: return out.sort((a, b) => views(a, b) || time(b.created_at) - time(a.created_at) || title(a, b));
   }
 }
 

@@ -17,6 +17,10 @@ Lurkbox is not affiliated with or endorsed by Twitch.
   <img src="docs/screenshots/player-rewind.png" width="49%" alt="Live rewind: scrubbing back along the seek bar with a preview frame above it, the stream marked Rewound">
 </p>
 <p>
+  <img src="docs/screenshots/channel.png" width="49%" alt="A channel page: banner, avatar, name, follower count and Following heart, a LIVE card with a Watch button, the tabs Home, Videos, Clips, Schedule and About, and the Home tab with the live stream and the next scheduled stream">
+  <img src="docs/screenshots/channel-clips.png" width="49%" alt="A channel's Clips tab: period pills 24 hours, 7 days, 30 days and All time, the Y sort chip on Most viewed, and clip cards with length, views, title and who clipped them">
+</p>
+<p>
   <img src="docs/screenshots/search-history.png" width="49%" alt="Search with an empty box: Recent searches, each with what was picked from its results (a channel or a category), the A search again and X delete hint, and Clear history">
   <img src="docs/screenshots/keyboard.png" width="49%" alt="The built-in on-screen keyboard over Search: equal keys in ten fixed columns, Space and Done spanning whole cells">
 </p>
@@ -27,7 +31,7 @@ Lurkbox is not affiliated with or endorsed by Twitch.
 
 ![All seven themes on the Following screen: Lurkbox, Game Mode, Classic Purple, OLED, Daylight, High Contrast and a custom theme](docs/screenshots/themes.png)
 
-More in [docs/screenshots/](docs/screenshots/): pop-overs, chat over the video, the chat composer, categories, search, the on-screen keyboard, settings, "Who's watching?" and the phone sign-in. They come from demo mode (`npm run screenshots`): every channel, picture, chat message and emote is made up for Lurkbox, and nothing is real Twitch content.
+More in [docs/screenshots/](docs/screenshots/): a channel's schedule, pop-overs, chat over the video, the chat composer, categories, search, the on-screen keyboard, settings, "Who's watching?" and the phone sign-in. They come from demo mode (`npm run screenshots`): every channel, picture, chat message and emote is made up for Lurkbox, and nothing is real Twitch content.
 
 ## Features (v0.1)
 
@@ -35,7 +39,14 @@ More in [docs/screenshots/](docs/screenshots/): pop-overs, chat over the video, 
 - **One sign-in, on the TV.** "Sign in" opens the twitch.tv login page inside Lurkbox (scaled up for the TV; the D-pad moves between fields, and the Steam keyboard or a real keyboard types). In the same window, Lurkbox then opens Twitch's Authorize page for its own Client ID (device-code flow, public client, no secret), and you press Authorize once. That one sign-in covers both the Twitch API (follows, raids, chat) and the video player (your subs and Turbo). Lurkbox checks that both halves are the same account.
   - **Sign in with your phone instead** (a code and QR code for twitch.tv/activate) is still offered. It leaves the player signed out, so Lurkbox then offers the TV login for the player.
   - **Add account** runs the same flow, starting signed out of twitch.tv; each account keeps its own encrypted player session.
-- **Browsing.** Followed Live is the home screen; Browse, Categories and Search are the other sections; channel pages list VODs.
+- **Browsing.** Followed Live is the home screen; Browse, Categories and Search are the other sections.
+- **Channel pages.** X on a live card (or a long-press), an offline follow, a search result or the player's channel icon opens the channel's page: its banner, avatar, name, follower count, the Follow heart and, when live, a LIVE card with Watch. LB/RB (or the tabs) switch between:
+  - **Home:** the live stream (or the last broadcast), the next scheduled stream, recent highlights and the last 30 days' most viewed clips.
+  - **Videos:** Past broadcasts, Highlights or Uploads (Helix `/videos` type), sorted with Y.
+  - **Clips:** from the last 24 hours, 7 days, 30 days or all time, sorted by views (default), newest or oldest with Y.
+  - **Schedule:** the upcoming streams from Helix `/schedule`, with category and time in your time zone, and a channel's break; "No schedule" when there is none.
+  - **About:** the description, partner or affiliate, since when, category, language and tags. Panels and social links aren't in Twitch's public API, so "Open on twitch.tv" shows Twitch's own page for them.
+  - The filters and sorts are remembered.
 - **Search history.** Search finds channels and categories. Opening it with an empty box shows your recent searches (per account, newest first, up to 20): A searches again, X deletes the highlighted one, and "Clear history" removes them all. A search is remembered when you pick a channel or category from its results, together with what you picked. Settings → General turns it off ("Search history") or clears it ("Clear search history"). It stays on the device, in Lurkbox's settings.
 - **Sorting.** Y re-sorts the list you're on, and a small chip shows the current order ("Y sort: Most viewers"; tap or click it too). The focus stays in the same place, and the choice is remembered.
   - Following → Live: Most viewers (default), Recently started, Live longest, A–Z, or By game (grouped under small game headers). Following → Offline: Recently live, A–Z, Followed date. Y sorts whichever of the two has focus. Both are also in Settings → General.
@@ -107,6 +118,7 @@ npm run test:points # channel-points scanning against a local fixture
 npm run test:drops  # drops: inventory scanning, claiming and controller navigation against a local fixture, and the Drops section's focus (stable while idle, the D-pad moves)
 npm run test:follow # follow/unfollow against a local fixture of a channel page: selectors, the flip check, retry, captcha, wrong channel
 npm run test:chat   # Lurkbox chat on a busy live channel: emotes, overlays, badges, paints (LURKBOX_SHOT=x.png saves a screenshot)
+npm run test:channel     # offline, in demo mode: X on a live card opens its channel page; every tab, the video and clip filters and sorts, LB/RB, back
 npm run test:chat-send   # offline, in demo mode: sends a message with the controller and the on-screen keyboard, sees it echoed, a refused duplicate marked, an emote inserted from the picker, and quick-chat phrases sent and echoed
 LURKBOX_CHAT_STYLE=twitch npm run test:chat   # Twitch chat style: the frame's TV zoom, panel width, no overlap with the video (LURKBOX_CHAT_SIZE=175 for a fixed size)
 LURKBOX_CHAT_EXT=1 npm run test:chat   # the experimental real extensions in Twitch chat style
@@ -129,6 +141,7 @@ The unit tests cover:
 - the chat layout: width (Auto, percentages, at most half the window, Twitch chat's minimum layout width), text size and Twitch chat zoom, "over the video" rules, and one settings source for the pop-over and Settings → Chat (live preview, delayed save, echoes never move a slider back);
 - Drops: the auto-claim loop (first check after 1 min, then every 15, never twice in 5 min, error backoff, inert with the setting off or without a twitch.tv session, names only in logs), the framing headers, the Claim button text, the player's chip for a stream's game, and which keys go to the inventory page;
 - follow/unfollow: unfollow only after Lurkbox's confirmation (also when "Following" is stale), the flip check, one retry on timeout and none after a captcha, inert without a twitch.tv session, only valid channel logins, the sign-in prompt and the "open on twitch.tv" fallback, the heart's label and icon;
+- the channel page: the Helix wrappers for videos (by type), clips (the period's window), clip by id, the schedule (404 = no schedule), followers and channel info, and their pagination over every page; schedule segments (upcoming, cancelled, vacation) and their times across time zones (Today/Tomorrow by the zone's calendar); clip sorting; the saved filters;
 - theme tokens and chat colour contrast;
 - Steam library art: appid derivation, the allow-listed Steam expressions, grid file names, and backup before the first overwrite.
 - demo mode: the made-up data behind the Helix and `window.lurkbox` seams, the fake chat (including the echo of messages you send), emote APIs and playlists, that it only turns on for `LURKBOX_DEMO=1`, and that it makes no network calls (fetch and WebSocket throw in those tests).
@@ -165,6 +178,8 @@ Settings → Appearance → **Match Steam library artwork to theme** (off by def
 | Close a pop-over (focus goes back to its icon) | B | Esc | click outside it |
 | Slider (pop-overs, Settings → Chat) | D-pad left/right, hold to go faster | Arrows | drag |
 | Delete a recent search (Search, empty box) | X | | |
+| Channel page of a live card | X | | long-press (touch) |
+| Channel page tabs | LB / RB | Q / E | the tabs |
 | Sort the list (Following, Browse, a category, a channel's videos, Search) | Y | C | the sort chip |
 | Chat | Y | C | chat icon |
 | Send a message | Send a message (overlay), then A types and Send sends | type, Enter sends | click the box |

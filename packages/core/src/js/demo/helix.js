@@ -66,7 +66,37 @@ export function demoHelix(db, req = {}, ctx = {}) {
       if (q.id != null) { const ids = many(q.id); return list(v.filter((x) => ids.includes(x.id))); }
       if (q.user_id != null) { const id = String(q.user_id); v = v.filter((x) => x.user_id === id); }
       if (q.type && q.type !== 'all') v = v.filter((x) => x.type === q.type);
-      return list([...v].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0, first));
+      const sorted = [...v].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+      const start = Number(q.after) || 0;
+      const next = start + first < sorted.length ? String(start + first) : null;
+      return ok({ data: sorted.slice(start, start + first), pagination: next ? { cursor: next } : {} });
+    }
+    case '/clips': {
+      // By views, like Helix; a cursor of plain offsets.
+      if (q.id != null) { const ids = many(q.id); return list(db.clips.filter((c) => ids.includes(c.id))); }
+      let c = db.clips.filter((x) => x.broadcaster_id === String(q.broadcaster_id));
+      if (q.started_at) { const a = Date.parse(q.started_at); const b = q.ended_at ? Date.parse(q.ended_at) : a + 7 * 86400000; c = c.filter((x) => { const t = Date.parse(x.created_at); return t >= a && t <= b; }); }
+      c = [...c].sort((a, b) => b.view_count - a.view_count);
+      const start = Number(q.after) || 0;
+      const next = start + first < c.length ? String(start + first) : null;
+      return ok({ data: c.slice(start, start + first), pagination: next ? { cursor: next } : {} });
+    }
+    case '/schedule': {
+      const sch = db.schedules.get(String(q.broadcaster_id));
+      if (!sch) return { ok: false, status: 404, error: 'Not Found', data: { message: 'segments were not found' }, resetAt: null };
+      const start = Number(q.after) || 0;
+      const next = start + first < sch.segments.length ? String(start + first) : null;
+      return ok({ data: { ...sch, segments: sch.segments.slice(start, start + first) }, pagination: next ? { cursor: next } : {} });
+    }
+    case '/channels/followers':
+      return ok({ data: [], total: db.followers.get(String(q.broadcaster_id)) || 0, pagination: {} });
+    case '/channels': {
+      const ids = many(q.broadcaster_id);
+      return list(db.users.filter((u) => ids.includes(u.id)).map((u) => {
+        const s = db.streams.find((x) => x.user_id === u.id);
+        const g = s ? { id: s.game_id, name: s.game_name } : (db.gameOf.get(u.id) || { id: '', name: '' });
+        return { broadcaster_id: u.id, broadcaster_login: u.login, broadcaster_name: u.display_name, broadcaster_language: 'en', game_id: g.id, game_name: g.name, title: s ? s.title : '', delay: 0, tags: ['English', 'Demo', 'Cozy'], content_classification_labels: [], is_branded_content: false };
+      }));
     }
     case '/chat/badges/global':
       return list(db.badges);

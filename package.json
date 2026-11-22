@@ -24,6 +24,7 @@
     "test:points-cookies": "npm run test:points-cookies -w apps/desktop --",
     "test:chat": "npm run test:chat -w apps/desktop --",
     "test:chat-send": "npm run test:chat-send -w apps/desktop --",
+    "test:channel": "npm run test:channel -w apps/desktop --",
     "screenshots": "npm run screenshots -w apps/desktop --"
   }
 }

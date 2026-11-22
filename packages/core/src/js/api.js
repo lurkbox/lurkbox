@@ -1,6 +1,7 @@
 // Helix helpers. Requests go through the main process, which holds the tokens.
 import { state } from './state.js';
 import { fetchAllPages, chunk, lastLiveFromVod } from './follows.js';
+import { clipRange, scheduleSegments, vacation } from '../shared/channel-page.js';
 
 export class ApiError extends Error {
   constructor(code, status, message) {
@@ -30,7 +31,28 @@ export const tw = {
   streamsByGame: async (gameId, after) => page(await helix('/streams', { game_id: gameId, first: 40, after })),
   searchChannels: async (query, after) => page(await helix('/search/channels', { query, first: 40, after })),
   searchCategories: async (query, after) => page(await helix('/search/categories', { query, first: 20, after })),
-  videos: async (userId, after) => page(await helix('/videos', { user_id: userId, first: 40, type: 'all', after })),
+  /** type: 'all' | 'archive' | 'highlight' | 'upload' (the Videos tab's filter). */
+  videos: async (userId, after, type = 'all', first = 40) => page(await helix('/videos', { user_id: userId, first, type, after })),
+  /** A channel's clips in a period (shared/channel-page.js CLIP_PERIODS); Helix orders them by views. */
+  clips: async (broadcasterId, { after, period = 'all', now = Date.now(), first = 40 } = {}) => page(await helix('/clips', { broadcaster_id: broadcasterId, first, after, ...clipRange(period, now) })),
+  clipById: async (id) => ((await helix('/clips', { id })).data || [])[0] || null,
+  /**
+   * The channel's stream schedule: { items: upcoming segments (scheduleSegments), cursor, vacation }. Helix answers 404
+   * for a channel without a schedule, which is "no schedule", not an error.
+   */
+  schedule: async (broadcasterId, { after, now = Date.now(), first = 25 } = {}) => {
+    try {
+      const r = await helix('/schedule', { broadcaster_id: broadcasterId, first, after });
+      return { items: scheduleSegments(r.data, now), cursor: (r.pagination && r.pagination.cursor) || null, vacation: vacation(r.data) };
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'HTTP' && e.status === 404) return { items: [], cursor: null, vacation: null };
+      throw e;
+    }
+  },
+  /** Follower count (Helix GET /channels/followers: `total`; any user token may read it), or null. */
+  followerCount: async (broadcasterId) => { const r = await helix('/channels/followers', { broadcaster_id: broadcasterId, first: 1 }); return Number.isFinite(Number(r.total)) ? Number(r.total) : null; },
+  /** Channel information (title, category, tags, language). */
+  channelInfo: async (broadcasterId) => ((await helix('/channels', { broadcaster_id: broadcasterId })).data || [])[0] || null,
   videoById: async (id) => ((await helix('/videos', { id })).data || [])[0] || null,
   userByLogin: async (login) => (await helix('/users', { login })).data[0] || null,
   streamByUserId: async (id) => (await helix('/streams', { user_id: id })).data[0] || null,
