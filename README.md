@@ -17,6 +17,10 @@ Lurkbox is not affiliated with or endorsed by Twitch.
   <img src="docs/screenshots/player-rewind.png" width="49%" alt="Live rewind: scrubbing back along the seek bar with a preview frame above it, the stream marked Rewound">
 </p>
 <p>
+  <img src="docs/screenshots/search-history.png" width="49%" alt="Search with an empty box: Recent searches, each with what was picked from its results (a channel or a category), the A search again and X delete hint, and Clear history">
+  <img src="docs/screenshots/keyboard.png" width="49%" alt="The built-in on-screen keyboard over Search: equal keys in ten fixed columns, Space and Done spanning whole cells">
+</p>
+<p>
   <img src="docs/screenshots/quick-chat.png" width="49%" alt="Quick chat open above the player's lightning-bubble icon: the channel's own phrases with emotes first, then the phrases for all channels, with the A send, Y edit, X add hint">
   <img src="docs/screenshots/chat-emotes.png" width="49%" alt="The emote picker above the chat composer: tabs Recent, Twitch, 7TV, BTTV and FFZ, the message so far, and a grid of emotes">
 </p>
@@ -32,6 +36,7 @@ More in [docs/screenshots/](docs/screenshots/): pop-overs, chat over the video, 
   - **Sign in with your phone instead** (a code and QR code for twitch.tv/activate) is still offered. It leaves the player signed out, so Lurkbox then offers the TV login for the player.
   - **Add account** runs the same flow, starting signed out of twitch.tv; each account keeps its own encrypted player session.
 - **Browsing.** Followed Live is the home screen; Browse, Categories and Search are the other sections; channel pages list VODs.
+- **Search history.** Search finds channels and categories. Opening it with an empty box shows your recent searches (per account, newest first, up to 20): A searches again, X deletes the highlighted one, and "Clear history" removes them all. A search is remembered when you pick a channel or category from its results, together with what you picked. Settings → General turns it off ("Search history") or clears it ("Clear search history"). It stays on the device, in Lurkbox's settings.
 - **Sorting.** Y re-sorts the list you're on, and a small chip shows the current order ("Y sort: Most viewers"; tap or click it too). The focus stays in the same place, and the choice is remembered.
   - Following → Live: Most viewers (default), Recently started, Live longest, A–Z, or By game (grouped under small game headers). Following → Offline: Recently live, A–Z, Followed date. Y sorts whichever of the two has focus. Both are also in Settings → General.
   - Browse and a category's streams: Viewers, Newest, A–Z. A channel's videos: Newest, Oldest, Most viewed, Longest. Search results: Relevance (Twitch's order), Live first (default), A–Z.
@@ -159,6 +164,7 @@ Settings → Appearance → **Match Steam library artwork to theme** (off by def
 | Player overlay | A, or any D-pad direction (in player) | Enter | move the mouse, or click the video |
 | Close a pop-over (focus goes back to its icon) | B | Esc | click outside it |
 | Slider (pop-overs, Settings → Chat) | D-pad left/right, hold to go faster | Arrows | drag |
+| Delete a recent search (Search, empty box) | X | | |
 | Sort the list (Following, Browse, a category, a channel's videos, Search) | Y | C | the sort chip |
 | Chat | Y | C | chat icon |
 | Send a message | Send a message (overlay), then A types and Send sends | type, Enter sends | click the box |

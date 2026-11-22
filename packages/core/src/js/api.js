@@ -29,6 +29,7 @@ export const tw = {
   topGames: async (after) => page(await helix('/games/top', { first: 40, after })),
   streamsByGame: async (gameId, after) => page(await helix('/streams', { game_id: gameId, first: 40, after })),
   searchChannels: async (query, after) => page(await helix('/search/channels', { query, first: 40, after })),
+  searchCategories: async (query, after) => page(await helix('/search/categories', { query, first: 20, after })),
   videos: async (userId, after) => page(await helix('/videos', { user_id: userId, first: 40, type: 'all', after })),
   videoById: async (id) => ((await helix('/videos', { id })).data || [])[0] || null,
   userByLogin: async (login) => (await helix('/users', { login })).data[0] || null,

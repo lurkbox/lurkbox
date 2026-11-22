@@ -34,6 +34,16 @@ const SETUP = {
   categories: {},
   search: {},
   keyboard: {},
+  // Recent searches for the demo account (another account's stay out of view); the scene adds one by searching.
+  'search-history': { settings: { searchHistory: {
+    1000001: [
+      { q: 'speedrun', at: 1, pick: { kind: 'category', id: '9102', name: 'Retro Speedruns' } },
+      { q: 'pixel', at: 2, pick: { kind: 'channel', id: '7100004', login: 'pixelmoth', name: 'PixelMoth' } },
+      { q: 'cozy farm', at: 3 },
+      { q: 'synth', at: 4, pick: { kind: 'category', id: '9106', name: 'Music & Synths' } },
+    ],
+    1000002: [{ q: 'not this account', at: 5 }],
+  } } },
   settings: {},
   theme: { settings: { theme: THEME, customTheme: CUSTOM } },
   'whos-watching': { settings: { profilePicker: 'ask' } },
@@ -301,6 +311,44 @@ app.on('browser-window-created', (_e, win) => {
       await js("document.querySelector('[data-view=search] .card').focus(); true");
       await settle();
       await shoot('search');
+    },
+    async 'search-history'() {
+      await following();
+      await press('RB', 'RB', 'RB');
+      await waitFor('recent searches', "document.querySelectorAll('[data-view=search] .search-recent').length === 4");
+      const recents = () => js("[...document.querySelectorAll('[data-view=search] .search-recent')].map((n) => n.dataset.q).join('|')");
+      if (await recents() !== 'speedrun|pixel|cozy farm|synth') throw new Error(`recent searches: ${await recents()}`);
+      // Search, pick a channel from the results (recorded), come back and clear the box: it is on top, with the pick.
+      await js("(() => { const i = document.querySelector('[data-view=search] input'); i.value = 'night'; i.dispatchEvent(new Event('osk-done')); return true; })()");
+      await waitFor('search results', "document.querySelectorAll('[data-view=search] .card').length >= 3");
+      await js("document.querySelector('[data-view=search] .grid .card').focus(); true");
+      await press('A');
+      await waitFor('the channel page', "!!document.querySelector('.channel-header')");
+      await press('B');
+      await waitFor('search again', "!!document.querySelector('[data-view=search] input')");
+      await js("(() => { const i = document.querySelector('[data-view=search] input'); i.value = ''; i.dispatchEvent(new Event('osk-done')); return true; })()");
+      await waitFor('the new entry', "(() => { const n = document.querySelector('[data-view=search] .search-recent'); return n && n.dataset.q === 'night' && /Channel: /.test(n.textContent); })()");
+      // X deletes the highlighted one; focus stays in the list.
+      await js("document.querySelectorAll('[data-view=search] .search-recent')[3].focus(); true");
+      await press('X');
+      await waitFor('cozy farm deleted', "![...document.querySelectorAll('[data-view=search] .search-recent')].some((n) => n.dataset.q === 'cozy farm')");
+      if (await recents() !== 'night|speedrun|pixel|synth') throw new Error(`after delete: ${await recents()}`);
+      if (!(await js("document.activeElement.dataset.q === 'synth'"))) throw new Error('focus left the list after X');
+      // A searches again; picking from the results moves it to the top.
+      await js("document.querySelectorAll('[data-view=search] .search-recent')[1].focus(); true");
+      await press('A');
+      await waitFor('categories for speedrun', "(() => { const g = document.querySelector('[data-view=search] .search-categories'); return g && !g.hidden && /Retro Speedruns/.test(g.textContent); })()");
+      // Picking the category records the search again (on top).
+      await js("document.querySelector('[data-view=search] .search-categories .card').focus(); true");
+      await press('A');
+      await waitFor('the category', "!!document.querySelector('[data-view^=category]')");
+      await press('B');
+      await waitFor('search again', "!!document.querySelector('[data-view=search] input')");
+      await js("(() => { const i = document.querySelector('[data-view=search] input'); i.value = ''; i.dispatchEvent(new Event('osk-done')); return true; })()");
+      await waitFor('speedrun on top', "document.querySelector('[data-view=search] .search-recent').dataset.q === 'speedrun'");
+      await js("document.querySelector('[data-view=search] .search-recent').focus(); true");
+      await settle();
+      await shoot('search-history');
     },
     async keyboard() {
       // The built-in on-screen keyboard over Search: a grid of equal keys, typed on with the D-pad.
