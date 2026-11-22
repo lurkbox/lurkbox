@@ -64,11 +64,14 @@ export function streamCard(s, onSelect) {
     el('div', { class: 'card-thumb' },
       s.thumbnail_url ? el('img', { src: thumb(s.thumbnail_url, 440, 248, refreshMs()), alt: '', loading: 'lazy' }) : null,
       el('span', { class: 'badge live' }, 'LIVE'),
-      el('span', { class: 'badge viewers' }, `${fmtViewers(s.viewer_count)} watching`)),
+      el('span', { class: 'badge viewers' }, `${fmtViewers(s.viewer_count)} watching`),
+      // Uptime sits on the thumbnail so it never gets cut off by a long game name.
+      s.started_at ? el('span', { class: 'badge uptime', title: 'Live for' }, fmtUptime(s.started_at)) : null),
     el('div', { class: 'card-body' },
       el('div', { class: 'card-title' }, s.user_name || s.user_login),
       el('div', { class: 'card-sub' }, s.title || ''),
-      el('div', { class: 'card-meta' }, [s.game_name, fmtUptime(s.started_at)].filter(Boolean).join(' · ')))));
+      // The game gets the whole line; it scrolls on focus (marquee) if it's still too long.
+      el('div', { class: 'card-meta' }, s.game_name || ''))));
 }
 
 export function gameCard(g, onSelect) {
