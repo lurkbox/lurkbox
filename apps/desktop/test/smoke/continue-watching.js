@@ -124,7 +124,10 @@ app.on('browser-window-created', (_e, win) => {
       const gone = await js('document.activeElement.dataset.cwId');
       await press('X');
       await waitFor('the menu', "[...document.querySelectorAll('.modal .pick-item')].some((b) => /Remove from Continue watching/.test(b.textContent))");
-      await waitFor('the focus in the menu', "!!(document.activeElement && document.activeElement.closest('.modal'))");
+      // The modal focuses its first item on the next animation frame, which xvfb doesn't always run: a D-pad press does it too.
+      const inMenu = "!!(document.activeElement && document.activeElement.closest('.modal'))";
+      if (!(await waitFor('the focus in the menu', inMenu, 1500).catch(() => false))) await press('DOWN');
+      await waitFor('the focus on Remove', "!!(document.activeElement && document.activeElement.closest('.modal') && /Remove from/.test(document.activeElement.textContent))");
       await shot('menu');
       await press('A');
       await waitFor('one card fewer', `document.querySelectorAll('.cw-row .card').length === 5 && !document.querySelector('.cw-row [data-cw-id="${gone}"]')`);
