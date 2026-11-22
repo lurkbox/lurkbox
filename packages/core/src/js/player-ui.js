@@ -4,13 +4,14 @@
 /**
  * The row of icon buttons, in order, for what is playing.
  * ctx: { kind: 'live'|'video', points: bool (Twitch's chat frame is loaded), follow: bool (the channel is known and
- * follow/unfollow is available), fullscreen: bool }
+ * follow/unfollow is available), compose: bool (signed in, Lurkbox chat style: "Send a message"), fullscreen: bool }
  */
 export function overlayControls(ctx) {
   const live = ctx.kind === 'live';
   return [
     'play', 'volume', 'quality',
     live ? 'chat' : null,
+    live && ctx.compose ? 'compose' : null,
     live ? 'live' : null,
     live && ctx.points ? 'points' : null,
     ctx.follow ? 'follow' : null,
@@ -28,6 +29,7 @@ export function controlIcon(key, ctx = {}) {
     case 'volume': return ctx.muted || ctx.volume === 0 ? 'volume-muted' : ctx.volume < 0.5 ? 'volume-low' : 'volume';
     case 'chat': return ctx.chatOn ? 'chat' : 'chat-off';
     case 'follow': return ctx.following ? 'heart-filled' : 'heart';
+    case 'compose': return 'keyboard';
     default: return key;
   }
 }
@@ -55,6 +57,7 @@ export function controlLabel(key, ctx = {}) {
     case 'volume': return `Volume${dot}${ctx.muted ? 'Muted' : `${Math.round((Number(ctx.volume) || 0) * 100)}%`}`;
     case 'quality': return `Quality${dot}${ctx.quality || 'Auto'}`;
     case 'chat': return `Chat${dot}${ctx.chatOn ? 'On' : 'Off'}`;
+    case 'compose': return 'Send a message';
     case 'live': return ctx.rewound ? 'Back to live' : ctx.behind ? 'Jump to live' : 'Live';
     case 'points': return Number.isFinite(ctx.points) ? `Channel points${dot}${Math.round(ctx.points).toLocaleString('en-US')}` : 'Channel points';
     case 'follow': return ctx.following ? `Following${dot}Unfollow?` : 'Follow';

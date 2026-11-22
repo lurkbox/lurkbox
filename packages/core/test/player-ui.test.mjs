@@ -9,6 +9,11 @@ test('overlay controls: one row, live-only buttons, points only with Twitch\'s c
   assert.deepEqual(overlayControls({ kind: 'live', points: true }), ['play', 'volume', 'quality', 'chat', 'live', 'points', 'channel', 'more', 'back']);
   assert.deepEqual(overlayControls({ kind: 'live', points: false }), ['play', 'volume', 'quality', 'chat', 'live', 'channel', 'more', 'back']);
   assert.deepEqual(overlayControls({ kind: 'video', points: true }), ['play', 'volume', 'quality', 'channel', 'more', 'back']);
+  // Sending: "Send a message" after Chat, live only, when signed in with Lurkbox chat (the caller decides).
+  assert.deepEqual(overlayControls({ kind: 'live', points: false, compose: true }), ['play', 'volume', 'quality', 'chat', 'compose', 'live', 'channel', 'more', 'back']);
+  assert.ok(!overlayControls({ kind: 'video', compose: true }).includes('compose'));
+  assert.equal(controlLabel('compose', {}), 'Send a message');
+  assert.equal(controlIcon('compose', {}), 'keyboard');
   for (const k of ['volume', 'quality', 'chat', 'points', 'more']) assert.ok(POPOVER_CONTROLS.has(k), k);
   assert.ok(!POPOVER_CONTROLS.has('play'));
   assert.ok(OVERLAY_HIDE_MS >= 3500 && OVERLAY_HIDE_MS <= 5000, 'auto-hide after about 4 s');
@@ -32,7 +37,7 @@ test('label bubble text: action, then its state after a dot', () => {
 });
 
 test('icons: every control has an outline icon; state picks the variant', () => {
-  for (const k of overlayControls({ kind: 'live', points: true })) assert.ok(PLAYER_ICONS[controlIcon(k, {})], k);
+  for (const k of overlayControls({ kind: 'live', points: true, compose: true, follow: true })) assert.ok(PLAYER_ICONS[controlIcon(k, {})], k);
   assert.equal(controlIcon('play', { paused: true }), 'play');
   assert.equal(controlIcon('play', { paused: false }), 'pause');
   assert.equal(controlIcon('volume', { muted: true, volume: 1 }), 'volume-muted');

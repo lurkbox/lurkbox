@@ -22,6 +22,7 @@
     "test:drops": "npm run test:drops -w apps/desktop --",
     "test:follow": "npm run test:follow -w apps/desktop --",
     "test:chat": "npm run test:chat -w apps/desktop --",
+    "test:chat-send": "npm run test:chat-send -w apps/desktop --",
     "screenshots": "npm run screenshots -w apps/desktop --"
   }
 }

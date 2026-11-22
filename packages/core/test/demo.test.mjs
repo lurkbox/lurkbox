@@ -119,7 +119,7 @@ test('the fake Twitch chat speaks IRC that chat.js understands', () => {
   h.run(2);
   const events = h.got.flatMap((d) => d.split('\r\n')).map((l) => ircEvent(parseIrc(l))).filter(Boolean);
   assert.equal(events[0].kind, 'joined');
-  assert.deepEqual(events[1], { kind: 'room', roomId: '7100004' });
+  assert.deepEqual(events[1], { kind: 'room', roomId: '7100004', modes: { slow: '0', 'followers-only': '-1', 'subs-only': '0', 'emote-only': '0', r9k: '0' } });
   const msgs = events.filter((e) => e.kind === 'msg');
   assert.ok(msgs.length >= 20);
   assert.ok(msgs.some((m) => /moderator\/1/.test(m.badges)));
@@ -158,4 +158,44 @@ test('installDemo pins the clock and replaces fetch and WebSocket in the page', 
   const undo = installClock(win, 0);
   assert.ok(Math.abs(win.Date.now()) < 5000);
   undo();
+});
+
+test('demo sending: Helix accepts a message (but not the same one twice in 30 s) and the fake chat echoes it', () => {
+  const db = buildDemoData({ media: (p) => `${BASE}${p}` });
+  const me = db.accounts[0];
+  let t = 1000;
+  const send = (message, to = '7100004') => demoHelix(db, { path: '/chat/messages', method: 'POST', body: { broadcaster_id: to, sender_id: me.id, message } }, { activeId: me.id, now: () => t });
+  const a = send('gg');
+  assert.equal(a.ok, true);
+  assert.equal(a.data.data[0].is_sent, true);
+  assert.match(a.data.data[0].message_id, /^demo-msg-\d+$/);
+  const dup = send('gg');
+  assert.equal(dup.data.data[0].is_sent, false);
+  assert.equal(dup.data.data[0].drop_reason.code, 'msg_duplicate');
+  assert.equal(send('gg', '7100005').data.data[0].is_sent, true, 'another channel is not a duplicate');
+  t += 31000;
+  assert.equal(send('gg', '7100005').data.data[0].is_sent, true, 'after 30 s it may go again');
+  assert.equal(demoHelix(db, { path: '/chat/messages', method: 'POST', body: { broadcaster_id: '1', sender_id: '999', message: 'x' } }, { activeId: me.id }).ok, false, 'only as the signed-in user');
+
+  // The echo: a socket joined to the room gets your message back as an IRC PRIVMSG with the Helix id.
+  const timers = [];
+  const sockets = new Set();
+  const WS = demoWebSocket({ roomIdOf: () => '7100004', chat: { paused: true, intervalMs: 1000 }, setTimer: (fn) => { timers.push(fn); return timers.length; }, clearTimer: () => {}, sockets });
+  const ws = new WS('wss://irc-ws.chat.twitch.tv:443');
+  const got = [];
+  ws.onmessage = (e) => got.push(e.data);
+  const run = () => { const ts = timers.splice(0); ts.forEach((fn) => fn()); };
+  run();
+  ws.send('JOIN #pixelmoth');
+  run();
+  assert.equal(sockets.size, 1);
+  [...sockets][0].echo({ user: me, text: 'hello lurkWave', id: 'demo-msg-9' });
+  run();
+  const ev = got.flatMap((d) => d.split('\r\n')).map((l) => ircEvent(parseIrc(l))).filter((e) => e && e.kind === 'msg' && e.id === 'demo-msg-9')[0];
+  assert.ok(ev, 'echoed');
+  assert.equal(ev.userId, me.id);
+  assert.equal(ev.text, 'hello lurkWave');
+  assert.equal(ev.roomId, '7100004');
+  ws.close();
+  assert.equal(sockets.size, 0, 'a closed socket leaves the set');
 });

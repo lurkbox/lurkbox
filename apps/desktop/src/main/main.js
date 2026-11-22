@@ -7,7 +7,7 @@ const STEAM_IM_MODULES = ['GTK_IM_MODULE', 'QT_IM_MODULE'];
 const droppedImModules = STEAM_IM_MODULES.filter((k) => /^steam$/i.test(process.env[k] || ''));
 for (const k of droppedImModules) delete process.env[k];
 const path = require('path');
-const { openSteamKeyboard } = require('./steam-keyboard');
+const { openSteamKeyboard, inGameMode } = require('./steam-keyboard');
 const { JoydevReader } = require('./joydev');
 const { app, BrowserWindow, ipcMain, Menu, session, nativeImage, safeStorage, net, protocol } = require('electron');
 const { CookieJar, playerStatus, mismatchWarning, openPlayerLogin, createLoginWindow, loginZoom, CHROME_UA } = require('./player-session');
@@ -397,6 +397,8 @@ function registerIpc() {
     }
   });
 
+  // The chat composer's keyboard: Steam's (types into the focused box) in Game Mode; elsewhere the core shows its own.
+  ipcMain.handle('keyboard:open', () => (inGameMode() ? openSteamKeyboard(appLog) : false));
   ipcMain.handle('qr:svg', (_e, text) => {
     const qr = qrcode(0, 'M');
     qr.addData(String(text));

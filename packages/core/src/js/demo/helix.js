@@ -66,6 +66,22 @@ export function demoHelix(db, req = {}, ctx = {}) {
       return list(db.badges);
     case '/chat/badges':
       return list([]); // the channel has no badges of its own; the global ones apply
+    case '/chat/messages': {
+      // Sending: accepted, except the same text twice within 30 s (Twitch's msg_duplicate rule). The renderer's fake IRC
+      // echoes accepted messages back (install.js), like the real anonymous chat connection does.
+      if (method !== 'POST') return { ok: false, status: 404, error: 'Not Found', data: null, resetAt: null };
+      const b = req.body || {};
+      const text = String(b.message || '').trim();
+      if (!text || String(b.sender_id) !== String(ctx.activeId)) return { ok: false, status: 400, error: 'Bad Request', data: { message: 'The sender must be the signed-in user.' }, resetAt: null };
+      const now = ctx.now ? ctx.now() : Date.now();
+      const sent = db.sent || (db.sent = { n: 0, last: null });
+      if (sent.last && sent.last.text === text && sent.last.to === String(b.broadcaster_id) && now - sent.last.at < 30000) {
+        return ok({ data: [{ message_id: '', is_sent: false, drop_reason: { code: 'msg_duplicate', message: 'Your message is identical to the one you sent within the last 30 seconds.' } }] });
+      }
+      sent.n += 1;
+      sent.last = { text, to: String(b.broadcaster_id), at: now };
+      return ok({ data: [{ message_id: `demo-msg-${sent.n}`, is_sent: true, drop_reason: null }] });
+    }
     case '/eventsub/subscriptions':
       if (method === 'POST') {
         const b = req.body || {};

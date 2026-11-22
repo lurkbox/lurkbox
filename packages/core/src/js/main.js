@@ -212,7 +212,7 @@ const nav = {
 
 function dispatch(action, source) {
   if (hasModal()) { handleModalAction(action, source); return; }
-  if (player.active) { player.handle(action); return; }
+  if (player.active) { player.handle(action, source); return; }
 
   const entry = topEntry();
   if (entry && entry.view.onAction && entry.view.onAction(action)) return;

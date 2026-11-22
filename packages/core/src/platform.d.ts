@@ -143,6 +143,11 @@ export interface LurkboxPlatform {
   log?(line: string): Promise<void> | void;
   /** Render text as a QR code; resolves an <svg> string (phone sign-in, links). */
   qrSvg(text: string): Promise<string>;
+  /**
+   * Optional, Desktop. Open the system's on-screen keyboard over the focused text box (desktop: Steam's keyboard, in
+   * Game Mode only; it types into the box). Resolves true when it opened; false makes the core show its own keyboard.
+   */
+  openOnScreenKeyboard?(): Promise<boolean>;
 
   // ---- settings ----
 
@@ -181,7 +186,11 @@ export interface LurkboxPlatform {
 
   // ---- Twitch API ----
 
-  /** Call the Helix API with the account's token (the token never reaches the page). Refreshes on 401. */
+  /**
+   * Call the Helix API with the account's token (the token never reaches the page). Refreshes on 401. Chat sending
+   * uses it too: POST /chat/messages (user:write:chat) and GET /chat/emotes/user (user:read:emotes); a 429 carries
+   * Ratelimit-Reset (seconds since the epoch) as resetAt.
+   */
   helix(req: HelixRequest): Promise<HelixResult>;
 
   // ---- player session (twitch.tv web login, for subs/Turbo in the player) ----

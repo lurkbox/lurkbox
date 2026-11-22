@@ -5,8 +5,9 @@
 export const DEFAULT_CLIENT_ID = '4eb4571f6v3hnf1xdwwxxetk3uc5cx';
 
 // Every scope Lurkbox may ever need, requested once at sign-in so the user
-// only authorizes one time. v0.1 only uses user:read:follows (chat is
-// anonymous IRC). A stored token missing any of these prompts a new sign-in.
+// only authorizes one time. Chat is read over anonymous IRC; sending uses
+// user:write:chat and the emote picker user:read:emotes (Helix). A stored
+// token missing any of these prompts a new sign-in.
 export const SCOPES = [
   'user:read:follows',
   'user:read:subscriptions',

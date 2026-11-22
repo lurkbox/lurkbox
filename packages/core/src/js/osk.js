@@ -9,11 +9,13 @@ const ROWS = [
   'asdfghjkl'.split('').concat(['_']),
   'zxcvbnm'.split('').concat(['-', '.', '@']),
 ];
+// An extra row for chat (symbols: true).
+const SYMBOLS = "!?,':;()#/".split('');
 
 /**
- * @param {{title: string, value?: string, maxLength?: number, onDone: (v: string) => void}} opts
+ * @param {{title: string, value?: string, maxLength?: number, symbols?: boolean, onDone: (v: string) => void, onCancel?: () => void}} opts
  */
-export function openKeyboard({ title, value = '', maxLength = 100, onDone }) {
+export function openKeyboard({ title, value = '', maxLength = 100, symbols = false, onDone, onCancel }) {
   let text = value;
   let upper = false;
   const field = el('div', { class: 'osk-field' });
@@ -26,10 +28,11 @@ export function openKeyboard({ title, value = '', maxLength = 100, onDone }) {
   };
   const type = (ch) => { if (text.length < maxLength) text += upper ? ch.toUpperCase() : ch; render(); };
   const backspace = () => { text = text.slice(0, -1); render(); };
-  const done = () => { m.close(); onDone(text); };
+  let finished = false;
+  const done = () => { finished = true; m.close(); onDone(text); };
 
   const keysWrap = el('div', { class: 'osk-keys' });
-  for (const row of ROWS) {
+  for (const row of symbols ? [...ROWS, SYMBOLS] : ROWS) {
     keysWrap.append(el('div', { class: 'osk-row' },
       row.map((ch) => button(ch, () => type(ch), { class: 'osk-key', dataset: { ch } }))));
   }
@@ -46,6 +49,7 @@ export function openKeyboard({ title, value = '', maxLength = 100, onDone }) {
     class: 'osk',
     content: el('div', {}, field, keysWrap, help),
     focus: '.osk-key[data-ch="q"]',
+    onClose() { if (!finished && onCancel) onCancel(); },
     onAction(action) {
       if (action === X) { backspace(); return true; }
       if (action === Y) { type(' '); return true; }
