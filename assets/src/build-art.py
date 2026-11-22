@@ -9,6 +9,9 @@ Outputs:
   assets/steam/icon.png           256x256   shortcut icon              -> shortcuts.vdf "icon"
   assets/icons/<n>x<n>.png        app icons (electron-builder linux icon dir)
   assets/src/*.svg                the SVG sources
+  apps/android/android/app/src/main/res/
+    drawable-xhdpi/banner.png     320x180   Android TV / Google TV launcher banner
+    mipmap-*/ic_launcher*.png     launcher icons (48-192), plus the adaptive icon's foreground (108dp canvas)
 
 The wordmark is converted to outlines from Bricolage Grotesque ExtraBold (SIL OFL 1.1). The script only needs the font when
 regenerating; pass --font <BricolageGrotesque[opsz,wdth,wght].ttf>. Otherwise it reuses assets/src/wordmark.json.
@@ -145,8 +148,21 @@ def logo_svg(wm):
     body = f'<g filter="url(#shadow)">{word(wm, pad, pad, ww)}</g>'
     return svg(w, h, body, bg=False)
 
-def render(src, out, w=None):
-    cmd = ['rsvg-convert', src, '-o', out] + (['-w', str(w), '-h', str(w)] if w else [])
+def banner_svg(wm):
+    # Android TV banner (320x180 px in drawable-xhdpi): the wide capsule's layout, without its halo-only margins.
+    ww = 168
+    return svg(320, 180, place(mascot(), 8, 22, 136) + word(wm, 144, 90 - word_h(wm, ww) / 2, ww))
+
+def adaptive_fg_svg():
+    # Adaptive icon foreground: a 108dp canvas whose middle 66dp is always visible; the mascot fits that circle.
+    # The background layer is res/drawable/ic_launcher_background.xml (the same gradient).
+    return svg(432, 432, place(mascot(halo=False), 96, 92, 240), bg=False)
+
+ANDROID_RES = os.path.join(os.path.dirname(ASSETS), 'apps', 'android', 'android', 'app', 'src', 'main', 'res')
+ANDROID_DPI = {'mdpi': 1, 'hdpi': 1.5, 'xhdpi': 2, 'xxhdpi': 3, 'xxxhdpi': 4}
+
+def render(src, out, w=None, h=None):
+    cmd = ['rsvg-convert', src, '-o', out] + (['-w', str(w), '-h', str(h or w)] if w else [])
     subprocess.run(cmd, check=True)
 
 def main():
@@ -166,6 +182,17 @@ def main():
         render(p, os.path.join(ASSETS, 'steam', f'{name}.png'))
     for n in (512, 256, 128, 64, 48, 32, 16):
         render(os.path.join(HERE, 'icon.svg'), os.path.join(ASSETS, 'icons', f'{n}x{n}.png'), n)
+    if os.path.isdir(ANDROID_RES):
+        for name, s in {'banner': banner_svg(wm), 'adaptive-fg': adaptive_fg_svg()}.items():
+            open(os.path.join(HERE, f'{name}.svg'), 'w').write(s)
+        os.makedirs(os.path.join(ANDROID_RES, 'drawable-xhdpi'), exist_ok=True)
+        render(os.path.join(HERE, 'banner.svg'), os.path.join(ANDROID_RES, 'drawable-xhdpi', 'banner.png'), 320, 180)
+        for dpi, k in ANDROID_DPI.items():
+            d = os.path.join(ANDROID_RES, f'mipmap-{dpi}')
+            os.makedirs(d, exist_ok=True)
+            for name in ('ic_launcher', 'ic_launcher_round'):
+                render(os.path.join(HERE, 'icon.svg'), os.path.join(d, f'{name}.png'), int(48 * k))
+            render(os.path.join(HERE, 'adaptive-fg.svg'), os.path.join(d, 'ic_launcher_foreground.png'), int(108 * k))
     print('ok')
 
 if __name__ == '__main__':

@@ -1,4 +1,26 @@
-# Android plan (not started)
+# Android (early)
+
+Status: **scaffold.** `apps/android` is a Capacitor 8 project that bundles the core's renderer into the APK (no dev server) and shows on the Google TV / Android TV home row (leanback launcher, banner). The `window.lurkbox` it ships is still a placeholder: nothing signs in or plays yet.
+
+## Build and install
+
+Needs Node 22, a JDK 21 (the Android Gradle Plugin doesn't run on newer JDKs) and the Android SDK (`ANDROID_HOME`, default `~/Android/Sdk`; Gradle downloads a missing SDK platform itself).
+
+```sh
+npm ci --ignore-scripts
+npm run android:sync      # core → apps/android/www → the Android project (cap sync android)
+npm run android:build     # debug APK; prints its path, versionName and versionCode
+npm run android:release   # release APK (debug-signed until there is a release key)
+adb install -r apps/android/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+- `JAVA_HOME` picks the JDK; when it's unset, the scripts use a portable JDK 21 unpacked in `~/.cache/lurkbox-jdk21/` if there is one.
+- **applicationId** `io.github.lurkbox.Lurkbox` (fixed for good). **versionName** is the package version plus the commit (`0.1.0-78501e0`); **versionCode** is the minutes since 2026-01-01 UTC at build time (or `LURKBOX_VERSION_CODE`), so every build upgrades the previous one in place.
+- **Signing:** debug and release builds use `~/.config/lurkbox-android/debug.keystore` (or `LURKBOX_DEBUG_KEYSTORE`) when it exists, so upgrades keep the same key; otherwise Android's default debug key. Make one once with `keytool -genkeypair -keystore ~/.config/lurkbox-android/debug.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"`. Never commit a keystore.
+- CI's "Android APK" job builds the debug APK (default debug key) and uploads it as the `Lurkbox-Android-debug-APK` artifact, for reference only.
+- minSdk 24, targetSdk 35, compileSdk 36. The banner (`res/drawable-xhdpi/banner.png`, 320×180) and launcher icons come from `assets/src/build-art.py`.
+
+# Android plan
 
 One Android app for Android TV / Google TV, tablets and phones, built with [Capacitor](https://capacitorjs.com/) from the same `packages/core`. TV comes first; touch layouts (bottom tabs on phones, a rail on tablets, swipe for chat, tap to scrub) follow.
 

@@ -1,0 +1,27 @@
+{
+  "name": "lurkbox-android",
+  "version": "0.1.0",
+  "description": "Lurkbox for Android TV / Google TV (Capacitor). Early.",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "author": "aronwk-aaron",
+  "type": "module",
+  "scripts": {
+    "sync": "node scripts/android.mjs sync",
+    "build": "node scripts/android.mjs build",
+    "release": "node scripts/android.mjs release",
+    "test": "node --test \"test/**/*.test.mjs\""
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/preferences": "^8.0.1",
+    "@lurkbox/core": "0.1.0",
+    "qrcode-generator": "^2.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
+    "esbuild": "^0.28.2"
+  }
+}

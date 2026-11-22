@@ -14,3 +14,9 @@ apps/desktop/scripts/deploy.local.env
 HANDOFF.local.md
 __pycache__/
 *.pyc
+
+# Android: built web assets, local SDK path, and never any keystore
+apps/android/www/
+apps/android/android/local.properties
+*.keystore
+*.jks
