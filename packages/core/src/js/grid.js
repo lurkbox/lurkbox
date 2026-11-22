@@ -2,6 +2,7 @@
 import { el, button, toast, fmtViewers, fmtUptime, fmtDate, thumb } from './ui.js';
 import { hint } from './input.js';
 import { sortLabel, nextSort, groupByGame } from '../shared/sorts.js';
+import { fmtLength } from '../shared/channel-page.js';
 import { ApiError } from './api.js';
 import { state, saveSettings } from './state.js';
 
@@ -10,8 +11,43 @@ import { focusEl } from './focus.js';
 import { focusAfterUpdate } from './refresher.js';
 import { refreshMarquee } from './marquee.js';
 
+/** The channel a card belongs to, for X (or a long-press) → its channel page (main.js). */
+const channelData = (login, id, name) => (login ? { channelLogin: login, channelId: id || '', channelName: name || login } : undefined);
+
+/** A touch long-press (no click follows it, and no context menu, which would be Back). */
+export function onLongPress(node, fn, ms = 500) {
+  let timer = null;
+  let fired = false;
+  let touching = false;
+  node.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return;
+    fired = false;
+    touching = true;
+    clearTimeout(timer);
+    timer = setTimeout(() => { fired = true; fn(); }, ms);
+  });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) node.addEventListener(ev, () => { clearTimeout(timer); setTimeout(() => { touching = false; }, 0); });
+  node.addEventListener('click', (e) => { if (fired) { fired = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+  node.addEventListener('contextmenu', (e) => { if (fired || touching) { e.preventDefault(); e.stopPropagation(); } });
+  return node;
+}
+
+/** X on a focused card (or a long-press on it) opens its channel page: the card's data-channel-* (main.js). */
+export function channelOfCard(node) {
+  const c = node && node.closest ? node.closest('[data-channel-login]') : null;
+  return c ? { login: c.dataset.channelLogin, id: c.dataset.channelId || null, name: c.dataset.channelName || c.dataset.channelLogin } : null;
+}
+
+let openChannelFn = null;
+/** main.js: how a long-press opens a channel page. */
+export function setChannelOpener(fn) { openChannelFn = fn; }
+function withChannel(card) {
+  if (card.dataset.channelLogin) onLongPress(card, () => { const c = channelOfCard(card); if (c && openChannelFn) openChannelFn(c); });
+  return card;
+}
+
 export function streamCard(s, onSelect) {
-  return el('button', { class: 'card focusable', type: 'button', onclick: () => onSelect(s) },
+  return withChannel(el('button', { class: 'card focusable', type: 'button', onclick: () => onSelect(s), dataset: channelData(s.user_login, s.user_id, s.user_name) },
     el('div', { class: 'card-thumb' },
       s.thumbnail_url ? el('img', { src: thumb(s.thumbnail_url, 440, 248, refreshMs()), alt: '', loading: 'lazy' }) : null,
       el('span', { class: 'badge live' }, 'LIVE'),
@@ -19,7 +55,7 @@ export function streamCard(s, onSelect) {
     el('div', { class: 'card-body' },
       el('div', { class: 'card-title' }, s.user_name || s.user_login),
       el('div', { class: 'card-sub' }, s.title || ''),
-      el('div', { class: 'card-meta' }, [s.game_name, fmtUptime(s.started_at)].filter(Boolean).join(' · '))));
+      el('div', { class: 'card-meta' }, [s.game_name, fmtUptime(s.started_at)].filter(Boolean).join(' · ')))));
 }
 
 export function gameCard(g, onSelect) {
@@ -41,7 +77,7 @@ export function channelCard(c, onSelect) {
 
 export function videoCard(v, onSelect) {
   const img = v.thumbnail_url ? thumb(v.thumbnail_url, 440, 248) : '';
-  return el('button', { class: 'card focusable', type: 'button', onclick: () => onSelect(v) },
+  return el('button', { class: 'card focusable', type: 'button', onclick: () => onSelect(v), dataset: { focusKey: `video-${v.id}` } },
     el('div', { class: 'card-thumb' },
       img ? el('img', { src: img, alt: '', loading: 'lazy' }) : el('div', { class: 'thumb-missing' }, 'Processing'),
       el('span', { class: 'badge viewers' }, v.duration || ''),
@@ -49,6 +85,41 @@ export function videoCard(v, onSelect) {
     el('div', { class: 'card-body' },
       el('div', { class: 'card-title' }, v.title || 'Untitled'),
       el('div', { class: 'card-meta' }, `${fmtDate(v.created_at)} · ${fmtViewers(v.view_count)} views`)));
+}
+
+/** A clip (Helix /clips item): its picture, length and views; who clipped it and when. */
+export function clipCard(c, onSelect) {
+  return el('button', { class: 'card card-clip focusable', type: 'button', onclick: () => onSelect(c), dataset: { focusKey: `clip-${c.id}` } },
+    el('div', { class: 'card-thumb' },
+      c.thumbnail_url ? el('img', { src: c.thumbnail_url, alt: '', loading: 'lazy' }) : el('div', { class: 'thumb-missing' }, 'Clip'),
+      el('span', { class: 'badge viewers' }, fmtLength(c.duration)),
+      el('span', { class: 'badge clip-views' }, `${fmtViewers(c.view_count)} views`)),
+    el('div', { class: 'card-body' },
+      el('div', { class: 'card-title' }, c.title || 'Untitled clip'),
+      el('div', { class: 'card-meta' }, [c.creator_name ? `Clipped by ${c.creator_name}` : null, fmtDate(c.created_at)].filter(Boolean).join(' · '))));
+}
+
+/**
+ * A row of filter pills (one is on), e.g. the Videos tab's Past broadcasts / Highlights / Uploads. Focusable and
+ * tappable; A or a tap picks one. @returns {{ el, set(value) }}
+ */
+export function filterPills({ items, value, onPick, key, label }) {
+  const row = el('div', { class: 'pills', role: 'radiogroup', 'aria-label': label || null, dataset: { focusGroup: key } });
+  const paint = () => {
+    for (const b of row.children) {
+      const on = b.dataset.value === value;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+  };
+  for (const it of items) {
+    row.append(el('button', {
+      class: 'pill focusable', type: 'button', role: 'radio', dataset: { value: it.value, focusKey: `${key}-${it.value}` },
+      onclick: () => { if (value === it.value) return; value = it.value; paint(); onPick(it.value); },
+    }, it.label));
+  }
+  paint();
+  return { el: row, set(v) { value = v; paint(); }, get value() { return value; } };
 }
 
 /**

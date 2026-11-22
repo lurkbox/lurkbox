@@ -23,7 +23,8 @@
     "test:points-cookies": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/points-cookies.js",
     "test:chat": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/chat.js",
     "test:chat-send": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/chat-send.js",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "test:channel": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/channel.js"
   },
   "dependencies": {
     "@lurkbox/core": "0.1.0",

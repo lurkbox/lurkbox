@@ -31,6 +31,10 @@ const SETUP = {
   'chat-composer': { settings: { chatDefault: true } },
   'chat-emotes': { settings: { chatDefault: true } },
   'quick-chat': { settings: { chatDefault: true, quickChat: { global: ['gg', 'LUL', 'hype!', 'o7', 'PogChamp'], channels: { 7100004: { login: 'pixelmoth', phrases: ['moth gang lurkerLove', 'world 6 lets go boxHype'] } } } } },
+  // The channel page (X on a live card): Home, the Clips tab (period 30 days), the Schedule tab.
+  channel: {},
+  'channel-clips': { settings: { clipPeriod: '30d' } },
+  'channel-schedule': {},
   categories: {},
   search: {},
   keyboard: {},
@@ -53,7 +57,8 @@ if (!SETUP[SCENE]) { console.error(`[shot] unknown scene ${SCENE}; one of ${Obje
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'lurkbox-shot-'));
 fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ videoOnlyUnfocused: false, confirmExit: true, navSounds: false, inputWhenUnfocused: true, ...(SETUP[SCENE].settings || {}) }));
-Object.assign(process.env, { LURKBOX_DEMO: '1', LURKBOX_USER_DATA: userData, LURKBOX_DEMO_SIZE: process.env.SHOT_SIZE || '1280x800' }, SETUP[SCENE].env || {});
+// Times (the schedule, dates) in UTC, not the machine's zone: the screenshots are public.
+Object.assign(process.env, { TZ: process.env.SHOT_TZ || 'UTC', LURKBOX_DEMO: '1', LURKBOX_USER_DATA: userData, LURKBOX_DEMO_SIZE: process.env.SHOT_SIZE || '1280x800' }, SETUP[SCENE].env || {});
 if (!process.argv.includes('--windowed')) process.argv.push('--windowed');
 
 const { app } = require('electron');
@@ -151,6 +156,13 @@ app.on('browser-window-created', (_e, win) => {
     await press('A');
     await waitFor('the player', "!document.getElementById('player-screen').hidden");
     await playing();
+  };
+  /** X on the first live card opens its channel page (pixelmoth: live, with a schedule). */
+  const openChannelPage = async () => {
+    await following();
+    await js("document.querySelector('[data-view=following] .grid .card').focus(); true");
+    await press('X');
+    await waitFor('the channel page', "!!document.querySelector('.channel-tabs .channel-tab.selected')");
   };
   const overlay = async () => {
     if (await js("document.getElementById('player-overlay').hidden")) await press('A');
@@ -293,6 +305,30 @@ app.on('browser-window-created', (_e, win) => {
       await sleep(300); // the storyboard sprite is a CSS background
       await shoot('player-rewind');
       await js("__shot.release('LEFT')");
+    },
+    async channel() {
+      await openChannelPage();
+      await waitFor('the home tab', "document.querySelectorAll('.channel-body .card').length >= 6 && !!document.querySelector('.channel-next .schedule-row')");
+      await waitFor('the follower count', "/followers/.test(document.querySelector('.channel-sub').textContent)");
+      await js("document.querySelector('[data-focus-key=channel-watch]').focus(); true");
+      await settle();
+      await shoot('channel');
+    },
+    async 'channel-clips'() {
+      await openChannelPage();
+      await press('RB', 'RB');
+      await waitFor('the clips tab', "document.querySelector('.channel-body').dataset.tab === 'clips' && document.querySelectorAll('.channel-body .card-clip').length >= 4");
+      await js("document.querySelector('.channel-body .card-clip').focus(); true");
+      await settle();
+      await shoot('channel-clips');
+    },
+    async 'channel-schedule'() {
+      await openChannelPage();
+      await press('RB', 'RB', 'RB');
+      await waitFor('the schedule tab', "document.querySelectorAll('.channel-body .schedule-row').length >= 4");
+      await js("document.querySelector('.channel-body .schedule-row').focus(); true");
+      await settle();
+      await shoot('channel-schedule');
     },
     async categories() {
       await following();

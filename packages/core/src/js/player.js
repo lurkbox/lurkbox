@@ -245,7 +245,8 @@ export class Player {
     if (!state.auth.signedIn && window.lurkbox.liveInfo) this.loadLiveInfo(this.current);
   }
 
-  async openVideo(video) {
+  /** opts.startAt: start there (seconds) without asking to resume, e.g. a clip's "Watch from here". */
+  async openVideo(video, opts = {}) {
     if (this.current && this.current.kind === 'video') this.saveResume();
     const cur = { kind: 'video', login: video.user_login, name: video.user_name, userId: video.user_id, videoId: video.id, title: video.title, video };
     if (this.vodTimeline) vlog(this.vodTimeline.finish('left before PLAYING'));
@@ -261,8 +262,8 @@ export class Player {
     this.tchat.close();
     this.loadFollow(cur);
     if (window.lurkbox.storyboard) window.lurkbox.storyboard(video.id).then((sb) => { if (cur === this.current) this.storyboard = sb; }).catch(() => {});
-    let startAt = 0;
-    const saved = window.lurkbox.resumeGet ? await window.lurkbox.resumeGet(video.id).catch(() => null) : null;
+    let startAt = Math.max(0, Number(opts.startAt) || 0);
+    const saved = !startAt && window.lurkbox.resumeGet ? await window.lurkbox.resumeGet(video.id).catch(() => null) : null;
     if (cur !== this.current) return;
     if (saved && resumeDecision({ position: saved.position, duration: saved.duration || parseHelixDuration(video.duration) }) === 'ask') {
       this.vodMark('resume prompt shown');

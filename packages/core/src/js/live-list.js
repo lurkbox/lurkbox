@@ -1,5 +1,6 @@
 // A live stream grid that refreshes itself while on screen (Browse, Category). Y cycles its sort (Viewers, Newest, A–Z).
 import { el } from './ui.js';
+import { hint } from './input.js';
 import { state } from './state.js';
 import { KeyedGrid, streamCard, errorState, listSort } from './grid.js';
 import { STREAM_SORTS, sortStreams } from '../shared/sorts.js';
@@ -21,7 +22,7 @@ export function liveListView({ id, title, header, load, empty }) {
       let list = [];
       let raw = [];
       const sort = this.sort = listSort({ key: 'streamSort', sorts: STREAM_SORTS, onChange: () => paint({ keepPosition: true }) });
-      h.append(sort.chip, status);
+      h.append(hint('{X} channel page'), sort.chip, status);
       host.append(h, gridEl, emptyEl);
       const grid = new KeyedGrid(gridEl, { key: (s) => s.user_id || s.id, render: (s) => streamCard(s, (x) => nav.playStream(x, list)) });
       poller = new Poller({

@@ -67,6 +67,10 @@ jobs:
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
         run: xvfb-run -a npm run test:chat-send
+      - name: Channel pages in demo mode (offline)
+        env:
+          ELECTRON_DISABLE_SANDBOX: "1"
+        run: xvfb-run -a npm run test:channel
 
   package:
     name: AppImage builds

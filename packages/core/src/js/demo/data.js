@@ -114,7 +114,7 @@ export function buildDemoData({ media = (p) => `demo-media/${p}` } = {}) {
     const u = {
       id: String(nextId++), login, display_name: display, type: '', broadcaster_type: i % 3 === 0 ? 'partner' : 'affiliate',
       description: `Hi, I'm ${display}. This is a made-up channel for the Lurkbox demo.`,
-      profile_image_url: media(`img/avatar/${login}.svg`), offline_image_url: '', view_count: 0,
+      profile_image_url: media(`img/avatar/${login}.svg`), offline_image_url: media(`img/vod/${login}~99-1600x400.svg`), view_count: 0,
       created_at: iso(DEMO_NOW - (400 + Math.floor(r() * 2000)) * DAY),
     };
     users.push(u);
@@ -163,8 +163,8 @@ export function buildDemoData({ media = (p) => `demo-media/${p}` } = {}) {
     for (let k = 0; k < 8; k++) {
       const dur = 3600 + Math.floor(r() * 4 * 3600);
       const at = DEMO_NOW - (startDays + k * 2) * DAY - Math.floor(r() * 6) * 3600 * 1000 - dur * 1000;
-      const type = k === 3 || k === 6 ? 'highlight' : 'archive';
-      const t = `${vodTitles[(k + u.login.length) % vodTitles.length]}${type === 'highlight' ? ' (best bits)' : ''}`;
+      const type = k === 3 || k === 6 ? 'highlight' : k === 5 && hash(u.login) % 2 === 0 ? 'upload' : 'archive';
+      const t = `${vodTitles[(k + u.login.length) % vodTitles.length]}${type === 'highlight' ? ' (best bits)' : type === 'upload' ? ' (edited)' : ''}`;
       videos.push(mkVideo(vodId++, u, t, iso(at), type === 'highlight' ? 300 + Math.floor(r() * 900) : dur, type, null, game, k + 1));
     }
   }
@@ -178,6 +178,66 @@ export function buildDemoData({ media = (p) => `demo-media/${p}` } = {}) {
     };
   }
 
+  // Clips per channel: made from its broadcasts (video_id + vod_offset), spread over the last 60 days, by various
+  // made-up viewers. Ids are Twitch-style slugs.
+  const clips = [];
+  const clipTitles = ['That jump though', 'Chat called it', 'The perfect moment', 'Wait for it…', 'Absolutely clean', 'Unexpected visitor', 'We did it!', 'Speechless', 'Clutch save', 'The laugh', 'How?!', 'Best part of the stream'];
+  const clippers = ['tinylurker', 'couchpotato42', 'mossfan', 'snackbreak', 'nightviewer', 'tealeaf', 'pixelpal', 'quietfan'];
+  const pascal = (w) => w.charAt(0).toUpperCase() + w.slice(1);
+  for (const u of users) {
+    if (accounts.some((a) => a.id === u.id)) continue;
+    const own = videos.filter((v) => v.user_id === u.id && v.type === 'archive');
+    const n = 6 + (hash(u.login) % 7);
+    for (let k = 0; k < n; k++) {
+      const v = own[(k + 1) % Math.max(1, own.length)];
+      // Two clips from the last day, a few from this week, the rest over two months.
+      const ago = k < 2 ? (2 + k * 5) * 3600 * 1000 : k < 5 ? (1 + k) * DAY + Math.floor(r() * DAY) : (8 + k * 6) * DAY + Math.floor(r() * DAY);
+      const words = ['Brave', 'Sleepy', 'Lucky', 'Fuzzy', 'Mighty', 'Gentle', 'Shiny', 'Clever'];
+      const slug = `${pascal(words[(k + u.login.length) % words.length])}${pascal(u.login.slice(0, 6))}Clip${k}-demo${hash(`${u.login}${k}`) % 100000}`;
+      const g = s0(u.id);
+      clips.push({
+        id: slug, url: '', embed_url: '', // no real links in demo data
+        broadcaster_id: u.id, broadcaster_name: u.display_name, creator_id: String(8800000 + k), creator_name: clippers[(k + hash(u.login)) % clippers.length],
+        video_id: v ? v.id : '', game_id: g ? g.id : '', language: 'en', title: clipTitles[(k + hash(u.login)) % clipTitles.length],
+        view_count: Math.floor(40 + r() * (k < 5 ? 2400 : 18000)), created_at: iso(DEMO_NOW - ago),
+        thumbnail_url: media(`img/vod/${u.login}~${20 + k}-480x272.svg`), duration: 15 + Math.floor(r() * 45) + 0.5,
+        vod_offset: v ? 60 + Math.floor(r() * 3000) : null, is_featured: k === 0,
+      });
+    }
+  }
+  function s0(uid) {
+    const s = streams.find((x) => x.user_id === uid);
+    if (s) return G[s.game_name];
+    const off = offline.find((o) => o.u.id === uid);
+    return off ? off.game : null;
+  }
+
+  // Schedules: most channels stream on set weekdays (weekly segments for the next three weeks); every fourth has none (from the second)
+  // (Helix answers 404), one is on a break.
+  const schedules = new Map();
+  users.forEach((u, i) => {
+    if (accounts.some((a) => a.id === u.id) || i % 4 === 1) return;
+    const g = s0(u.id);
+    const hourUtc = 14 + (hash(u.login) % 8); // 14:00–21:00 UTC
+    const days = [1 + (i % 3), 3 + (i % 3), 6];
+    const segments = [];
+    for (let week = 0; week < 3; week++) {
+      for (const d of days) {
+        const start = Date.UTC(2026, 2, 14 + d + week * 7, hourUtc, 0, 0);
+        segments.push({
+          id: `demo-seg-${u.id}-${week}-${d}`, start_time: iso(start), end_time: iso(start + (2 + (d % 3)) * 3600 * 1000),
+          title: d === 6 ? 'Marathon night' : `${g ? g.name : 'Stream'} night`, canceled_until: null,
+          category: g ? { id: g.id, name: g.name } : null, is_recurring: true,
+        });
+      }
+    }
+    schedules.set(u.id, {
+      segments, broadcaster_id: u.id, broadcaster_name: u.display_name, broadcaster_login: u.login,
+      vacation: i % 9 === 5 ? { start_time: iso(DEMO_NOW - DAY), end_time: iso(DEMO_NOW + 6 * DAY) } : null,
+    });
+  });
+  const followers = new Map(users.map((u) => [u.id, 120 + (hash(`${u.login}:f`) % 240000)]));
+
   const games = GAMES.map((g) => ({ id: g.id, name: g.name, box_art_url: media(`img/boxart/${g.id}-{width}x{height}.svg`), igdb_id: '' }));
   // Top categories by viewers (live viewers summed, offline-only categories after them).
   const gameViewers = new Map(GAMES.map((g) => [g.id, 0]));
@@ -185,7 +245,7 @@ export function buildDemoData({ media = (p) => `demo-media/${p}` } = {}) {
   games.sort((a, b) => gameViewers.get(b.id) - gameViewers.get(a.id) || a.name.localeCompare(b.name));
 
   return {
-    now: DEMO_NOW, accounts, users, streams, follows, videos, games, media,
+    now: DEMO_NOW, accounts, users, streams, follows, videos, games, media, clips, schedules, followers,
     liveFollowed: LIVE_FOLLOWED.map(([l]) => l),
     lastLive: new Map(offline.map((o) => [o.u.id, DEMO_NOW - o.days * DAY])),
     gameOf: new Map(offline.map((o) => [o.u.id, o.game])),

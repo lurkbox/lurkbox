@@ -5,6 +5,7 @@ import { DEFAULT_CLIENT_ID } from './config.js';
 import { CHAT_LAYOUT_DEFAULTS, sanitizeChatLayout } from './chat-layout.js';
 import { SORT_SETTINGS, validSort } from './sorts.js';
 import { sanitizeSearchHistory } from './search-history.js';
+import { VIDEO_FILTERS, CLIP_PERIODS, validChoice } from './channel-page.js';
 import { DEFAULT_QUICK_CHAT, sanitizeQuickChat, sanitizeEmoteRecents } from './quick-chat.js';
 
 export const THEMES = ['lurkbox', 'game-mode', 'classic-purple', 'oled', 'daylight', 'high-contrast', 'custom'];
@@ -29,6 +30,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   streamSort: 'viewers', // Browse and category streams
   vodSort: 'newest', // a channel's videos
   searchSort: 'live', // search results
+  clipSort: 'views', // a channel's clips
+  videoFilter: 'archive', // a channel's Videos tab: 'archive' (past broadcasts) | 'highlight' | 'upload' (shared/channel-page.js)
+  clipPeriod: '7d', // a channel's Clips tab: '24h' | '7d' | '30d' | 'all'
   videoOnlyUnfocused: true, // hide chat/controls while unfocused (player only)
   confirmExit: true,
   navSounds: true,
@@ -75,6 +79,8 @@ export function sanitizeSettings(patch) {
   if ('refreshInterval' in patch) out.refreshInterval = [10, 15, 30, 60].includes(Number(patch.refreshInterval)) ? Number(patch.refreshInterval) : 15;
   if ('followSort' in patch) out.followSort = ['recent', 'az', 'followed'].includes(patch.followSort) ? patch.followSort : 'recent';
   for (const [k, { sorts, fallback }] of Object.entries(SORT_SETTINGS)) if (k in patch) out[k] = validSort(sorts, patch[k], fallback);
+  if ('videoFilter' in patch) out.videoFilter = validChoice(VIDEO_FILTERS, patch.videoFilter);
+  if ('clipPeriod' in patch) out.clipPeriod = validChoice(CLIP_PERIODS, patch.clipPeriod, '7d');
   if ('videoCodec' in patch) out.videoCodec = patch.videoCodec === 'best' ? 'best' : 'h264';
   if ('backgroundQuality' in patch) out.backgroundQuality = ['same', '720', '480'].includes(String(patch.backgroundQuality)) ? String(patch.backgroundQuality) : '720';
   Object.assign(out, sanitizeChatLayout(patch));

@@ -1,7 +1,7 @@
 // Renderer entry: router, left rail, input dispatch and startup routing.
 import { initState, state, onState, applyTheme, applyDisplay, flushSettings } from './state.js';
 import { handleSliderAction } from './slider.js';
-import { Input, A, B, Y, LB, RB, LEFT, RIGHT, DIRECTIONS } from './input.js';
+import { Input, A, B, X, Y, LB, RB, LEFT, RIGHT, DIRECTIONS } from './input.js';
 import { moveFocus, focusFirst, focusEl, focusables } from './focus.js';
 import { snapshotFocus, restoreFocus, focusKey as stableFocusKey } from './focus-keep.js';
 import { hasModal, handleModalAction } from './modal.js';
@@ -11,6 +11,7 @@ import { Player } from './player.js';
 import { RaidWatcher } from './eventsub.js';
 import { el, toast } from './ui.js';
 import { tw } from './api.js';
+import { channelOfCard, setChannelOpener } from './grid.js';
 import { installMarquee } from './marquee.js';
 import { keepFocusOutOfFrames } from './frame-focus.js';
 import { mascotEl, iconDataUrl } from './mascot.js';
@@ -137,7 +138,7 @@ const nav = {
     }
     stack.push(mount(view));
     content.scrollTop = 0;
-    pendingFocus = { index: 0, force: true };
+    pendingFocus = { index: 0, force: true, selector: view.initialFocus || null }; // initialFocus: e.g. the channel's Watch
     tryPendingFocus();
   },
 
@@ -174,8 +175,9 @@ const nav = {
   playChannel({ login, name, userId }) {
     nav.openPlayer(() => player.openLive({ login, name, userId }, []));
   },
-  playVideo(v) {
-    nav.openPlayer(() => player.openVideo(v));
+  /** opts.startAt: seconds into the video (a clip's "Watch from here"); no resume question then. */
+  playVideo(v, opts = {}) {
+    nav.openPlayer(() => player.openVideo(v, opts));
   },
   openPlayer(start) {
     if (!player.active) playerReturnFocus = document.activeElement;
@@ -194,7 +196,12 @@ const nav = {
     }
   },
 
-  openChannel(c) { nav.push(channelView(c)); },
+  /** A channel page (the same channel's page on top is reused). */
+  openChannel(c) {
+    const top = topEntry();
+    if (top && c && c.login && top.view.id === `channel:${String(c.login).toLowerCase()}`) return;
+    nav.push(channelView(c));
+  },
   /** Focus the current section's rail button (B out of a view that keeps the controller, like Drops). */
   focusRail() { focusEl(railButton(currentTop)); },
 
@@ -273,6 +280,12 @@ function dispatch(action, source) {
       else if (what === 'to-rail') { if (inContent) lastContentFocus = active; focusEl(railButton(currentTop)); }
       else if (what === 'home') nav.goTop('following', { focusContent: false });
       else if (what === 'exit') askExit();
+      return;
+    }
+    case X: {
+      // X on a channel's card (a live stream) opens its channel page.
+      const c = inContent ? channelOfCard(active) : null;
+      if (c) nav.openChannel(c);
       return;
     }
     case Y:
@@ -399,6 +412,7 @@ async function start() {
   input.allowUnfocused = !!state.settings.inputWhenUnfocused;
 
   buildRail();
+  setChannelOpener((c) => nav.openChannel(c)); // a long-press on a stream card
 
   // After a player sign-in, reload the embed so it picks up the twitch.tv session.
   onPlayerLogin(() => {
