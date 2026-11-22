@@ -59,6 +59,10 @@ jobs:
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
         run: xvfb-run -a npm run test:follow
+      - name: The twitch.tv session reaches the chat frame (SameSite=None cookies)
+        env:
+          ELECTRON_DISABLE_SANDBOX: "1"
+        run: xvfb-run -a npm run test:points-cookies
       - name: Chat sending in demo mode (offline)
         env:
           ELECTRON_DISABLE_SANDBOX: "1"

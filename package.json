@@ -21,6 +21,7 @@
     "test:points": "npm run test:points -w apps/desktop --",
     "test:drops": "npm run test:drops -w apps/desktop --",
     "test:follow": "npm run test:follow -w apps/desktop --",
+    "test:points-cookies": "npm run test:points-cookies -w apps/desktop --",
     "test:chat": "npm run test:chat -w apps/desktop --",
     "test:chat-send": "npm run test:chat-send -w apps/desktop --",
     "screenshots": "npm run screenshots -w apps/desktop --"

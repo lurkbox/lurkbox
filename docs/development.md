@@ -46,6 +46,7 @@ npm run test:points    # channel points against test/fixtures/chat-points.html i
 npm run test:drops     # drops against test/fixtures/drops-inventory.html: scan, claim, selector tolerance, controller navigation, and the real Drops section (stable focus while idle, sub-frame loads and unfocus/refocus; the D-pad moves) (LURKBOX_SHOT_DIR=<dir> saves drops-*.png)
 npm run test:follow    # follow/unfollow against test/fixtures/channel-page.html at the real channel URL: selectors, flip, retry, captcha, wrong channel
 npm run test:chat      # Lurkbox chat on a busy channel (LURKBOX_SHOT=x.png; LURKBOX_CHAT_STYLE=twitch for Twitch chat style and its TV zoom; LURKBOX_CHAT_EXT=1 for the real extensions)
+npm run test:points-cookies # offline: fake twitch.tv auth cookies reach the chat iframe of the localhost page; a Lax rewrite by a first-party twitch.tv page hides them (reproduced) and is repaired at startup and kept SameSite=None
 npm run test:chat-send # offline, in demo mode: "Send a message", the on-screen keyboard (and its layout toggle), the echo, a refused duplicate, the emote picker, quick chat from the composer and the overlay (LURKBOX_SHOT_DIR=<dir> saves chat-send-*.png)
 npm run screenshots    # README screenshots in demo mode (below)
 node packages/core/src/platform-check.js   # the platform interface check on its own, with a readable report
@@ -73,7 +74,7 @@ The electron-builder config is `apps/desktop/electron-builder.config.js` (app id
 | Job | Steps |
 |---|---|
 | Unit tests | `npm ci --ignore-scripts`; `node --check` on every tracked `.js` in `packages/*/src`, `apps/*/src`, `apps/*/test` and `apps/*/*.config.js`; `npm test` |
-| Launch smoke test | `npm ci --ignore-scripts && npm rebuild electron`; `xvfb-run -a npm run test:smoke`; `xvfb-run -a npm run test:drops`; `xvfb-run -a npm run test:follow`; `xvfb-run -a npm run test:chat-send` |
+| Launch smoke test | `npm ci --ignore-scripts && npm rebuild electron`; `xvfb-run -a npm run test:smoke`; `xvfb-run -a npm run test:drops`; `xvfb-run -a npm run test:follow`; `xvfb-run -a npm run test:points-cookies`; `xvfb-run -a npm run test:chat-send` |
 | AppImage builds | the same install; `npm run dist -- --publish never`; uploads `dist/*.AppImage` |
 | Secret scan | gitleaks over the full history |
 
