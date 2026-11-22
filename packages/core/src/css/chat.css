@@ -31,8 +31,9 @@ body {
 .chat-badges { display: inline-flex; gap: 0.2em; margin-right: 0.3em; vertical-align: middle; }
 .chat-badge { display: inline-block; height: 1.15em; width: auto; vertical-align: middle; border-radius: 0.1em; }
 
-/* 7TV paints: the rule per paint is added at run time (background-clip: text). */
-.chat-nick.paint { background-color: currentColor; }
+/* 7TV paints: the rule per paint is added at run time (background-clip: text). A text-shadow would paint over the
+   clipped background (the text itself is transparent), so any shadow behind a painted name is a filter instead. */
+.chat-nick.paint { background-color: currentColor; text-shadow: none; filter: var(--nick-shadow, none); }
 
 /* Emote effects (BetterTTV "h! v! w! ..." text modifiers and FrankerFaceZ modifier emotes). */
 .fx-flip-x { transform: scaleX(-1); }
