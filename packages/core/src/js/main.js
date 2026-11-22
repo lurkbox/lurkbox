@@ -36,7 +36,8 @@ const TOP = {
   drops: dropsView,
   settings: settingsView,
 };
-const TOP_ORDER = Object.keys(TOP);
+// Drops is Twitch's own inventory page in the host's twitch.tv session; hosts without it (dropsStatus) don't show it.
+const TOP_ORDER = Object.keys(TOP).filter((id) => id !== 'drops' || !window.lurkbox || window.lurkbox.dropsStatus);
 
 const appEl = document.getElementById('app');
 const rail = document.getElementById('rail');

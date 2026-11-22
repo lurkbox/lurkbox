@@ -4,7 +4,7 @@
 // platform is the `window.lurkbox` object described here, plus the resources listed under "Host-served files".
 // Each app implements it:
 //   - desktop: apps/desktop/src/preload.js (contextBridge → ipcMain handlers in apps/desktop/src/main/main.js);
-//   - Android (planned): a Capacitor implementation, see docs/android.md.
+//   - Android: apps/android/src/platform-android.js (Capacitor), see docs/android.md.
 //
 // Rules for hosts:
 //   - Every method returns a Promise unless noted; failures resolve to an { ok: false, ... } shape or null as
@@ -25,7 +25,8 @@
 //
 // packages/core/src/platform-check.js (run by `npm test`) fails when the core uses a window.lurkbox member that
 // is not declared in LurkboxPlatform below, or when a declared member is no longer used; apps/desktop's tests
-// check that preload.js exposes exactly these members.
+// check that preload.js exposes exactly these members, and apps/android's that its platform has every required one
+// and nothing undocumented.
 
 export type Unsubscribe = () => void;
 
@@ -168,8 +169,8 @@ export interface LurkboxPlatform {
   authCancel(): Promise<void>;
   /** Sign out an account (default: the active one): its API token and, for the active one, its player session. */
   signOut(id?: string): Promise<unknown>;
-  /** The TV sign-in: twitch.tv login, then Authorize for Lurkbox, in one in-app window. `add` starts signed out for a new account; `accountId` re-signs one. */
-  tvSignIn(opts?: { add?: boolean; accountId?: string | null }): Promise<
+  /** Optional. The TV sign-in: twitch.tv login, then Authorize for Lurkbox, in one in-app window. `add` starts signed out for a new account; `accountId` re-signs one. Without it the core uses the phone (device-code) sign-in everywhere and never offers the player sign-in. */
+  tvSignIn?(opts?: { add?: boolean; accountId?: string | null }): Promise<
     | { ok: true; id: string; login: string; plan: string }
     | { ok: false; cancelled?: boolean; error?: string; message?: string }
   >;
@@ -197,8 +198,8 @@ export interface LurkboxPlatform {
 
   /** Whether the player half is signed in, and as whom. */
   playerSessionStatus(): Promise<PlayerSessionState>;
-  /** Open the twitch.tv login for the player only; resolves the outcome plus the new state. */
-  playerSessionLogin(): Promise<PlayerSessionState & { ok: boolean; [k: string]: unknown }>;
+  /** Optional. Open the twitch.tv login for the player only; resolves the outcome plus the new state. Without it the core doesn't offer the player sign-in. */
+  playerSessionLogin?(): Promise<PlayerSessionState & { ok: boolean; [k: string]: unknown }>;
   /** Sign the player half out. */
   playerSessionSignOut(): Promise<PlayerSessionState>;
 
@@ -257,7 +258,7 @@ export interface LurkboxPlatform {
 
   // ---- Twitch Drops (Twitch's own Drops Inventory page with the twitch.tv session; the host auto-claims) ----
 
-  /** Optional. Whether a twitch.tv web session exists (the Drops section shows a sign-in prompt otherwise) and when the background inventory check last ran (ms since the epoch, or null). */
+  /** Optional (without it the Drops section is hidden). Whether a twitch.tv web session exists (the Drops section shows a sign-in prompt otherwise) and when the background inventory check last ran (ms since the epoch, or null). */
   dropsStatus?(): Promise<{ signedIn: boolean; lastCheckAt: number | null; nextCheckAt: number | null }>;
   /** The Drops section's frame (https://www.twitch.tv/drops/inventory) got the app's focus: zoom it for the TV and start controller navigation inside it. */
   dropsOpen(): Promise<{ ok: boolean; reason?: string }>;
@@ -290,10 +291,10 @@ export interface LurkboxPlatform {
 
   // ---- Steam library art (Desktop) ----
 
-  /** Desktop. Write the theme-coloured capsule, wide, hero, logo and icon to Steam's grid folder (and live, when Steam's debugger is on). Other hosts: resolve { ok: false, error }. */
-  steamArtApply(images: { capsule: string; wide: string; hero: string; logo: string; icon: string; key?: string }): Promise<{ ok: boolean; live?: boolean; error?: string; [k: string]: unknown }>;
-  /** Desktop. Put the original Lurkbox art back. Other hosts: resolve { ok: false, error }. */
-  steamArtRestore(): Promise<{ ok: boolean; live?: boolean; error?: string; [k: string]: unknown }>;
+  /** Optional, Desktop. Write the theme-coloured capsule, wide, hero, logo and icon to Steam's grid folder (and live, when Steam's debugger is on). Other hosts omit it; the setting is hidden. */
+  steamArtApply?(images: { capsule: string; wide: string; hero: string; logo: string; icon: string; key?: string }): Promise<{ ok: boolean; live?: boolean; error?: string; [k: string]: unknown }>;
+  /** Optional, Desktop. Put the original Lurkbox art back. Other hosts omit it. */
+  steamArtRestore?(): Promise<{ ok: boolean; live?: boolean; error?: string; [k: string]: unknown }>;
 
   // ---- experimental browser extensions in Twitch chat (Desktop) ----
 

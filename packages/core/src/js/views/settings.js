@@ -68,7 +68,7 @@ export function settingsView() {
         account = el('div', { class: 'row' },
           el('div', { class: 'setting-value' }, a.needsReauth ? 'New permissions needed' : 'Not signed in'),
           button('Sign in', () => nav.signIn(), { class: 'primary sign-in' }),
-          button('Sign in with your phone instead', () => nav.phoneSignIn(), { dataset: { setting: 'phoneSignIn' } }));
+          window.lurkbox.tvSignIn ? button('Sign in with your phone instead', () => nav.phoneSignIn(), { dataset: { setting: 'phoneSignIn' } }) : null);
       }
 
       const fixPlayer = async (x) => {
@@ -95,7 +95,7 @@ export function settingsView() {
           if (!st || x.needsSignin) return;
           if (!st.api) {
             detail.replaceChildren(el('div', { class: 'setting-help warn' }, 'Lurkbox\'s access needs renewing.'), button('Fix', () => tvSignIn({ accountId: x.id, onSuccess: rerender })));
-          } else if (!st.player) {
+          } else if (!st.player && window.lurkbox.playerSessionLogin) {
             const why = st.playerLogin ? `The player is signed in as ${st.playerLogin}, so subs and Turbo apply to them.` : 'The player isn\'t signed in, so your subs and Turbo don\'t apply.';
             detail.replaceChildren(el('div', { class: 'setting-help warn' }, why), button('Fix', () => fixPlayer(x), { dataset: { setting: `fixPlayer-${x.id}` } }));
           }
@@ -179,8 +179,8 @@ export function settingsView() {
           el('h2', { class: 'section-title settings-section' }, 'Appearance'),
           row('Theme', themeBtn, 'Previews as you move. A keeps it, B reverts.'),
           row('Custom colours', button('Edit', () => nav.push(customThemeView()), { dataset: { setting: 'customEdit' } }), 'Pick your own background, surface, accent and text colours.'),
-          row('Match Steam library artwork to theme', steamArtBtn, 'Recolours Lurkbox\'s capsule, hero, logo and icon in the Steam library when you pick a theme. This uses Steam\'s internal, undocumented client interface (enabled by Decky Loader) and may break with Steam updates. Without it, the art changes the next time Steam restarts.'),
-          row('Restore original Lurkbox art', restoreArtBtn, 'Puts the original library art back and turns the setting above off.'),
+          window.lurkbox.steamArtApply ? row('Match Steam library artwork to theme', steamArtBtn, 'Recolours Lurkbox\'s capsule, hero, logo and icon in the Steam library when you pick a theme. This uses Steam\'s internal, undocumented client interface (enabled by Decky Loader) and may break with Steam updates. Without it, the art changes the next time Steam restarts.') : '',
+          window.lurkbox.steamArtRestore ? row('Restore original Lurkbox art', restoreArtBtn, 'Puts the original library art back and turns the setting above off.') : '',
           row('Screen margin', pickRow('screenMargin', 'Screen margin', SCREEN_MARGINS), 'Space around the edges for TVs that crop the picture (overscan).'),
           row('UI scale', pickRow('uiScale', 'UI scale', UI_SCALES)),
           el('h2', { class: 'section-title settings-section' }, 'Player'),

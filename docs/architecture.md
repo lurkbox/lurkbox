@@ -7,7 +7,8 @@ Lurkbox is a controller-driven TV client for Twitch. The first target is SteamOS
 ```
 packages/core/          @lurkbox/core: the platform-neutral app (browser code only)
   src/index.html, css/, js/, js/views/, fonts/
-  src/shared/           config.js (Client ID, scopes), settings.js (defaults, themes, sanitizeSettings)
+  src/shared/           config.js (Client ID, scopes), settings.js (defaults, themes, sanitizeSettings),
+                        twitch-auth.js, direct.js, clips.js, hls-rewrite.js (host-side Twitch logic, fetch injected)
   src/platform.d.ts     the window.lurkbox interface every host implements
   src/platform-check.js dev check: core use of window.lurkbox == platform.d.ts
   test/                 core unit tests
@@ -29,11 +30,11 @@ The core never imports Node or Electron. Everything it needs from the device goe
 
 Two tests keep the boundary honest:
 - `packages/core/test/platform.test.mjs` runs `platform-check.js`, which scans the core's `.js` and `.html` for `window.lurkbox` use (direct, `?.`, aliases, destructuring) and fails on a member missing from `platform.d.ts`, on a documented member nothing uses, and on computed access it can't check.
-- `apps/desktop/test/unit/preload-platform.test.mjs` fails unless `preload.js` exposes exactly the documented members.
+- `apps/desktop/test/unit/preload-platform.test.mjs` fails unless `preload.js` exposes exactly the documented members; `apps/android/test/platform.test.mjs` fails unless the Android platform has every required member and nothing undocumented.
 
 The host also serves two files next to `index.html`: `/vendor/hls.min.js` (from the hls.js dependency) and `/vendor/wordmark.json` (from `assets/src/`).
 
-Shared, platform-neutral logic that a non-browser host also needs lives in `packages/core/src/shared/` as ES modules. The desktop main process loads them with `require()` (require(esm), Electron 45 / Node 24); `apps/desktop/src/main/store.js` re-exports the settings schema next to its JSON file store.
+Shared, platform-neutral logic that a non-browser host also needs lives in `packages/core/src/shared/` as ES modules. The desktop main process loads them with `require()` (require(esm), Electron 45 / Node 24); `apps/desktop/src/main/store.js` re-exports the settings schema next to its JSON file store, and `twitch.js`, `direct.js` and `clips.js` there re-export the shared Twitch modules. The Android platform layer (`apps/android/src/`) imports the same modules and esbuild bundles them into one script; see [android.md](android.md).
 
 ## Desktop host (Electron)
 

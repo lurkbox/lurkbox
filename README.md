@@ -78,10 +78,14 @@ Lurkbox is one codebase for several platforms, organised as npm workspaces:
 |---|---|
 | `packages/core/` | `@lurkbox/core`: the platform-neutral app. The TV UI (`src/index.html`, `css/`, `js/`, `js/views/`, `fonts/`), the Twitch, chat and theme logic, and the shared settings schema and Twitch config (`src/shared/`). Plain browser code: no Node, no Electron. Its only contact with the host is `window.lurkbox`, documented in `src/platform.d.ts`. Tests in `test/`. |
 | `apps/desktop/` | The Electron app for SteamOS and Linux: main process (`src/main/`), `preload.js` (the desktop `window.lurkbox`), `login-preload.js`, the electron-builder config, the Flatpak draft (`flatpak/`), the deploy and Steam shortcut scripts (`scripts/`), and its unit and smoke tests (`test/`). |
-| `apps/android/` | Planned (Capacitor, for Android TV, tablets and phones). See [docs/android.md](docs/android.md). |
+| `apps/android/` | Early: the Capacitor app for Android TV / Google TV (phones and tablets later), its `window.lurkbox` (`src/`) and the Android project (`android/`). See [docs/android.md](docs/android.md). |
 | `assets/` | Icons, Steam library art and their sources, shared by the apps. |
 | `docs/` | [Architecture](docs/architecture.md), [development](docs/development.md) and the [Android plan](docs/android.md). |
 | (separate repo) | The Decky companion plugin: [lurkbox/decky-lurkbox](https://github.com/lurkbox/decky-lurkbox). |
+
+## Android (early)
+
+An Android TV / Google TV app is in `apps/android` (Capacitor, the same core). It's early and not yet tested on a real TV: phone (device-code) sign-in, Helix, and live, VOD and clip playback with the direct engine, driven by the remote's D-pad or a game controller. Anything that needs the twitch.tv web session (TV sign-in, subs/Turbo in the player, channel points, Drops, follow) and the Steam features aren't there yet. `npm run android:build` makes a debug APK (JDK 21 and the Android SDK needed); install it with `adb install -r apps/android/android/app/build/outputs/apk/debug/app-debug.apk`. Details in [docs/android.md](docs/android.md).
 
 ## Setup (development)
 

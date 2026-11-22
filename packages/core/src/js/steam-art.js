@@ -66,7 +66,7 @@ export async function renderSteamArt(colors = themeColors()) {
 
 async function run() {
   if (running) { again = true; return; }
-  if (!state.settings.steamArtSync) return;
+  if (!state.settings.steamArtSync || !window.lurkbox.steamArtApply) return;
   // A live preview is on screen (the picker was reopened): wait for it to settle.
   if (document.documentElement.dataset.theme !== (state.settings.theme || 'lurkbox')) { scheduleSteamArt(); return; }
   running = true;
@@ -97,6 +97,7 @@ export function scheduleSteamArt() {
 
 export async function restoreSteamArt() {
   lastKey = null;
+  if (!window.lurkbox.steamArtRestore) return;
   try {
     const r = await window.lurkbox.steamArtRestore();
     if (r && r.ok) toast(r.live ? 'Original Lurkbox art restored' : 'Original art restored; Steam shows it after it restarts', 4000, 'ok');
