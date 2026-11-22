@@ -3,35 +3,17 @@
 //
 // Why: Twitch's VOD CDN (*.cloudfront.net, "cloudfront_vod") only sends CORS headers for twitch.tv origins, so
 // hls.js in our http://localhost page can't read VOD variant playlists or segments (status 0, levelLoadError).
-// The renderer never gets an open proxy: only Twitch's playlist/segment hosts are allowed, and a cloudfront.net host
-// only after it appeared in a usher master playlist we fetched ourselves. The response streams straight through.
+// The allowed hosts and the master rewrite are shared with Android (packages/core/src/shared/hls-rewrite.js); the
+// response streams straight through.
 const SCHEME = 'lbhls';
 
-const STATIC_HOST = /^(usher\.ttvnw\.net|([a-z0-9-]+\.)+ttvnw\.net|([a-z0-9-]+\.)*twitch\.tv)$/i;
-const CLOUDFRONT = /^[a-z0-9]+\.cloudfront\.net$/i;
+const shared = require('@lurkbox/core/src/shared/hls-rewrite.js');
 
-class ProxyHosts {
-  constructor() { this.seen = new Set(); }
-
-  /** Hosts allowed through the proxy. */
-  allows(host) {
-    const h = String(host || '').toLowerCase();
-    return STATIC_HOST.test(h) || (CLOUDFRONT.test(h) && this.seen.has(h));
-  }
-
-  /** Remembers the cloudfront hosts a usher master points at. */
-  learn(master) {
-    for (const m of String(master).matchAll(/https:\/\/([a-z0-9]+\.cloudfront\.net)\//gi)) this.seen.add(m[1].toLowerCase());
-  }
-}
+const { ProxyHosts } = shared;
+const PREFIX = `${SCHEME}://`;
 
 /** https://host/p?q → lbhls://host/p?q (only for allowed hosts; others unchanged). */
-function toProxyUrl(url, hosts) {
-  let u;
-  try { u = new URL(url); } catch { return url; }
-  if (u.protocol !== 'https:' || !hosts.allows(u.hostname)) return url;
-  return `${SCHEME}://${u.host}${u.pathname}${u.search}`;
-}
+function toProxyUrl(url, hosts) { return shared.toProxyUrl(url, hosts, PREFIX); }
 
 /** lbhls://host/p?q → https://host/p?q, or null when the host isn't allowed. */
 function fromProxyUrl(url, hosts) {
@@ -41,19 +23,8 @@ function fromProxyUrl(url, hosts) {
   return `https://${u.hostname}${u.pathname}${u.search}`;
 }
 
-/**
- * Points every variant/media playlist in a master playlist at the proxy (URI lines and URI="..." attributes).
- * Segment URLs inside a proxied media playlist resolve against it: relative ones (VODs, no CORS) go through the
- * proxy too, absolute ones (live, *.ttvnw.net with CORS) still load directly.
- */
-function rewriteMaster(master, hosts) {
-  hosts.learn(master);
-  return String(master).split(/\r?\n/).map((line) => {
-    if (/^https:\/\//.test(line)) return toProxyUrl(line.trim(), hosts);
-    if (line.startsWith('#') && line.includes('URI="https://')) return line.replace(/URI="(https:\/\/[^"]+)"/g, (_m, u) => `URI="${toProxyUrl(u, hosts)}"`);
-    return line;
-  }).join('\n');
-}
+/** A usher master with its variant playlists through lbhls:// (see shared/hls-rewrite.js). */
+function rewriteMaster(master, hosts) { return shared.rewriteMaster(master, hosts, PREFIX); }
 
 const FORWARD_REQ = ['range', 'accept'];
 const FORWARD_RES = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control', 'last-modified', 'etag'];

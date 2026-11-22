@@ -440,24 +440,7 @@ function registerIpc() {
   });
   // Storyboard thumbnails for scrubbing a VOD (Twitch's seekPreviewsURL JSON; the sprite sheets load as images).
   ipcMain.handle('direct:storyboard', async (_e, vodId) => {
-    try {
-      if (!/^\d{1,20}$/.test(String(vodId))) return null;
-      const q = { query: `{ video(id: ${JSON.stringify(String(vodId))}) { seekPreviewsURL } }` };
-      const r = await net.fetch(GQL_URL, { method: 'POST', headers: { 'Client-ID': WEB_CLIENT_ID }, body: JSON.stringify(q) }).then((x) => x.json());
-      const url = r && r.data && r.data.video && r.data.video.seekPreviewsURL;
-      if (!url) return null;
-      const u = new URL(url);
-      if (u.protocol !== 'https:' || !/\.cloudfront\.net$|\.twitch\.tv$|\.ttvnw\.net$/.test(u.hostname)) return null;
-      const list = await net.fetch(url).then((x) => (x.ok ? x.json() : null));
-      if (!Array.isArray(list)) return null;
-      const pick = list.find((s) => s.quality === 'high') || list[0];
-      if (!pick || !Array.isArray(pick.images)) return null;
-      const num = (n) => (Number.isFinite(Number(n)) ? Number(n) : 0);
-      return {
-        count: num(pick.count), width: num(pick.width), height: num(pick.height), rows: num(pick.rows), cols: num(pick.cols), interval: num(pick.interval),
-        images: pick.images.filter((i) => /^[\w.-]+\.jpg$/.test(i)).map((i) => new URL(i, url).href),
-      };
-    } catch (e) { appLog(`[direct] storyboard failed: ${e.message}`); return null; }
+    try { return await require('./direct').fetchStoryboard({ fetch: net.fetch, vodId }); } catch (e) { appLog(`[direct] storyboard failed: ${e.message}`); return null; }
   });
   // Clip playback: the clip's MP4 qualities with a signed token (web GQL VideoAccessToken_Clip; anonymous).
   ipcMain.handle('direct:clip', async (_e, slug) => {

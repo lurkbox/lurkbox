@@ -20,10 +20,12 @@ export function welcome(nav) {
       : 'A couch and controller client for Twitch'),
     el('div', { class: 'welcome-actions' },
       button('Sign in with Twitch', () => nav.signIn(), { class: 'primary big welcome-signin' }),
-      button('Sign in with your phone instead', () => nav.phoneSignIn()),
+      window.lurkbox.tvSignIn ? button('Sign in with your phone instead', () => nav.phoneSignIn()) : null,
       button('Watch a channel by name', () => nav.goTop('search')),
       button('Settings', () => nav.goTop('settings'))),
-    el('p', { class: 'hint' }, 'You sign in once, here on the TV: the twitch.tv login, then Authorize for Lurkbox. That covers your follows, raids, and your subs and Turbo in the player.'));
+    el('p', { class: 'hint' }, window.lurkbox.tvSignIn
+      ? 'You sign in once, here on the TV: the twitch.tv login, then Authorize for Lurkbox. That covers your follows, raids, and your subs and Turbo in the player.'
+      : 'You sign in with your phone: scan the code, then Authorize for Lurkbox. That covers your follows, raids and chat.'));
 }
 
 function offlineTile(f, user, onSelect, onFocus) {

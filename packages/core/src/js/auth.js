@@ -1,6 +1,7 @@
 // Sign-in. The main path is one sign-in on the TV (twitch.tv login, then Authorize, in the in-app window), which
 // covers both the Lurkbox API token and the player's web session. The phone path (code + QR) is the fallback;
-// it leaves the player signed out, so it offers the TV login for the player afterwards.
+// it leaves the player signed out, so it offers the TV login for the player afterwards. A host without the TV
+// sign-in (window.lurkbox.tvSignIn, e.g. Android for now) uses the phone path everywhere.
 import { el, button, toast } from './ui.js';
 import { openModal, confirmDialog } from './modal.js';
 import { state } from './state.js';
@@ -16,6 +17,7 @@ let tvBusy = false;
  */
 export async function tvSignIn({ add = false, accountId = null, onSuccess } = {}) {
   if (tvBusy) return null;
+  if (!window.lurkbox.tvSignIn) { openSignIn({ add, onSuccess }); return null; }
   if (!state.auth.hasClientId) {
     toast('Set a Client ID in Settings first', 4000, 'warn');
     return null;
@@ -87,7 +89,7 @@ export async function openSignIn({ onSuccess, add = false } = {}) {
       toast(`Signed in as ${ev.user ? ev.user.login : 'Twitch user'}`, 4000, 'ok');
       m.close();
       if (onSuccess) onSuccess();
-      window.lurkbox.playerSessionStatus().then((p) => { if (!p.signedIn) offerPlayerSignIn(); }).catch(() => {});
+      if (window.lurkbox.playerSessionLogin) window.lurkbox.playerSessionStatus().then((p) => { if (!p.signedIn) offerPlayerSignIn(); }).catch(() => {});
     } else if (ev.status === 'expired') {
       status.textContent = 'The code expired. Select "Get a new code".';
     } else if (ev.status === 'denied') {

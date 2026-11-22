@@ -1,44 +1,30 @@
-// Placeholder Android window.lurkbox (scaffold only): settings in memory, nothing signed in. The real Capacitor
-// implementation replaces this file (docs/android.md, step 2).
-import { DEFAULT_SETTINGS, sanitizeSettings } from '@lurkbox/core/src/shared/settings.js';
+// Entry point bundled into www/platform-android.js (scripts/build-web.mjs) and loaded before the core's js/main.js:
+// the Android window.lurkbox, wired to Capacitor's native plugins and the app's own LurkboxNative plugin.
+import { CapacitorHttp, registerPlugin } from '@capacitor/core';
+import { Preferences } from '@capacitor/preferences';
+import { App } from '@capacitor/app';
+import qrcode from 'qrcode-generator';
+import { makeNativeFetch } from './http.js';
+import { createPlatform } from './platform.js';
+import { installBackButton } from './input.js';
+import { installKeepScreenOn } from './playback.js';
 
-let settings = { ...DEFAULT_SETTINGS };
-const noop = () => () => {};
-const auth = { hasClientId: true, signedIn: false, needsReauth: false, missingScopes: [], user: null, active: null, accounts: [], deviceFlow: null };
-window.lurkbox = {
-  appInfo: async () => ({ windowed: false, gamescope: false, startChannel: null, startVod: null, version: __LURKBOX_VERSION__, defaults: DEFAULT_SETTINGS }),
-  quit: async () => {},
-  onWindowFocus: noop,
-  qrSvg: async () => '<svg xmlns="http://www.w3.org/2000/svg"/>',
-  getSettings: async () => settings,
-  setSettings: async (patch) => { settings = { ...settings, ...sanitizeSettings(patch || {}) }; return settings; },
-  onSettingsChanged: noop,
-  authState: async () => auth,
-  authStart: async () => ({ ok: false, error: 'Sign-in is not ready on Android yet.' }),
-  authCancel: async () => {},
-  signOut: async () => null,
-  accountsStatus: async () => [],
-  switchAccount: async () => false,
-  removeAccount: async () => null,
-  onAuthState: noop,
-  onAuthEvent: noop,
-  helix: async () => ({ ok: false, status: 401, error: 'NOT_SIGNED_IN', data: null, resetAt: null }),
-  playerSessionStatus: async () => ({ signedIn: false, login: null, mismatch: null }),
-  playerSessionSignOut: async () => ({ signedIn: false, login: null, mismatch: null }),
-  dismissPlayerGate: async () => '',
-  directMaster: async () => ({ ok: false, reason: 'unavailable' }),
-  pointsOpenPanel: async () => ({ ok: false, reason: 'unavailable' }),
-  pointsPad: async () => null,
-  pointsClosePanel: async () => false,
-  onPointsEvent: noop,
-  dropsOpen: async () => ({ ok: false, reason: 'unavailable' }),
-  dropsPad: async () => 'close',
-  dropsClose: async () => false,
-  openReady: async () => null,
-  onOpenChannel: noop,
-  steamArtApply: async () => ({ ok: false, error: 'unavailable' }),
-  steamArtRestore: async () => ({ ok: false, error: 'unavailable' }),
-  chatExtensionsUpdate: async () => [],
-  tvSignIn: async () => ({ ok: false, error: 'unavailable', message: 'Not available on Android yet.' }),
-  playerSessionLogin: async () => ({ ok: false, signedIn: false, login: null, mismatch: null }),
-};
+const Native = registerPlugin('LurkboxNative');
+
+function qrSvg(text) {
+  const qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  return qr.createSvgTag({ cellSize: 8, margin: 2, scalable: true });
+}
+
+window.lurkbox = createPlatform({
+  fetch: makeNativeFetch(CapacitorHttp),
+  prefs: Preferences,
+  app: App,
+  native: Native,
+  qrSvg,
+  version: __LURKBOX_VERSION__, // eslint-disable-line no-undef
+});
+installBackButton(App, window);
+installKeepScreenOn(document, Native);
