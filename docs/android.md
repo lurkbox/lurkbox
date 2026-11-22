@@ -1,6 +1,6 @@
 # Android (early)
 
-Status: **early, untested on a real TV.** `apps/android` is a Capacitor 8 project that bundles the core's renderer into the APK (no dev server), shows on the Google TV / Android TV home row (leanback launcher, banner), and has its own `window.lurkbox` (`apps/android/src/`). One app for Android TV / Google TV first; phones and tablets install it too (no touchscreen or leanback requirement), and their layouts come later.
+Status: **early, untested on a real TV, phone or tablet.** `apps/android` is a Capacitor 8 project that bundles the core's renderer into the APK (no dev server), shows on the Google TV / Android TV home row (leanback launcher, banner), and has its own `window.lurkbox` (`apps/android/src/`). One app for Android TV / Google TV, tablets and phones: no touchscreen or leanback requirement, and the core picks the TV, tablet or phone layout (`AppInfo.touch` is set; see "Layout modes" in [architecture.md](architecture.md)).
 
 ## What works (in code and unit tests; see "Test on a real Google TV")
 
@@ -10,6 +10,7 @@ Status: **early, untested on a real TV.** `apps/android` is a Capacitor 8 projec
 - **Playback:** live, VODs and clips through the direct engine (hls.js in the WebView; hardware decoding through the WebView's MediaCodec). Autoplay with sound (`setMediaPlaybackRequiresUserGesture(false)` in `MainActivity`). The screen stays on while a video plays (`src/playback.js` → `LurkboxNative.keepScreenOn`).
 - **The HLS proxy** (the desktop's `lbhls://`): `directMaster` points the master's variant playlists at `https://localhost/_lbhls/<host>/<path>` on the app's own origin, and `LurkboxWebViewClient` + `HlsProxy.java` fetch them natively and stream them back (with Range). Relative VOD segments resolve against the proxied playlist and go through it too; live segments (`*.ttvnw.net`, CORS open) load directly. Only Twitch's hosts, and a cloudfront.net host only after a usher master named it (`proxyAllow`).
 - **Input:** the remote's D-pad arrives as arrow keys; OK (`DPAD_CENTER`) is remapped to Enter in `MainActivity`; BACK comes from the Capacitor App plugin's `backButton` event and becomes the core's B (Escape), so leaving the app stays behind the core's "Exit Lurkbox?" (`src/input.js`). Game controllers use the Gamepad API in the WebView. Text uses the core's own on-screen keyboard (no Steam keyboard; `openOnScreenKeyboard` is left out).
+- **Touch layouts:** with a touchscreen and no controller, Auto picks the phone layout (bottom tab bar, app bar, chat below the video in portrait, swiped in from the right sideways) or the tablet layout (the rail; chat beside the video in landscape, below it in portrait); Settings → Layout overrides it. Gestures: tap, long-press (channel page, delete a recent search), swipe between channel tabs, pull to refresh, double tap to seek ±10 s, seek-bar drag, swipe down to close the player. Text boxes use the system keyboard (`adjustResize`). Phones and tablets rotate freely; a TV (`UI_MODE_TYPE_TELEVISION`) is held in landscape by `MainActivity`. Safe areas (notches, the gesture bar) come from Capacitor's `--safe-area-inset-*` CSS variables (SystemBars, `insetsHandling: css`, the default) on the app bar, the tab bar, the rail, the player and the bottom sheets. BACK is B in every layout.
 - **Window focus:** the App plugin's `appStateChange` (pause/resume) drives `onWindowFocus`.
 - **Logging:** `log()` goes to `adb logcat -s Lurkbox` and to `files/lurkbox.log` in app storage (2 MB, then `lurkbox.log.1`): `adb shell run-as io.github.lurkbox.Lurkbox cat files/lurkbox.log` on a debug build. The page's console is in logcat under `Capacitor/Console`.
 - **Tests:** `apps/android/test/` (in `npm test`): the platform against `platform.d.ts` (every required member, nothing undocumented, the left-out ones really left out), mocked CapacitorHttp / Preferences / App / LurkboxNative (settings, tokens, the device flow, Helix with refresh, focus, BACK, keep-screen-on, `directMaster` and the proxy rewrite, clips), and the web build.
@@ -37,6 +38,7 @@ Tokens are in SharedPreferences, private to the app but not encrypted; moving th
 5. Play a live stream, a VOD (the proxy path: `adb logcat -s Lurkbox` shows `[hls-proxy]` only on errors) and a clip: sound on at once, smooth 1080p60, quality switching, seeking in a VOD, the screen doesn't dim during long playback and does when paused.
 6. Home button and back into the app: the background quality cap and "video only while unfocused" react (`onWindowFocus`).
 7. The on-screen keyboard in Search and the chat composer.
+8. On a phone and a tablet (no controller): the phone/tablet layout in both orientations, the gestures above, the system keyboard in Search and the composer, and BACK (gesture and button) as B.
 
 ## Build and install
 
@@ -61,7 +63,7 @@ adb install -r apps/android/android/app/build/outputs/apk/debug/app-debug.apk
 1. Fixes from the first real-TV test (input doubling, focus, playback).
 2. The twitch.tv web session in an Android WebView (TV sign-in, player session for subs/Turbo, then channel points, Drops and follow).
 3. Tokens behind the Android Keystore.
-4. Touch layouts for phones and tablets.
+4. Touch layouts: test on a real phone and tablet (the screenshots use Chromium's touch emulation): the system keyboard over the chat composer with edge-to-edge (does `adjustResize` shrink the page, or does the composer need the IME inset?), the safe-area values on a notched phone, rotation while the player is open, and whether a Bluetooth controller switching the layout to TV mid-session feels right. Left out so far: Twitch chat style (the embedded chat frame) in the portrait and swipe-in chat layouts, a pull-to-refresh on Search results, and swipes between top sections.
 5. ExoPlayer (Media3) behind the player interface only if hls.js stutters on TV hardware.
 
 # Android plan (the original design notes)

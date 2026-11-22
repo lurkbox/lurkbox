@@ -78,14 +78,30 @@ Lurkbox is one codebase for several platforms, organised as npm workspaces:
 |---|---|
 | `packages/core/` | `@lurkbox/core`: the platform-neutral app. The TV UI (`src/index.html`, `css/`, `js/`, `js/views/`, `fonts/`), the Twitch, chat and theme logic, and the shared settings schema and Twitch config (`src/shared/`). Plain browser code: no Node, no Electron. Its only contact with the host is `window.lurkbox`, documented in `src/platform.d.ts`. Tests in `test/`. |
 | `apps/desktop/` | The Electron app for SteamOS and Linux: main process (`src/main/`), `preload.js` (the desktop `window.lurkbox`), `login-preload.js`, the electron-builder config, the Flatpak draft (`flatpak/`), the deploy and Steam shortcut scripts (`scripts/`), and its unit and smoke tests (`test/`). |
-| `apps/android/` | Early: the Capacitor app for Android TV / Google TV (phones and tablets later), its `window.lurkbox` (`src/`) and the Android project (`android/`). See [docs/android.md](docs/android.md). |
+| `apps/android/` | Early: the Capacitor app for Android TV / Google TV, tablets and phones, its `window.lurkbox` (`src/`) and the Android project (`android/`). See [docs/android.md](docs/android.md). |
 | `assets/` | Icons, Steam library art and their sources, shared by the apps. |
 | `docs/` | [Architecture](docs/architecture.md), [development](docs/development.md) and the [Android plan](docs/android.md). |
 | (separate repo) | The Decky companion plugin: [lurkbox/decky-lurkbox](https://github.com/lurkbox/decky-lurkbox). |
 
 ## Android (early)
 
-An Android TV / Google TV app is in `apps/android` (Capacitor, the same core). It's early and not yet tested on a real TV: phone (device-code) sign-in, Helix, and live, VOD and clip playback with the direct engine, driven by the remote's D-pad or a game controller. Anything that needs the twitch.tv web session (TV sign-in, subs/Turbo in the player, channel points, Drops, follow) and the Steam features aren't there yet. `npm run android:build` makes a debug APK (JDK 21 and the Android SDK needed); install it with `adb install -r apps/android/android/app/build/outputs/apk/debug/app-debug.apk`. Details in [docs/android.md](docs/android.md).
+One Android app for Android TV / Google TV, tablets and phones is in `apps/android` (Capacitor, the same core). It's early and not yet tested on real devices: phone (device-code) sign-in, Helix, and live, VOD and clip playback with the direct engine. On a TV the remote's D-pad or a game controller drives the TV layout; on a touchscreen without a controller the layout follows the screen (Settings → Layout: Auto, TV, Tablet, Phone):
+
+- **Phone:** a bottom tab bar and a top app bar with your avatar; in portrait the video sits on top with the chat below it, held sideways the video fills the screen and the chat swipes in from the right. Pop-overs are bottom sheets.
+- **Tablet:** the rail (icons only when narrow), the chat beside the video in landscape and below it in portrait.
+- **Touch:** tap to select, long-press a live card for its channel page (or a recent search to delete it), swipe between a channel's tabs, pull a list down to refresh, double tap the left or right half of a video or clip to seek 10 s, drag the seek bar, swipe down to close the player. Typing uses the phone's own keyboard. Android's Back button or gesture is B everywhere.
+
+<p>
+  <img src="docs/screenshots/phone-player.png" width="24%" alt="Phone, portrait: the live video on top with its controls, the chat filling the screen below it, and the message box at the bottom">
+  <img src="docs/screenshots/phone-following.png" width="24%" alt="Phone, portrait: Following as one column of live cards, a top bar with the section name and the account avatar, and a bottom tab bar: Following, Browse, Categories, Search, Drops, Settings">
+  <img src="docs/screenshots/phone-channel.png" width="24%" alt="Phone, portrait: a channel page with banner, avatar, follower count, the LIVE card with Watch, and tabs that scroll sideways">
+  <img src="docs/screenshots/phone-clip.png" width="24%" alt="Phone, portrait: a clip playing after a double tap on the right half, showing +10 s, with the seek bar and controls at the bottom">
+</p>
+<p>
+  <img src="docs/screenshots/phone-landscape.png" width="49%" alt="Phone held sideways: the video full screen with the chat panel swiped in from the right">
+  <img src="docs/screenshots/tablet-player.png" width="49%" alt="Tablet, landscape: the player with touch-sized controls and the chat as a side panel">
+</p>
+ Anything that needs the twitch.tv web session (TV sign-in, subs/Turbo in the player, channel points, Drops, follow) and the Steam features aren't there yet. `npm run android:build` makes a debug APK (JDK 21 and the Android SDK needed); install it with `adb install -r apps/android/android/app/build/outputs/apk/debug/app-debug.apk`. Details in [docs/android.md](docs/android.md).
 
 ## Setup (development)
 

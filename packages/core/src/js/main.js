@@ -28,6 +28,8 @@ import { dropsView } from './views/drops.js';
 import { settingsView } from './views/settings.js';
 import { channelView } from './views/channel.js';
 import { installLayout, applyLayout, isTouchLayout, gamepadConnected } from './layout.js';
+import { bindTouchSwipe, bindPullToRefresh } from './touch.js';
+import { tabStepForSwipe } from '../shared/gestures.js';
 
 const TOP = {
   following: followingView,
@@ -316,6 +318,34 @@ function dispatch(action, source) {
   }
 }
 
+// ---------- touch: swipe between a channel's tabs, pull to refresh ----------
+
+const isChannelPage = (e) => !!(e && String(e.view.id || '').startsWith('channel:'));
+/** Lists that refresh: the sections Y refreshes, and a channel page. */
+const refreshable = () => {
+  const e = topEntry();
+  if (!e || player.active || hasModal()) return false;
+  return (stack.length === 1 && ['following', 'browse', 'categories'].includes(currentTop)) || isChannelPage(e);
+};
+function installTouchGestures() {
+  bindTouchSwipe(content, {
+    // Sideways scrollers (the tab strip on a phone, filter pills) keep their own swipes.
+    skip: (e) => !!(e.target.closest && e.target.closest('.channel-tabs, .pills, .po-row, input')),
+    onSwipe: (dir) => {
+      const e = topEntry();
+      const step = tabStepForSwipe(dir);
+      if (!step || !isChannelPage(e) || player.active || hasModal()) return;
+      e.view.onAction(step > 0 ? RB : LB);
+    },
+  });
+  const pull = el('div', { id: 'pull-refresh', 'aria-hidden': 'true' }, el('span', { class: 'pull-refresh-icon' }, '\u21BB'));
+  appEl.append(pull);
+  bindPullToRefresh(content, pull, {
+    enabled: refreshable,
+    onRefresh: () => { if (refreshable()) { nav.refresh(); toast('Refreshed', 1200); } },
+  });
+}
+
 // ---------- exit ----------
 
 let exiting = false;
@@ -435,6 +465,7 @@ async function start() {
   input.allowUnfocused = !!state.settings.inputWhenUnfocused;
 
   buildRail();
+  installTouchGestures();
   setChannelOpener((c) => nav.openChannel(c)); // a long-press on a stream card
 
   // After a player sign-in, reload the embed so it picks up the twitch.tv session.

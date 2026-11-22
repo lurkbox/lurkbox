@@ -10,23 +10,36 @@ const refreshMs = () => (Number(state.settings.refreshInterval) || 15) * 1000;
 import { focusEl } from './focus.js';
 import { focusAfterUpdate } from './refresher.js';
 import { refreshMarquee } from './marquee.js';
+import { LongPress, LONG_PRESS_MS } from '../shared/gestures.js';
 
 /** The channel a card belongs to, for X (or a long-press) → its channel page (main.js). */
 const channelData = (login, id, name) => (login ? { channelLogin: login, channelId: id || '', channelName: name || login } : undefined);
 
-/** A touch long-press (no click follows it, and no context menu, which would be Back). */
-export function onLongPress(node, fn, ms = 500) {
+/**
+ * A touch long-press (shared/gestures.js LongPress: 500 ms held still; moving, as in a scroll, cancels it). No click
+ * follows it, and no context menu (which would be Back). Also where X or Y does something on a controller.
+ */
+export function onLongPress(node, fn, ms = LONG_PRESS_MS) {
+  const lp = new LongPress({ ms });
   let timer = null;
-  let fired = false;
+  let at = null;
   let touching = false;
+  let fired = false;
   node.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'touch') return;
-    fired = false;
     touching = true;
+    fired = false;
+    at = { x: e.clientX, y: e.clientY };
+    lp.start(performance.now());
     clearTimeout(timer);
-    timer = setTimeout(() => { fired = true; fn(); }, ms);
+    timer = setTimeout(() => { if (lp.fire(performance.now())) { fired = true; fn(); } }, ms);
   });
-  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) node.addEventListener(ev, () => { clearTimeout(timer); setTimeout(() => { touching = false; }, 0); });
+  node.addEventListener('pointermove', (e) => {
+    if (!at || e.pointerType !== 'touch') return;
+    lp.move(e.clientX - at.x, e.clientY - at.y);
+    if (lp.cancelled) clearTimeout(timer);
+  });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) node.addEventListener(ev, () => { clearTimeout(timer); lp.end(); at = null; setTimeout(() => { touching = false; }, 0); });
   node.addEventListener('click', (e) => { if (fired) { fired = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
   node.addEventListener('contextmenu', (e) => { if (fired || touching) { e.preventDefault(); e.stopPropagation(); } });
   return node;
