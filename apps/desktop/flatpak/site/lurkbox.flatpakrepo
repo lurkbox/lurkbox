@@ -1,0 +1,9 @@
+[Flatpak Repo]
+Title=Lurkbox
+Url=https://lurkbox.github.io/lurkbox/repo/
+Homepage=https://github.com/lurkbox/lurkbox
+Comment=Flatpak repository of Lurkbox, a couch and controller client for Twitch
+Description=Lurkbox builds published from github.com/lurkbox/lurkbox. Not Flathub, and not affiliated with or endorsed by Twitch.
+Icon=https://lurkbox.github.io/lurkbox/icon.png
+DefaultBranch=stable
+GPGKey=mDMEawN+oxYJKwYBBAHaRw8BAQdASzE8mzf/Nr1ovRkHYsCRYuyeK5WsLeu0FdEyMkQcn860RUx1cmtib3ggRmxhdHBhayByZXBvc2l0b3J5IDxsdXJrYm94LWZsYXRwYWtAdXNlcnMubm9yZXBseS5naXRodWIuY29tPoiQBBMWCgA4FiEEWhGL2dtkH2MNKyd85fn0XV65/EYFAmsDfqMCGwMFCwkIBwIGFQoJCAsCBBYCAwECHgECF4AACgkQ5fn0XV65/EYJ3AEA0Tg91Ri7Fp/eGfePD0ifsnjDgGyCiPGRznsiDyShgpIA/2N1XqMwqrT3ZK74UP+AdWQ2YEXQMw5hI/IwuJUg5AQH

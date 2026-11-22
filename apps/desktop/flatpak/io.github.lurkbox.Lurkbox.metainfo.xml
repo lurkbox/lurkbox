@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.lurkbox.Lurkbox</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Lurkbox</name>
+  <summary>A couch and controller client for Twitch</summary>
+  <developer id="io.github.lurkbox">
+    <name>Lurkbox contributors</name>
+  </developer>
+  <description>
+    <p>
+      Lurkbox is a couch and controller client for Twitch, made for SteamOS Game Mode. Browse the channels you follow,
+      watch live streams and videos, read and send chat, and do it all from a gamepad, a keyboard or the mouse.
+      It runs as its own window, so Floater can float it over a game.
+    </p>
+    <ul>
+      <li>Following, categories, search and channel pages</li>
+      <li>The player with chat beside or over the video, live rewind and clips</li>
+      <li>Continue watching for videos you started</li>
+      <li>An on-screen keyboard, themes and an adjustable interface scale</li>
+    </ul>
+    <p>
+      AI disclosure: Lurkbox is vibe-coded. Claude (Anthropic's AI coding assistant) wrote nearly all of the code,
+      artwork and docs, and it was tested by hand. Human review of the code has been limited, so expect rough edges.
+    </p>
+    <p>Lurkbox is not affiliated with or endorsed by Twitch.</p>
+  </description>
+  <launchable type="desktop-id">io.github.lurkbox.Lurkbox.desktop</launchable>
+  <url type="homepage">https://github.com/lurkbox/lurkbox</url>
+  <url type="bugtracker">https://github.com/lurkbox/lurkbox/issues</url>
+  <url type="vcs-browser">https://github.com/lurkbox/lurkbox</url>
+  <url type="contribute">https://github.com/lurkbox/lurkbox/blob/main/docs/development.md</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Following: live channels as cards, offline channels below</caption>
+      <image>https://raw.githubusercontent.com/lurkbox/lurkbox/main/docs/screenshots/following.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The player with its overlay open</caption>
+      <image>https://raw.githubusercontent.com/lurkbox/lurkbox/main/docs/screenshots/player.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Chat beside the video</caption>
+      <image>https://raw.githubusercontent.com/lurkbox/lurkbox/main/docs/screenshots/player-chat.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>A channel page</caption>
+      <image>https://raw.githubusercontent.com/lurkbox/lurkbox/main/docs/screenshots/channel.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Continue watching</caption>
+      <image>https://raw.githubusercontent.com/lurkbox/lurkbox/main/docs/screenshots/continue-watching.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The on-screen keyboard</caption>
+      <image>https://raw.githubusercontent.com/lurkbox/lurkbox/main/docs/screenshots/keyboard.png</image>
+    </screenshot>
+  </screenshots>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+    <category>Player</category>
+  </categories>
+  <keywords>
+    <keyword>Twitch</keyword>
+    <keyword>stream</keyword>
+    <keyword>chat</keyword>
+    <keyword>controller</keyword>
+    <keyword>SteamOS</keyword>
+  </keywords>
+  <supports>
+    <control>gamepad</control>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <requires>
+    <internet>always</internet>
+  </requires>
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-chat">moderate</content_attribute>
+    <content_attribute id="social-info">mild</content_attribute>
+  </content_rating>
+  <releases>
+    <release version="0.1.0" date="2026-11-22">
+      <description>
+        <p>First release published as a Flatpak from the Lurkbox repository.</p>
+      </description>
+    </release>
+  </releases>
+</component>

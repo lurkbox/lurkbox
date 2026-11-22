@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Lurkbox
+GenericName=Twitch client
+Comment=A couch and controller client for Twitch
+Exec=lurkbox
+Icon=io.github.lurkbox.Lurkbox
+Terminal=false
+Categories=AudioVideo;Video;Player;
+Keywords=Twitch;stream;live;chat;controller;gamepad;SteamOS;
+StartupWMClass=Lurkbox

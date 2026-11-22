@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lurkbox Flatpak</title>
+<meta name="description" content="Install Lurkbox, a couch and controller client for Twitch, as a Flatpak.">
+<link rel="icon" href="icon.png">
+<style>
+  :root { --bg: #f6f5fb; --fg: #1c1a24; --muted: #5d5970; --card: #ffffff; --line: #dcd8e8; --accent: #6d3fd6; --accent-fg: #ffffff; --code: #eeebf6; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #14121b; --fg: #ece9f5; --muted: #a7a2b9; --card: #1d1a27; --line: #322d42; --accent: #9b74f0; --accent-fg: #14121b; --code: #262233; }
+  }
+  :root[data-theme="dark"] { --bg: #14121b; --fg: #ece9f5; --muted: #a7a2b9; --card: #1d1a27; --line: #322d42; --accent: #9b74f0; --accent-fg: #14121b; --code: #262233; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 16px 64px; }
+  header { display: flex; gap: 16px; align-items: center; margin-bottom: 24px; }
+  header img { width: 72px; height: 72px; border-radius: 16px; }
+  h1 { margin: 0; font-size: 1.9rem; }
+  header p { margin: 2px 0 0; color: var(--muted); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin: 16px 0; }
+  h2 { margin: 0 0 8px; font-size: 1.15rem; }
+  .button { display: inline-block; background: var(--accent); color: var(--accent-fg); text-decoration: none; font-weight: 600; padding: 12px 20px; border-radius: 10px; margin: 6px 0; }
+  pre { background: var(--code); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 0.9rem; margin: 8px 0; }
+  code { font-family: ui-monospace, "JetBrains Mono", monospace; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); font-size: 0.93rem; }
+  ul { padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="icon.png" alt="">
+    <div>
+      <h1>Lurkbox</h1>
+      <p>A couch and controller client for Twitch, as a Flatpak</p>
+    </div>
+  </header>
+
+  <section>
+    <h2>Install</h2>
+    <a class="button" href="io.github.lurkbox.Lurkbox.flatpakref">Install Lurkbox</a>
+    <p>Open the downloaded <code>io.github.lurkbox.Lurkbox.flatpakref</code> with KDE Discover (or GNOME Software) and choose Install. The Freedesktop runtime and the Electron base come from Flathub, which is added for you if it isn't set up yet.</p>
+    <p>Or from a terminal:</p>
+    <pre><code>flatpak install --user https://lurkbox.github.io/lurkbox/io.github.lurkbox.Lurkbox.flatpakref</code></pre>
+    <p>Then start it from the app menu, or with <code>flatpak run io.github.lurkbox.Lurkbox</code>.</p>
+  </section>
+
+  <section>
+    <h2>Updates</h2>
+    <p>The install adds this repository as the remote <code>lurkbox</code>. New releases show up in Discover's updates like any other app, or with <code>flatpak update</code>. To add only the repository: <a href="lurkbox.flatpakrepo">lurkbox.flatpakrepo</a>.</p>
+  </section>
+
+  <section>
+    <h2>Good to know</h2>
+    <ul>
+      <li>This is Lurkbox's own repository, not Flathub. Commits and the summary are signed with the key <a href="lurkbox-flatpak.gpg">lurkbox-flatpak.gpg</a> (fingerprint <code>5A11 8BD9 DB64 1F63 0D2B 277C E5F9 F45D 5EB9 FC46</code>).</li>
+      <li>The first start copies an existing AppImage profile from <code>~/.config/Lurkbox</code>; after that the Flatpak keeps its own in <code>~/.var/app/io.github.lurkbox.Lurkbox/</code>.</li>
+      <li>Sandbox limits (Floater audio, the Decky plugin bridge) are listed in <a href="https://github.com/lurkbox/lurkbox/blob/main/docs/flatpak.md">docs/flatpak.md</a>. For Floater in Game Mode, the AppImage is still the better fit.</li>
+      <li>Uninstall: <code>flatpak uninstall --user io.github.lurkbox.Lurkbox</code> (add <code>--delete-data</code> to remove its profile).</li>
+    </ul>
+  </section>
+
+  <p class="muted">Lurkbox is vibe-coded: Claude (Anthropic's AI coding assistant) wrote nearly all of it, and it was tested by hand. Lurkbox is not affiliated with or endorsed by Twitch. Source: <a href="https://github.com/lurkbox/lurkbox">github.com/lurkbox/lurkbox</a> (GPL-3.0-or-later).</p>
+</main>
+</body>
+</html>
