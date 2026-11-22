@@ -557,6 +557,9 @@ export class Player {
 
   showPlayPrompt() {
     this.playPrompt.hidden = false;
+    // Not while you type a message or use a pop-over: the prompt waits for A outside them.
+    const a = document.activeElement;
+    if (this.composer.contains(a) || this.cpop.isOpen || (this.overlayVisible() && this.overlay.contains(a))) return;
     focusEl(this.playPrompt.querySelector('button'), { instant: true });
   }
 
@@ -1739,7 +1742,8 @@ export class Player {
       if (action === B) { this.raid.cancel(); return true; }
       if (action === A) { this.raid.followNow(); return true; }
     }
-    if (this.playPrompt && !this.playPrompt.hidden && action === A) {
+    // "Press A to play" takes A, unless A is meant for a control focused in the overlay.
+    if (this.playPrompt && !this.playPrompt.hidden && action === A && !(this.overlayVisible() && this.overlay.contains(document.activeElement))) {
       this.playPrompt.querySelector('button').click();
       return true;
     }
