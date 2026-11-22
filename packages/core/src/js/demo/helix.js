@@ -43,6 +43,10 @@ export function demoHelix(db, req = {}, ctx = {}) {
       if (q.id == null && q.login == null) u = db.users.filter((x) => x.id === ctx.activeId);
       return list(u);
     }
+    case '/search/categories': {
+      const term = String(q.query || '').toLowerCase().trim();
+      return list(term ? db.games.filter((g) => g.name.toLowerCase().includes(term)).slice(0, first) : []);
+    }
     case '/search/channels': {
       const term = String(q.query || '').toLowerCase().replace(/\s+/g, '');
       const live = new Map(db.streams.map((s) => [s.user_id, s]));

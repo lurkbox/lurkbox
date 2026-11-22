@@ -9,6 +9,7 @@ import { tvSignIn } from '../auth.js';
 import { scheduleSteamArt, restoreSteamArt } from '../steam-art.js';
 import { SORTS } from '../follows.js';
 import { LIVE_SORTS } from '../../shared/sorts.js';
+import { clearSearches, searchesFor } from '../../shared/search-history.js';
 import { chatSettingsRows } from './settings-chat.js';
 
 function row(label, control, help) {
@@ -197,6 +198,13 @@ export function settingsView() {
           el('h2', { class: 'section-title settings-section' }, 'General'),
           row('Live channels sort', pickRow('liveSort', 'Live channels sort', LIVE_SORTS.map((x) => (x.value === 'viewers' ? { ...x, label: `${x.label} (default)` } : x))), 'Order of the Live section on Following. Y there cycles it too.'),
           row('Offline channels sort', pickRow('followSort', 'Offline channels sort', SORTS.map((x) => (x.value === 'recent' ? { ...x, label: `${x.label} (default)` } : x))), 'Order of the Offline section on Following. Y there cycles it too.'),
+          row('Search history', toggle('searchHistoryOn'), 'Remember your searches (per account) and show them when you open Search. Off stops remembering; what is already saved stays until you clear it.'),
+          row('Clear search history', button('Clear', () => {
+            const id = state.auth.user && state.auth.user.id;
+            const n = searchesFor(s.searchHistory, id).length;
+            if (!n) { toast('No search history for this account'); return; }
+            confirmDialog({ title: 'Clear search history?', message: `${n} recent ${n === 1 ? 'search' : 'searches'} of this account.`, yes: 'Clear', onYes: async () => { await saveSettings({ searchHistory: clearSearches(state.settings.searchHistory, id) }); toast('Search history cleared'); } });
+          }, { class: 'clear-search-history' }), 'Removes the recent searches of the account you are signed in with.'),
           row('Refresh live lists', pickRow('refreshInterval', 'Refresh live lists every', [10, 15, 30, 60].map((v) => ({ value: v, label: `${v} s` })))),
           row('Hide chat and controls when Lurkbox isn\'t focused', toggle('videoOnlyUnfocused'), 'Shows just the video while another app (e.g. a game under Floater) has focus.'),
           row('Confirm before exiting', toggle('confirmExit'), 'B on the home screen exits Lurkbox.'),
