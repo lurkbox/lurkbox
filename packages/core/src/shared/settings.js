@@ -6,6 +6,7 @@ import { CHAT_LAYOUT_DEFAULTS, sanitizeChatLayout } from './chat-layout.js';
 import { SORT_SETTINGS, validSort } from './sorts.js';
 import { sanitizeSearchHistory } from './search-history.js';
 import { VIDEO_FILTERS, CLIP_PERIODS, validChoice } from './channel-page.js';
+import { sanitizeMyClips } from './my-clips.js';
 import { DEFAULT_QUICK_CHAT, sanitizeQuickChat, sanitizeEmoteRecents } from './quick-chat.js';
 
 export const THEMES = ['lurkbox', 'game-mode', 'classic-purple', 'oled', 'daylight', 'high-contrast', 'custom'];
@@ -34,6 +35,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   videoFilter: 'archive', // a channel's Videos tab: 'archive' (past broadcasts) | 'highlight' | 'upload' (shared/channel-page.js)
   clipPeriod: '7d', // a channel's Clips tab: '24h' | '7d' | '30d' | 'all'
   clipAutoplay: true, // the player goes on to the next clip of the list when one ends
+  myClips: Object.freeze({}), // clips you made, per account: { <user id>: [{ id, broadcasterId, login, name, at, editUrl }] } (shared/my-clips.js)
   videoOnlyUnfocused: true, // hide chat/controls while unfocused (player only)
   confirmExit: true,
   navSounds: true,
@@ -88,6 +90,7 @@ export function sanitizeSettings(patch) {
   if ('quickChat' in patch) out.quickChat = sanitizeQuickChat(patch.quickChat);
   if ('searchHistory' in patch) out.searchHistory = sanitizeSearchHistory(patch.searchHistory);
   if ('emoteRecents' in patch) out.emoteRecents = sanitizeEmoteRecents(patch.emoteRecents);
+  if ('myClips' in patch) out.myClips = sanitizeMyClips(patch.myClips);
   if ('chatStyle' in patch) out.chatStyle = patch.chatStyle === 'twitch' ? 'twitch' : 'lurkbox';
   if ('profilePicker' in patch) out.profilePicker = patch.profilePicker === 'ask' ? 'ask' : 'remember';
   if ('navSoundVolume' in patch) { const n = Math.round(Number(patch.navSoundVolume) / 10) * 10; out.navSoundVolume = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 30; }

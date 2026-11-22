@@ -36,6 +36,8 @@ export const tw = {
   /** A channel's clips in a period (shared/channel-page.js CLIP_PERIODS); Helix orders them by views. */
   clips: async (broadcasterId, { after, period = 'all', now = Date.now(), first = 40 } = {}) => page(await helix('/clips', { broadcaster_id: broadcasterId, first, after, ...clipRange(period, now) })),
   clipById: async (id) => ((await helix('/clips', { id })).data || [])[0] || null,
+  /** Clips by id (up to 100); ones still processing (or deleted) are missing from the answer. */
+  clipsByIds: async (ids) => (ids.length ? (await helix('/clips', { id: ids.slice(0, 100), first: 100 })).data || [] : []),
   /**
    * The channel's stream schedule: { items: upcoming segments (scheduleSegments), cursor, vacation }. Helix answers 404
    * for a channel without a schedule, which is "no schedule", not an error.

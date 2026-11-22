@@ -72,6 +72,7 @@ export function demoHelix(db, req = {}, ctx = {}) {
       return ok({ data: sorted.slice(start, start + first), pagination: next ? { cursor: next } : {} });
     }
     case '/clips': {
+      if (method === 'POST') return demoCreateClip(db, q, ctx);
       // By views, like Helix; a cursor of plain offsets.
       if (q.id != null) { const ids = many(q.id); return list(db.clips.filter((c) => ids.includes(c.id))); }
       let c = db.clips.filter((x) => x.broadcaster_id === String(q.broadcaster_id));
@@ -136,4 +137,35 @@ export function demoHelix(db, req = {}, ctx = {}) {
     default:
       return { ok: false, status: 404, error: `demo mode has no ${path}`, data: null, resetAt: null };
   }
+}
+
+/** Demo channels where clipping is off (Helix answers 403). */
+export const CLIPS_OFF = ['teaandtiles'];
+
+/**
+ * POST /clips in demo mode: the live channel's clip, added to its clips at once (Twitch takes ~15 s to process a real
+ * one). 404 when the channel isn't live, 403 where clips are off, 429 after 5 clips within a minute.
+ */
+function demoCreateClip(db, q, ctx) {
+  const now = ctx.now ? ctx.now() : Date.now();
+  const id = String(q.broadcaster_id || '');
+  const s = db.streams.find((x) => x.user_id === id);
+  const u = db.users.find((x) => x.id === id);
+  if (!s || !u) return { ok: false, status: 404, error: 'Not Found', data: { message: 'The broadcaster must be broadcasting live.' }, resetAt: null };
+  if (CLIPS_OFF.includes(u.login)) return { ok: false, status: 403, error: 'Forbidden', data: { message: 'The broadcaster has disabled clips on their channel.' }, resetAt: null };
+  const made = db.made || (db.made = []);
+  const recent = made.filter((t) => now - t < 60000);
+  if (recent.length >= 5) return { ok: false, status: 429, error: 'Too Many Requests', data: { message: 'Too many clips.' }, resetAt: Math.ceil((recent[0] + 60000) / 1000) };
+  made.push(now);
+  const me = db.users.find((x) => x.id === String(ctx.activeId)) || { id: '0', display_name: 'you' };
+  const n = made.length;
+  const slug = `Demo${u.display_name}Clip${n}-made${(now % 100000).toString(36)}`;
+  const archive = db.videos.find((v) => v.stream_id === s.id);
+  const up = Math.max(30, Math.floor((now - Date.parse(s.started_at)) / 1000));
+  db.clips.push({
+    id: slug, url: '', embed_url: '', broadcaster_id: u.id, broadcaster_name: u.display_name, creator_id: me.id, creator_name: me.display_name,
+    video_id: archive ? archive.id : '', game_id: s.game_id, language: 'en', title: s.title, view_count: 1, created_at: new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    thumbnail_url: db.media(`img/vod/${u.login}~${40 + n}-480x272.svg`), duration: 30, vod_offset: archive ? up - 30 : null, is_featured: false,
+  });
+  return { ok: true, status: 202, data: { data: [{ id: slug, edit_url: `https://clips.twitch.tv/${slug}/edit` }] } };
 }
