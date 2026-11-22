@@ -9,7 +9,7 @@ import { StartTimeline } from './start-timeline.js';
 import { helix } from './api.js';
 import { moveFocus, focusFirst, focusEl, focusables } from './focus.js';
 import { snapshotFocus, restoreFocus, focusKey } from './focus-keep.js';
-import { pickFromList } from './modal.js';
+import { pickFromList, hasModal } from './modal.js';
 import { state, onState, saveSettings, previewSettings } from './state.js';
 import { tw, followedLive, usersByIds, isFollowing } from './api.js';
 import { pressFollow } from './follow.js';
@@ -38,6 +38,10 @@ function vlog(line) {
 import { Chat, promptChatSignIn } from './chat.js';
 import { Composer } from './chat-composer.js';
 import { sendAuthState } from './chat-send.js';
+import { EmotePicker, pickerTabs, insertEmote } from './emote-picker.js';
+import { QuickChatPicker, setQuickChatChannel } from './quick-chat.js';
+import { UserEmoteCache } from './user-emotes.js';
+import { pushRecent } from '../shared/quick-chat.js';
 import { RaidCountdown } from './raid.js';
 import { DirectEngine, EVENTS as DIRECT_EVENTS } from './direct-engine.js';
 import { liveBadge, catchUpDecision, backgroundCap } from './hls-util.js';
@@ -45,7 +49,7 @@ import { liveBadge, catchUpDecision, backgroundCap } from './hls-util.js';
 const EMBED_URL = 'https://player.twitch.tv/js/embed/v1.js';
 const EMBED_PARENT = ['localhost']; // must match the host the UI is served from
 /** Every control the bar can show, in order (overlayControls() picks the ones for what is playing). */
-const ALL_CONTROLS = ['play', 'volume', 'quality', 'chat', 'compose', 'live', 'points', 'follow', 'channel', 'more', 'back'];
+const ALL_CONTROLS = ['play', 'volume', 'quality', 'chat', 'compose', 'quick', 'live', 'points', 'follow', 'channel', 'more', 'back'];
 const LONG_PRESS_MS = 450;
 
 const RAID_STATUS_TEXT = {
@@ -78,8 +82,19 @@ export class Player {
       chat: this.chat,
       onSend: (text) => this.chat.send(text, { broadcasterId: this.current && this.current.userId }),
       onLeave: () => this.leaveComposer(),
+      onEmotes: (b) => this.openChatPicker('emotes', b),
+      onQuick: (b) => this.openChatPicker('quick', b),
     });
     this.chatPanel.append(this.composer.node);
+    this.userEmotes = new UserEmoteCache((path, query) => helix(path, query));
+    // The composer's pop-overs (emote picker, quick chat), anchored above its buttons on the chat panel.
+    this.cpop = new Popover({
+      scope: this.chatPanel,
+      focus: (n) => focusEl(n, { instant: true }),
+      move: (dir, scope) => moveFocus(dir, scope),
+      active: () => document.activeElement,
+      mount: (node, opener) => { this.screen.append(node); this.placeChatPopover(node, opener); },
+    });
     this.embed = null;
     this.current = null; // { kind: 'live'|'video', login, name, userId, stream, videoId, title }
     this.playlist = [];
@@ -210,7 +225,7 @@ export class Player {
     if (this.vodTimeline) { vlog(this.vodTimeline.finish('left before PLAYING')); this.vodTimeline = null; }
     if (this.embedOnly && this.embedOnly !== login) this.embedOnly = null;
     if (Array.isArray(playlist) && playlist.length) this.playlist = playlist;
-    if (!this.current || this.current.login !== login) this.composer.clear(); // a draft belongs to its channel
+    if (!this.current || this.current.login !== login) { this.composer.clear(); this.chat.setOwnEmotes([]); } // a draft belongs to its channel
     this.current = { kind: 'live', login, name: name || login, userId: userId || (stream && stream.user_id) || null, stream: stream || null };
     this.resetSeek();
     this.show();
@@ -282,6 +297,8 @@ export class Player {
     }
     if (cur !== this.current) return; // switched meanwhile
     this.watcher.watch(cur.userId ? { id: cur.userId, login: cur.login } : null);
+    if (cur.userId) setQuickChatChannel({ id: cur.userId, login: cur.login, name: cur.name });
+    this.loadOwnEmotes().catch(() => {}); // your emotes show in your own messages and the picker
     if (this.overlayVisible()) this.renderOverlay();
     this.loadDropsChip(cur);
     this.loadFollow(cur);
@@ -690,6 +707,7 @@ export class Player {
     clearTimeout(this.earlyTimer2);
     this.hidePlayPrompt();
     this.watcher.watch(null);
+    this.cpop.close({ returnFocus: false });
     this.composer.clear();
     this.composer.setVisible(false);
     this.chat.leave();
@@ -767,6 +785,90 @@ export class Player {
     if (!this.chatOn) { this.chatOn = true; this.applyLayout(); }
     this.hideOverlay();
     this.composer.focus({ keyboard: true });
+  }
+
+  /** Your own Twitch emotes for this channel (Helix, cached), handed to the chat. */
+  loadOwnEmotes() {
+    const me = state.auth.user;
+    const cur = this.current;
+    if (!me || !cur || cur.kind !== 'live' || !window.lurkbox.helix) return Promise.resolve([]);
+    const bid = cur.userId || this.chat.roomId || '';
+    return this.userEmotes.get(me.id, bid, { animated: state.settings.chatAnimatedEmotes !== false }).then((list) => {
+      if (cur === this.current) this.chat.setOwnEmotes(list);
+      return list;
+    });
+  }
+
+  /** The composer's emote picker or quick chat, above its button (pressing the button again closes it). */
+  openChatPicker(kind, opener) {
+    if (!opener || !opener.isConnected) return;
+    if (this.cpop.key === kind) { this.cpop.close(); return; }
+    const built = kind === 'emotes' ? this.emotePicker() : this.quickPicker();
+    const node = el('div', { class: `po-pop po-ui pop-${kind}`, role: 'dialog', 'aria-label': built.title },
+      el('div', { class: 'po-pop-title' }, built.title), built.body);
+    this.cpop.open({
+      key: kind, node, opener, initial: built.initial(), onAction: built.onAction,
+      update: () => { built.update(); this.placeChatPopover(node, opener); },
+    });
+  }
+
+  placeChatPopover(node, opener) {
+    if (!node.isConnected || !opener) return;
+    const box = this.screen.getBoundingClientRect();
+    const r = opener.getBoundingClientRect();
+    const { left, bottom } = anchorPopover(r, { width: node.offsetWidth, height: node.offsetHeight }, box, { margin: 12, gap: 10 });
+    node.style.left = `${left}px`;
+    node.style.bottom = `${bottom}px`;
+    node.style.maxHeight = `${Math.max(160, box.height - bottom - 12)}px`;
+  }
+
+  /** The emote picker: Recent, your Twitch emotes, and the channel's 7TV / BTTV / FFZ emotes. A inserts. */
+  emotePicker() {
+    const me = state.auth.user;
+    let loading = me ? 'Loading your emotes…' : 'Sign in to see your emotes.';
+    if (me) {
+      this.loadOwnEmotes().then(() => { loading = null; }).catch(() => { loading = 'Couldn\'t load your emotes.'; })
+        .finally(() => { if (this.cpop.key === 'emotes') this.cpop.update(); });
+    }
+    const picker = new EmotePicker({
+      tabs: () => {
+        const lookup = this.chat.lookup();
+        return pickerTabs({
+          recents: (me && (state.settings.emoteRecents || {})[me.id]) || [],
+          own: [...this.chat.ownEmotes.values()],
+          sets: this.chat.index.sets,
+          enabled: this.chat.prefs.providers,
+          lookup: (n) => lookup.get(n),
+        });
+      },
+      draft: () => this.composer.input.value,
+      loading: (tab) => (tab === 'twitch' ? loading : null),
+      onPick: (e) => this.insertEmote(e),
+    });
+    return picker.build();
+  }
+
+  insertEmote(e) {
+    const r = insertEmote(this.composer.input.value, this.composer.caret(), e.name);
+    if (!r) { toast('That would go over Twitch\'s 500-character limit', 2500, 'warn'); return; }
+    this.composer.setDraft(r.text, r.caret);
+    const me = state.auth.user;
+    if (me) saveSettings({ emoteRecents: pushRecent(state.settings.emoteRecents, me.id, e.name) }).catch(() => {});
+    if (this.cpop.isOpen) this.cpop.update();
+  }
+
+  /** Quick chat for the channel on screen (the overlay's icon, or the composer's button). */
+  quickPicker() {
+    return new QuickChatPicker({
+      channel: () => {
+        const cur = this.current;
+        if (!cur || cur.kind !== 'live') return null;
+        const id = cur.userId || this.chat.roomId;
+        return id ? { id: String(id), login: cur.login, name: cur.name } : null;
+      },
+      lookup: () => this.chat.lookup(),
+      send: (text) => this.chat.send(text, { broadcasterId: this.current && this.current.userId, phrase: text }),
+    }).build();
   }
 
   /** B in the composer: back to the overlay, on "Send a message". The draft stays. */
@@ -964,6 +1066,7 @@ export class Player {
     this.overlayTimer = setTimeout(() => {
       // Never while the pointer rests on the controls or a slider is being dragged.
       if (this.overlay.querySelector('.po-ui:hover') && document.body.classList.contains('input-mouse')) { this.bumpOverlay(); return; }
+      if (hasModal()) { this.bumpOverlay(); return; } // e.g. editing a quick-chat phrase from the pop-over
       this.hideOverlay();
     }, this.pop.isOpen ? POPOVER_HIDE_MS : OVERLAY_HIDE_MS);
   }
@@ -978,6 +1081,7 @@ export class Player {
     const shown = new Set(overlayControls({
       kind: cur.kind, points: !!this.tchat.login, follow: !!(cur.login && window.lurkbox.followChannel && state.auth.signedIn),
       compose: state.auth.signedIn && state.settings.chatStyle !== 'twitch',
+      quick: state.auth.signedIn,
     }));
     for (const key of ALL_CONTROLS) {
       const b = ui.buttons[key];
@@ -1053,14 +1157,14 @@ export class Player {
   /** Opens the pop-over for a bar button (pressing its button again closes it). */
   openPopover(key, opener = this.ui.buttons[key]) {
     if (this.pop.key === key) { this.pop.close(); this.bumpOverlay(); return; }
-    const built = { volume: () => this.volumePop(), quality: () => this.qualityPop(), chat: () => this.chatPop(), points: () => this.pointsPop(), more: () => this.morePop() }[key];
+    const built = { volume: () => this.volumePop(), quality: () => this.qualityPop(), chat: () => this.chatPop(), quick: () => this.quickPicker(), points: () => this.pointsPop(), more: () => this.morePop() }[key];
     if (!built) return;
-    const { body, initial, update, title } = built();
+    const { body, initial, update, title, onAction } = built();
     const node = el('div', { class: `po-pop po-ui pop-${key}`, role: 'dialog', 'aria-label': title },
       el('div', { class: 'po-pop-title' }, title), body);
     this.hideTip();
     this.pop.open({
-      key, node, opener, initial: initial && initial(),
+      key, node, opener, initial: initial && initial(), onAction,
       update: () => { if (update) update(); this.placePopover(node, opener); },
       onClose: () => { if (this.ui) this.renderButtonsExpanded(); },
     });
@@ -1609,6 +1713,10 @@ export class Player {
   }
 
   handleAction(action, source = 'pad') {
+    if (this.cpop.isOpen) {
+      this.cpop.handle(action); // B closes it (focus back to the composer's button), A, D-pad, LB/RB tabs, X/Y
+      return true;
+    }
     if (this.composer.contains(document.activeElement)) {
       if (this.composer.handle(action, source)) return true;
       if (action === UP || action === DOWN) { this.scrollChat(action); return true; }

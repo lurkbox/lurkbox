@@ -2,6 +2,8 @@
 // made-up data in ./data.js. Pure and synchronous; it never touches the network. The desktop host calls it from
 // its `helix` IPC handler when LURKBOX_DEMO=1.
 
+import { OWN_EMOTES } from './data.js';
+
 const ok = (data) => ({ ok: true, status: 200, data });
 const list = (items) => ok({ data: items, pagination: {} });
 const many = (v) => (v == null ? [] : (Array.isArray(v) ? v : [v]).map(String));
@@ -66,6 +68,14 @@ export function demoHelix(db, req = {}, ctx = {}) {
       return list(db.badges);
     case '/chat/badges':
       return list([]); // the channel has no badges of its own; the global ones apply
+    case '/chat/emotes/user': {
+      // Your emotes, two to a page (so the core's pagination runs), with a template on the demo's own pictures.
+      if (String(q.user_id) !== String(ctx.activeId)) return { ok: false, status: 400, error: 'Bad Request', data: { message: 'user_id must be the signed-in user' }, resetAt: null };
+      const all = OWN_EMOTES.map(([name, type]) => ({ id: name, name, emote_type: type, emote_set_id: `demo-${type}`, owner_id: type === 'globals' ? '0' : String(q.broadcaster_id || '0'), format: ['static'], scale: ['1.0', '2.0'], theme_mode: ['dark', 'light'] }));
+      const start = Number(q.after) || 0;
+      const next = start + 2 < all.length ? String(start + 2) : null;
+      return ok({ data: all.slice(start, start + 2), template: `${db.media('img/emote/')}{{id}}.svg`, pagination: next ? { cursor: next } : {} });
+    }
     case '/chat/messages': {
       // Sending: accepted, except the same text twice within 30 s (Twitch's msg_duplicate rule). The renderer's fake IRC
       // echoes accepted messages back (install.js), like the real anonymous chat connection does.

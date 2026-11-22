@@ -25,6 +25,10 @@ const SETUP = {
   'player-chat': { settings: { chatDefault: true } },
   'player-chat-overlay': { settings: { chatDefault: true, chatOverlay: true, chatOverlayOpacity: 45 } },
   'player-rewind': {},
+  // Chat sending: the composer, the emote picker and quick chat (with phrases saved for the demo channel).
+  'chat-composer': { settings: { chatDefault: true } },
+  'chat-emotes': { settings: { chatDefault: true } },
+  'quick-chat': { settings: { chatDefault: true, quickChat: { global: ['gg', 'LUL', 'hype!', 'o7', 'PogChamp'], channels: { 7100004: { login: 'pixelmoth', phrases: ['moth gang lurkerLove', 'world 6 lets go boxHype'] } } } } },
   categories: {},
   search: {},
   settings: {},
@@ -141,7 +145,7 @@ app.on('browser-window-created', (_e, win) => {
   };
   /** Moves focus along the overlay bar to the control with this data-key. */
   const focusControl = async (key) => {
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 16; i++) {
       if (await js(`document.activeElement && document.activeElement.dataset.key === ${JSON.stringify(key)}`)) return;
       await press('RIGHT');
       await sleep(60);
@@ -204,6 +208,47 @@ app.on('browser-window-created', (_e, win) => {
       await chatToEnd();
       await settle();
       await shoot('player-chat-overlay');
+    },
+    async 'chat-composer'() {
+      await openFirstLive();
+      await chatReady();
+      // One message sent (drawn at once, confirmed by the demo chat's echo), and the next one being typed.
+      await js("(() => { const p = window.__lurkbox.player; p.composer.setDraft('that jump was so clean lurkerHi'); p.composer.send(); return true; })()");
+      await waitFor('the echo', "[...document.querySelectorAll('#chat .chat-msg.own')].some((n) => /^demo-msg-/.test(n.dataset.id || ''))", 8000);
+      await sleep(2500);
+      await js('window.__lurkboxDemo.pauseChat(); true');
+      await sleep(1500);
+      await js("(() => { const p = window.__lurkbox.player; p.composer.setDraft('see you next stream o7'); p.composer.focus(); return true; })()");
+      await chatToEnd();
+      await settle();
+      await shoot('chat-composer');
+    },
+    async 'chat-emotes'() {
+      await openFirstLive();
+      await chatReady();
+      await js('window.__lurkboxDemo.pauseChat(); true');
+      await sleep(1500);
+      await chatToEnd();
+      await js("(() => { const p = window.__lurkbox.player; p.composer.setDraft('world 6 already'); p.composer.focus(); return true; })()");
+      await press('X');
+      await waitFor('the emote picker', "!!document.querySelector('.pop-emotes .ep-tab')");
+      for (let i = 0; i < 6 && !(await js("!!document.querySelector('.pop-emotes .ep-tab.selected[data-tab=\"7tv\"]')")); i++) await press('RB');
+      await press('RIGHT');
+      await settle();
+      await shoot('chat-emotes');
+    },
+    async 'quick-chat'() {
+      await openFirstLive();
+      await chatReady();
+      await js('window.__lurkboxDemo.pauseChat(); true');
+      await sleep(1500);
+      await chatToEnd();
+      await overlay();
+      await focusControl('quick');
+      await press('A');
+      await waitFor('quick chat', "!!document.querySelector('#player-overlay .pop-quick .qc-item')");
+      await settle();
+      await shoot('quick-chat');
     },
     async 'player-rewind'() {
       await openFirstLive(4);

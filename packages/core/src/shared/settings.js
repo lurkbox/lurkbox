@@ -3,6 +3,7 @@
 // ES module; the desktop main process loads it with require().
 import { DEFAULT_CLIENT_ID } from './config.js';
 import { CHAT_LAYOUT_DEFAULTS, sanitizeChatLayout } from './chat-layout.js';
+import { DEFAULT_QUICK_CHAT, sanitizeQuickChat, sanitizeEmoteRecents } from './quick-chat.js';
 
 export const THEMES = ['lurkbox', 'game-mode', 'classic-purple', 'oled', 'daylight', 'high-contrast', 'custom'];
 export const CUSTOM_KEYS = ['bg', 'surface', 'accent', 'fg', 'muted'];
@@ -43,6 +44,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   chatAnimatedEmotes: true, // animated emotes (off: the static frame)
   chat7tvCosmetics: true, // 7TV name paints and badges
   chatExtensions: false, // experimental: the real 7TV/BTTV/FFZ browser extensions in Twitch chat mode
+  quickChat: DEFAULT_QUICK_CHAT, // saved phrases: { global: [...], channels: { <broadcaster id>: { login, phrases } } } (./quick-chat.js)
+  emoteRecents: Object.freeze({}), // the emote picker's Recent tab, per account: { <user id>: [names] }
   // Chat layout (chat pop-over in the player and Settings → Chat; see ./chat-layout.js): chatTextSize, twitchChatSize
   // (Twitch chat style: zoom inside Twitch's chat frame, 'auto' = the TV rule, or 75..250 percent), chatWidth,
   // chatSide, chatBgOpacity, chatOverlay, chatOverlayOpacity.
@@ -66,6 +69,8 @@ export function sanitizeSettings(patch) {
   if ('videoCodec' in patch) out.videoCodec = patch.videoCodec === 'best' ? 'best' : 'h264';
   if ('backgroundQuality' in patch) out.backgroundQuality = ['same', '720', '480'].includes(String(patch.backgroundQuality)) ? String(patch.backgroundQuality) : '720';
   Object.assign(out, sanitizeChatLayout(patch));
+  if ('quickChat' in patch) out.quickChat = sanitizeQuickChat(patch.quickChat);
+  if ('emoteRecents' in patch) out.emoteRecents = sanitizeEmoteRecents(patch.emoteRecents);
   if ('chatStyle' in patch) out.chatStyle = patch.chatStyle === 'twitch' ? 'twitch' : 'lurkbox';
   if ('profilePicker' in patch) out.profilePicker = patch.profilePicker === 'ask' ? 'ask' : 'remember';
   if ('navSoundVolume' in patch) { const n = Math.round(Number(patch.navSoundVolume) / 10) * 10; out.navSoundVolume = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 30; }

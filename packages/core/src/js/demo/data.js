@@ -221,6 +221,9 @@ function demoBadges(media) {
  * The emotes drawn for the demo chat: [name, provider, zeroWidth]. Pictures in images.js (emoteSvg). Only 7TV and
  * FrankerFaceZ: their API responses carry the image URL, while BetterTTV's image host is fixed in the core.
  */
+/** The demo accounts' own "Twitch" emotes (Helix /chat/emotes/user in demo mode): [name, emote type]. */
+export const OWN_EMOTES = [['lurkerHi', 'subscriptions'], ['lurkerLove', 'subscriptions'], ['lurkerGG', 'follower'], ['lurkerZzz', 'globals']];
+
 export const EMOTES = [
   ['lurkWave', '7tv', false], ['lurkCozy', '7tv', false], ['boxHype', '7tv', false], ['peekbox', '7tv', false],
   ['partyHat', '7tv', true], ['teaSip', 'ffz', false], ['wowie', '7tv', false], ['hehe', 'ffz', false],

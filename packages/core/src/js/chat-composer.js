@@ -20,11 +20,14 @@ export class Composer {
    * @param {import('./chat.js').Chat} o.chat for the room modes
    * @param {(text: string) => Promise<{ok: boolean}>} o.onSend
    * @param {() => void} o.onLeave B (or Escape): leave the composer
-   * @param {HTMLElement[]} [o.buttons] extra buttons between the text box and Send (emotes, quick chat)
+   * @param {() => void} [o.onEmotes] the emote picker (button, X)
+   * @param {() => void} [o.onQuick] quick chat (button, Y)
    */
-  constructor({ chat, onSend, onLeave, buttons = [] }) {
+  constructor({ chat, onSend, onLeave, onEmotes = null, onQuick = null }) {
     this.onSend = onSend;
     this.onLeave = onLeave;
+    this.onEmotes = onEmotes;
+    this.onQuick = onQuick;
     this.sending = false;
     this.input = el('input', {
       class: 'cm-input focusable', type: 'text', spellcheck: 'false', autocomplete: 'off', enterkeyhint: 'send',
@@ -33,7 +36,9 @@ export class Composer {
     this.sendBtn = el('button', { type: 'button', class: 'cm-btn cm-send focusable', 'aria-label': 'Send', title: 'Send', dataset: { focusKey: 'cm-send' }, onclick: () => this.send() }, icon('send'));
     this.note = el('div', { class: 'cm-note', hidden: true });
     this.counter = el('span', { class: 'cm-count', hidden: true });
-    this.row = el('div', { class: 'cm-row' }, this.input, ...buttons, this.sendBtn);
+    this.emoteBtn = onEmotes ? el('button', { type: 'button', class: 'cm-btn cm-emotes focusable', 'aria-label': 'Emotes', title: 'Emotes', dataset: { focusKey: 'cm-emotes' }, onclick: () => onEmotes(this.emoteBtn) }, icon('emote')) : null;
+    this.quickBtn = onQuick ? el('button', { type: 'button', class: 'cm-btn cm-quick focusable', 'aria-label': 'Quick chat', title: 'Quick chat', dataset: { focusKey: 'cm-quick' }, onclick: () => onQuick(this.quickBtn) }, icon('quick')) : null;
+    this.row = el('div', { class: 'cm-row' }, this.input, this.emoteBtn, this.quickBtn, this.sendBtn);
     this.node = el('div', { class: 'chat-composer', hidden: true }, el('div', { class: 'cm-meta' }, this.note, this.counter), this.row);
     this.input.addEventListener('input', () => this.updateCounter());
     // While typing, the player's "video only when unfocused" mode leaves the chat alone (Steam's keyboard can take focus).
@@ -69,6 +74,8 @@ export class Composer {
   /** Focuses the text box; with keyboard, opens the on-screen keyboard too. */
   focus({ keyboard = false } = {}) {
     focusEl(this.input, { instant: true });
+    const n = this.input.value.length;
+    try { this.input.setSelectionRange(n, n); } catch { /* not a text input */ } // the end of the draft shows
     if (keyboard) this.openKeyboard();
   }
 
@@ -89,6 +96,12 @@ export class Composer {
 
   clear() { this.setDraft(''); }
 
+  /** Where an emote goes: the caret, or the end. */
+  caret() {
+    const s = this.input.selectionStart;
+    return Number.isInteger(s) ? s : this.input.value.length;
+  }
+
   async send() {
     if (this.sending) return;
     const text = this.input.value;
@@ -108,7 +121,8 @@ export class Composer {
   /**
    * Controller/keyboard input while focus is in the composer. source: 'pad' | 'key' | 'mouse'.
    * A: on the text box, Enter sends and the pad's A opens the keyboard; on a button, presses it. START sends.
-   * B leaves. LEFT/RIGHT move between the box and the buttons. Returns true when consumed.
+   * B leaves. X opens the emote picker, Y quick chat. LEFT/RIGHT move between the box and the buttons. Returns true
+   * when consumed.
    */
   handle(action, source) {
     const a = document.activeElement;
@@ -119,6 +133,8 @@ export class Composer {
         return true;
       case 'START': this.send(); return true;
       case 'B': this.onLeave(); return true;
+      case 'X': if (this.onEmotes) { this.onEmotes(this.emoteBtn); return true; } return false;
+      case 'Y': if (this.onQuick) { this.onQuick(this.quickBtn); return true; } return false;
       case 'LEFT':
       case 'RIGHT':
         moveFocus(action, this.row);

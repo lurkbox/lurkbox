@@ -2,6 +2,9 @@
 // into the focused text box, like in the TV sign-in window), otherwise Lurkbox's own on-screen keyboard. A physical
 // keyboard always types straight into the box.
 import { openKeyboard } from './osk.js';
+import { el, button, toast } from './ui.js';
+import { openModal } from './modal.js';
+import { hint } from './input.js';
 
 /**
  * Opens a keyboard for `input`. Resolves 'steam' (Steam's keyboard is up; the input keeps focus and gets the keys)
@@ -24,4 +27,50 @@ export async function keyboardFor(input, { title = 'Enter text', maxLength = 500
     onCancel,
   });
   return 'osk';
+}
+
+/**
+ * A small dialog with one text box (Save, optional Delete, Cancel), for quick-chat phrases. A on the box opens a
+ * keyboard (Steam's or the built-in one), a physical Enter saves. Resolves { action: 'save', value },
+ * { action: 'delete' } or null (cancelled).
+ */
+export function promptText({ title, value = '', maxLength = 500, placeholder = '', deletable = false, help = '' }) {
+  return new Promise((resolve) => {
+    let result = null;
+    const input = el('input', {
+      class: 'text-input focusable prompt-input', type: 'text', spellcheck: 'false', autocomplete: 'off', placeholder, 'aria-label': title,
+    });
+    input.value = value;
+    const save = () => {
+      const v = input.value.trim();
+      if (!v) { input.focus(); return; }
+      if (Array.from(v).length > maxLength) { toast(`At most ${maxLength} characters`, 2500, 'warn'); return; }
+      result = { action: 'save', value: v };
+      m.close();
+    };
+    const content = el('div', { class: 'prompt' },
+      help ? el('p', { class: 'prompt-help' }, help) : null,
+      input,
+      el('div', { class: 'row' },
+        button('Save', save, { class: 'primary prompt-save' }),
+        deletable ? button('Delete', () => { result = { action: 'delete' }; m.close(); }, { class: 'prompt-delete' }) : null,
+        button('Cancel', () => m.close())),
+      el('div', { class: 'osk-help' }, hint('{A} on the box: keyboard · {START} save · {B} cancel')));
+    const m = openModal({
+      title,
+      class: 'prompt-modal',
+      content,
+      focus: '.prompt-input',
+      onAction(action, source) {
+        if (action === 'START') { save(); return true; }
+        if (action === 'A' && document.activeElement === input) {
+          if (source === 'key') save();
+          else keyboardFor(input, { title, maxLength });
+          return true;
+        }
+        return false;
+      },
+      onClose: () => resolve(result),
+    });
+  });
 }
