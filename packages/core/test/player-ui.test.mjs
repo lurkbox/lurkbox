@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { overlayControls, controlLabel, controlIcon, shortCount, liveLabel, anchorPopover, POPOVER_CONTROLS, OVERLAY_HIDE_MS } from '../src/js/player-ui.js';
+import { overlayControls, fitControls, PINNED_CONTROLS, controlLabel, controlIcon, shortCount, liveLabel, anchorPopover, POPOVER_CONTROLS, OVERLAY_HIDE_MS } from '../src/js/player-ui.js';
 import { PLAYER_ICONS } from '../src/js/icons.js';
 import { Popover } from '../src/js/popover.js';
 import { stepValue, valueAt, holdMultiplier, HoldTracker } from '../src/js/slider.js';
@@ -17,6 +17,39 @@ test('overlay controls: one row, live-only buttons, points only with Twitch\'s c
   for (const k of ['volume', 'quality', 'chat', 'points', 'more']) assert.ok(POPOVER_CONTROLS.has(k), k);
   assert.ok(!POPOVER_CONTROLS.has('play'));
   assert.ok(OVERLAY_HIDE_MS >= 3500 && OVERLAY_HIDE_MS <= 5000, 'auto-hide after about 4 s');
+});
+
+test('row fit: lowest priority controls move into More; play, chat, quick chat and More always stay', () => {
+  const keys = overlayControls({ kind: 'live', points: true, follow: true, compose: true, quick: true, clip: true });
+  const size = { button: 44, gap: 8 }; // phone portrait: 44 px targets
+  const width = (n) => n * size.button + (n - 1) * size.gap;
+  // Room for all of them: nothing moves (TV/desktop at 1280x800).
+  assert.deepEqual(fitControls(keys, { width: 1200, button: 53, gap: 8 }), { shown: keys, overflow: [] });
+  assert.deepEqual(fitControls(keys, { width: width(keys.length), ...size }).overflow, []);
+  // One short: the lowest priority goes (back), then compose, channel, points, clip, follow, live, quality, volume.
+  const order = ['back', 'compose', 'channel', 'points', 'clip', 'follow', 'live', 'quality', 'volume'];
+  for (let i = 1; i <= order.length; i++) {
+    const { shown, overflow } = fitControls(keys, { width: width(keys.length - i), ...size });
+    assert.deepEqual(new Set(overflow), new Set(order.slice(0, i)), `${i} dropped`);
+    assert.deepEqual(shown, keys.filter((k) => !overflow.includes(k)), 'row order kept');
+    assert.ok(shown.length * size.button + (shown.length - 1) * size.gap <= width(keys.length - i), 'fits');
+  }
+  // Never narrower than the pinned four, however small.
+  const tiny = fitControls(keys, { width: 50, ...size });
+  assert.deepEqual(tiny.shown, ['play', 'chat', 'quick', 'more']);
+  for (const k of PINNED_CONTROLS) assert.ok(!tiny.overflow.includes(k), k);
+  // The 412 px phone in portrait (no volume: phones have volume buttons): the heart is no longer clipped off.
+  const phone = overlayControls({ kind: 'live', points: true, follow: true, compose: true, quick: true, clip: true, volume: false });
+  assert.ok(!phone.includes('volume'));
+  const fit = fitControls(phone, { width: 412 - 2 * 9.6, ...size });
+  assert.ok(fit.shown.length * 44 + (fit.shown.length - 1) * 8 <= 412 - 2 * 9.6);
+  assert.deepEqual(fit.shown, ['play', 'quality', 'chat', 'quick', 'live', 'follow', 'more']);
+  // Clips: back, channel, follow and then the broadcast link go first; previous/next stay longer.
+  const clip = overlayControls({ kind: 'clip', prev: true, next: true, vod: true, follow: true });
+  assert.deepEqual(fitControls(clip, { width: width(6), ...size }).shown, ['play', 'volume', 'quality', 'prev', 'next', 'more']);
+  // Not laid out yet (hidden overlay): keep them all.
+  assert.deepEqual(fitControls(keys, { width: 0, ...size }).overflow, []);
+  assert.deepEqual(fitControls(keys, { width: 300, button: 0 }).overflow, []);
 });
 
 test('label bubble text: action, then its state after a dot', () => {
