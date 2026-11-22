@@ -87,6 +87,22 @@ app.on('browser-window-created', (_e, win) => {
       log(`home: ${await js("document.querySelectorAll('.channel-body .card').length")} cards, next stream: ${await js("document.querySelector('.channel-next').textContent.replace(/\\s+/g, ' ').slice(0, 80)")}`);
       await shot('home');
 
+      // Watch → the live player; the scissors make a clip (the demo echoes it): a toast with a QR code and the link.
+      await press('A');
+      await waitFor('the live player', "!document.getElementById('player-screen').hidden && window.__lurkbox.player.current && window.__lurkbox.player.current.kind === 'live'");
+      await press('A');
+      await waitFor('the overlay', "!document.getElementById('player-overlay').hidden && !!document.querySelector('#player-overlay [data-key=clip]:not([hidden])')", 8000);
+      for (let i = 0; i < 12 && !(await js("document.activeElement && document.activeElement.dataset.key === 'clip'")); i++) await press('RIGHT');
+      if (!(await js("document.activeElement && document.activeElement.dataset.key === 'clip'"))) throw new Error('no Clip control on the live overlay');
+      await press('A');
+      await waitFor('the clip toast', "(() => { const t = document.querySelector('#toasts .toast.clip-made'); return t && /Clip created/.test(t.textContent) && /clips\\.twitch\\.tv\\/Demo/.test(t.textContent) && !!t.querySelector('.clip-toast-qr svg'); })()", 8000);
+      const made = await js("(() => { const s = window.__lurkbox.state; return ((s.settings.myClips || {})[s.auth.user.id] || [])[0] || null; })()");
+      if (!made || !/^Demo/.test(made.id) || made.login !== login) throw new Error(`My clips: ${JSON.stringify(made)}`);
+      log(`clip created: ${made.id}`);
+      await shot('clip-created');
+      for (let i = 0; i < 3 && !(await js("document.getElementById('player-screen').hidden")); i++) await press('B');
+      await waitFor('back on the channel page', "document.getElementById('player-screen').hidden && document.querySelector('.channel-body').dataset.tab === 'home'", 5000);
+
       // RB → Videos: Past broadcasts by default; the Highlights pill filters; Y sorts.
       await press('RB');
       await waitFor('the videos tab', "document.querySelector('.channel-body').dataset.tab === 'videos' && document.querySelectorAll('.channel-body .grid .card').length >= 3");
@@ -106,6 +122,7 @@ app.on('browser-window-created', (_e, win) => {
       await js("document.querySelector('[data-focus-key=cp-all]').focus(); true");
       await press('A');
       await waitFor('all-time clips', "document.querySelectorAll('.channel-body .card-clip').length >= 6");
+      await waitFor('My clips with the new clip', `(() => { const g = document.querySelector('.channel-body .my-clips'); return g && !!g.querySelector('[data-focus-key="clip-${made.id}"]'); })()`, 5000);
       const views = await js("[...document.querySelectorAll('.channel-body .card-clip .badge.clip-views')].map((n) => n.textContent)");
       log(`clips (most viewed): ${views.join(', ')}`);
       await press('Y');
@@ -113,7 +130,7 @@ app.on('browser-window-created', (_e, win) => {
       await shot('clips');
 
       // A on a clip plays it in the player: the overlay's CLIP line, qualities, next-clip autoplay, "Watch from here".
-      await js("document.querySelector('.channel-body .card-clip').focus(); true");
+      await js("document.querySelector('.channel-body .grid:not(.my-clips) .card-clip').focus(); true");
       const firstClip = await js("document.activeElement.dataset.focusKey.replace(/^clip-/, '')");
       await press('A');
       await waitFor('the clip in the player', `!document.getElementById('player-screen').hidden && window.__lurkbox.player.current && window.__lurkbox.player.current.kind === 'clip' && window.__lurkbox.player.current.clip.id === ${JSON.stringify(firstClip)}`);
@@ -172,7 +189,7 @@ app.on('browser-window-created', (_e, win) => {
       // B → Following, focus back on the card.
       await press('B');
       await waitFor('Following again', "!document.querySelector('[data-view^=\"channel:\"]') && document.activeElement && document.activeElement.dataset.channelLogin === " + JSON.stringify(login));
-      finish(0, `channel page of ${login}: header, all five tabs, filters, sorts, a clip played (qualities, autoplay, watch from here), LB/RB wrap, back to the same card`);
+      finish(0, `channel page of ${login}: header, all five tabs, filters, sorts, a clip made from the live player and listed in My clips, a clip played (qualities, autoplay, watch from here), LB/RB wrap, back to the same card`);
     } catch (e) {
       await shot('FAILED').catch(() => {});
       finish(1, e.message);

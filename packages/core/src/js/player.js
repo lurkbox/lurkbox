@@ -45,12 +45,13 @@ import { pushRecent } from '../shared/quick-chat.js';
 import { RaidCountdown } from './raid.js';
 import { DirectEngine, EVENTS as DIRECT_EVENTS } from './direct-engine.js';
 import { ClipEngine, ClipEmbed, clipSourcePlan } from './clip-engine.js';
+import { clipAuthState, buildClipCreate, clipCreateResult, clipShortLink, addMyClip } from '../shared/my-clips.js';
 import { liveBadge, catchUpDecision, backgroundCap } from './hls-util.js';
 
 const EMBED_URL = 'https://player.twitch.tv/js/embed/v1.js';
 const EMBED_PARENT = ['localhost']; // must match the host the UI is served from
 /** Every control the bar can show, in order (overlayControls() picks the ones for what is playing). */
-const ALL_CONTROLS = ['play', 'volume', 'quality', 'chat', 'compose', 'quick', 'live', 'points', 'prev', 'next', 'vod', 'follow', 'channel', 'more', 'back'];
+const ALL_CONTROLS = ['play', 'volume', 'quality', 'chat', 'compose', 'quick', 'live', 'points', 'clip', 'prev', 'next', 'vod', 'follow', 'channel', 'more', 'back'];
 const LONG_PRESS_MS = 450;
 
 const RAID_STATUS_TEXT = {
@@ -61,6 +62,34 @@ const RAID_STATUS_TEXT = {
   error: 'Raid follow: error, retrying',
   'signed-out': 'Raid follow needs sign-in',
 };
+
+/** "Clip created", with a QR code and short link to the clip's edit page on twitch.tv. */
+function showClipToast({ id, editUrl }) {
+  const qr = el('div', { class: 'clip-toast-qr', 'aria-hidden': 'true' });
+  toast(el('div', { class: 'clip-toast' }, qr,
+    el('div', { class: 'clip-toast-text' },
+      el('strong', {}, 'Clip created'),
+      el('span', { class: 'clip-toast-link' }, clipShortLink(id)),
+      el('span', { class: 'clip-toast-hint' }, 'Scan to edit it on twitch.tv · in My clips on the channel page'))), 12000, 'clip-made');
+  Promise.resolve(window.lurkbox.qrSvg(editUrl)).then((svg) => { if (typeof svg === 'string' && svg.startsWith('<svg')) qr.innerHTML = svg; }).catch(() => {});
+}
+
+let clipSignIn = null;
+/** Signed out, or the token lacks clips:edit: offer the TV sign-in (for this account). */
+async function promptClipSignIn(kind) {
+  if (clipSignIn && !clipSignIn.closed) return;
+  const [{ confirmDialog }, { tvSignIn }] = await Promise.all([import('./modal.js'), import('./auth.js')]);
+  const again = kind === 'reauth';
+  clipSignIn = confirmDialog({
+    title: again ? 'Sign in again to clip' : 'Sign in to clip',
+    message: again
+      ? 'Lurkbox needs a fresh sign-in to make clips for this account (Twitch\'s "create clips" permission is missing).'
+      : 'Sign in to Twitch to make clips.',
+    yes: 'Sign in',
+    no: 'Not now',
+    onYes: () => tvSignIn({ accountId: again ? state.auth.active : null }),
+  });
+}
 
 /** "Clipped by x · 1.2K views · Mar 3, 2026" */
 function clipMeta(c) {
@@ -295,7 +324,7 @@ export class Player {
   async openClip(clip, list = [], channel = {}) {
     if (this.current && this.current.kind === 'video') this.saveResume();
     if (this.vodTimeline) { vlog(this.vodTimeline.finish('left before PLAYING')); this.vodTimeline = null; }
-    if (Array.isArray(list) && list.length) this.clipList = list;
+    if (Array.isArray(list)) this.clipList = list.some((c) => c.id === clip.id) ? list : [clip]; // null: keep (next/previous)
     const cur = { kind: 'clip', login: channel.login || null, name: channel.name || clip.broadcaster_name, userId: clip.broadcaster_id, title: clip.title, clip };
     this.current = cur;
     this.resetSeek();
@@ -373,6 +402,41 @@ export class Player {
     const at = Math.max(0, Number(cur.clip.vod_offset) || 0);
     this.destroyEngine(); // a fresh engine for the video
     this.openVideo(video, { startAt: at });
+  }
+
+  /**
+   * The scissors: a clip of the live stream (Helix POST /clips, clips:edit), made as the signed-in user. A toast shows
+   * a QR code and short link to its edit page (clips are edited on twitch.tv); it is added to "My clips".
+   */
+  async createClip() {
+    const cur = this.current;
+    if (!cur || cur.kind !== 'live') return;
+    const auth = clipAuthState(state.auth);
+    if (auth !== 'ok') { promptClipSignIn(auth); return; }
+    if (this.clipBusy) return;
+    const wait = Math.ceil(((this.clipBlockedUntil || 0) - Date.now()) / 1000);
+    if (wait > 0) { toast(`Too many clips. Try again in ${wait} s.`, 3000, 'warn'); return; }
+    const req = buildClipCreate(cur.userId);
+    if (req.error) { toast('Still looking up this channel, try again in a moment', 2500); return; }
+    this.clipBusy = true;
+    if (this.overlayVisible()) this.renderOverlay(true);
+    const busy = toast('Clipping…', 8000);
+    let r;
+    try { r = await window.lurkbox.helix(req); } catch (e) { r = { ok: false, status: 0, error: e.message }; }
+    this.clipBusy = false;
+    if (busy) busy.remove();
+    if (cur === this.current && this.overlayVisible()) this.renderOverlay(true);
+    const res = clipCreateResult(r, { name: cur.name || cur.login });
+    plog(`clip of ${cur.login}: ${res.ok ? res.id : `${res.code} (${r && r.status})`}`);
+    if (!res.ok) {
+      if (res.code === 'ratelimited') this.clipBlockedUntil = res.resetAt;
+      if (res.code === 'reauth') { promptClipSignIn('reauth'); return; }
+      toast(res.message, 5000, 'warn');
+      return;
+    }
+    const me = state.auth.user && state.auth.user.id;
+    if (me) saveSettings({ myClips: addMyClip(state.settings.myClips, me, { id: res.id, broadcasterId: cur.userId, login: cur.login, name: cur.name || cur.login, at: Date.now(), editUrl: res.editUrl }) });
+    showClipToast(res);
   }
 
   /** Looks up the broadcaster id (needed for EventSub) and fresh stream info. */
@@ -1087,6 +1151,7 @@ export class Player {
       points: this.points.signedIn && Number.isFinite(this.points.balance) ? this.points.balance : null,
       name: cur.name || cur.login || '',
       following: cur.following == null ? null : cur.following,
+      clipping: !!this.clipBusy,
       vodOffset: cur.kind === 'clip' && cur.clip.vod_offset != null ? fmtTime(cur.clip.vod_offset) : null,
       next: cur.kind === 'clip' ? (this.clipNeighbour(1) || {}).title || null : null,
       prev: cur.kind === 'clip' ? (this.clipNeighbour(-1) || {}).title || null : null,
@@ -1191,7 +1256,7 @@ export class Player {
     const ctx = this.labelCtx();
     const shown = new Set(overlayControls({
       kind: cur.kind, points: !!this.tchat.login, follow: !!(cur.login && window.lurkbox.followChannel && state.auth.signedIn),
-      vod: cur.kind === 'clip' && !!cur.clip.video_id, prev: !!this.clipNeighbour(-1), next: !!this.clipNeighbour(1),
+      vod: cur.kind === 'clip' && !!cur.clip.video_id, clip: state.auth.signedIn, prev: !!this.clipNeighbour(-1), next: !!this.clipNeighbour(1),
       compose: state.auth.signedIn && state.settings.chatStyle !== 'twitch',
       quick: state.auth.signedIn,
     }));
@@ -1259,6 +1324,7 @@ export class Player {
       case 'follow': this.toggleFollow(); break;
       case 'compose': this.openComposer(); break;
       case 'vod': this.watchClipVod(); break;
+      case 'clip': this.createClip(); break;
       case 'prev': this.stepClip(-1); break;
       case 'next': this.stepClip(1); break;
       case 'channel': {

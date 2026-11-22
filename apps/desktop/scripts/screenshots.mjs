@@ -22,7 +22,7 @@ const OUT = path.resolve(process.env.SHOT_OUT || path.join(REPO, 'docs', 'screen
 const SCENE_JS = path.join(HERE, 'screenshot-scene.js');
 const ELECTRON = require('electron'); // the binary path when required from Node
 
-export const SCENES = ['following', 'following-by-game', 'player', 'player-popover', 'player-chat', 'player-chat-overlay', 'chat-composer', 'chat-emotes', 'quick-chat', 'player-rewind', 'channel', 'channel-clips', 'channel-schedule', 'player-clip', 'categories', 'search', 'search-history', 'keyboard', 'settings', 'themes', 'whos-watching', 'signin'];
+export const SCENES = ['following', 'following-by-game', 'player', 'player-popover', 'player-chat', 'player-chat-overlay', 'chat-composer', 'chat-emotes', 'quick-chat', 'player-rewind', 'channel', 'channel-clips', 'channel-schedule', 'player-clip', 'clip-created', 'categories', 'search', 'search-history', 'keyboard', 'settings', 'themes', 'whos-watching', 'signin'];
 export const THEMES = [
   ['lurkbox', 'Lurkbox'], ['game-mode', 'Game Mode'], ['classic-purple', 'Classic Purple'], ['oled', 'OLED'],
   ['daylight', 'Daylight'], ['high-contrast', 'High Contrast'], ['custom', 'Custom'],

@@ -1,13 +1,14 @@
 // The channel page: a header (banner, avatar, name, followers, Follow, a LIVE card with Watch) and tabs: Home, Videos,
 // Clips, Schedule and About. LB/RB (or the tabs themselves) switch tabs; Y sorts the Videos and Clips grids. Everything
 // comes from the official Helix API (users, streams, videos, clips, schedule, channels, followers).
-import { el, button, fmtViewers, fmtUptime, fmtDate, thumb } from '../ui.js';
+import { el, button, toast, fmtViewers, fmtUptime, fmtDate, thumb } from '../ui.js';
 import { hint } from '../input.js';
 import { tw, usersByIds } from '../api.js';
 import { pagedGrid, videoCard, clipCard, errorState, listSort, filterPills } from '../grid.js';
 import { VOD_SORTS, CLIP_SORTS, sortVideos, sortClips } from '../../shared/sorts.js';
 import { CHANNEL_TABS, VIDEO_FILTERS, CLIP_PERIODS, validChoice, fmtSchedule, nextSegment, fmtFollowers } from '../../shared/channel-page.js';
 import { followButton } from '../follow.js';
+import { myClipsFor, clipShortLink } from '../../shared/my-clips.js';
 import { state, saveSettings } from '../state.js';
 import { focusEl } from '../focus.js';
 import { shortCount } from '../player-ui.js';
@@ -192,6 +193,29 @@ export function channelView({ login, id, name, tab }) {
         });
         body.append(el('div', { class: 'channel-toolbar' }, period.el, sort.chip), gridHost);
         load(period.value);
+        renderMyClips();
+      }
+
+      /** Clips you made of this channel (per account, newest first), above the channel's clips. */
+      function renderMyClips() {
+        const me = state.auth.user && state.auth.user.id;
+        const mine = me ? myClipsFor(state.settings.myClips, me, ch.id) : [];
+        if (!mine.length) return;
+        const grid = el('div', { class: 'grid my-clips' }, el('div', { class: 'loading' }, 'Loading…'));
+        const head = el('h2', { class: 'section-title my-clips-title' }, 'My clips', el('span', { class: 'section-note' }, `${mine.length}`));
+        body.insertBefore(head, body.firstChild);
+        head.after(grid);
+        tw.clipsByIds(mine.map((c) => c.id)).catch(() => []).then((found) => {
+          const byId = new Map(found.map((c) => [c.id, c]));
+          const ready = mine.map((m) => byId.get(m.id)).filter(Boolean);
+          grid.replaceChildren(...mine.map((m) => {
+            const c = byId.get(m.id);
+            if (c) return clipCard(c, (x) => playClip(x, ready));
+            // Not in Helix yet (Twitch is still processing it) or deleted: its link, and a reminder.
+            return clipCard({ id: m.id, title: 'Processing…', creator_name: '', created_at: new Date(m.at).toISOString(), duration: 0, view_count: 0 },
+              () => toast(`Twitch is still processing this clip. Edit it at ${clipShortLink(m.id)}/edit`, 4000));
+          }));
+        });
       }
 
       function renderSchedule() {

@@ -36,6 +36,7 @@ const SETUP = {
   'channel-clips': { settings: { clipPeriod: '30d' } },
   'channel-schedule': {},
   'player-clip': { settings: { clipPeriod: 'all' } },
+  'clip-created': {},
   categories: {},
   search: {},
   keyboard: {},
@@ -344,6 +345,16 @@ app.on('browser-window-created', (_e, win) => {
       await focusControl('vod');
       await settle();
       await shoot('player-clip');
+    },
+    async 'clip-created'() {
+      // The scissors on the live overlay: the demo makes the clip; the toast has the QR code and link to edit it.
+      await openFirstLive();
+      await overlay();
+      await focusControl('clip');
+      await press('A');
+      await waitFor('the clip toast', "!!document.querySelector('#toasts .toast.clip-made .clip-toast-qr svg')", 8000);
+      await settle();
+      await shoot('clip-created');
     },
     async categories() {
       await following();

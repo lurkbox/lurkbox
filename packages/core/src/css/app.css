@@ -378,6 +378,14 @@ img { display: block; }
 /* ---------- toasts ---------- */
 #toasts { position: fixed; top: 1.4rem; right: 1.4rem; display: flex; flex-direction: column; gap: 0.6rem; z-index: 60; pointer-events: none; align-items: flex-end; }
 .toast { background: var(--toast-bg); color: var(--fg); border: 1px solid var(--border); border-left: 0.35rem solid var(--accent); padding: 0.8rem 1.2rem; border-radius: 0.6rem; font-size: 1.15rem; font-weight: 600; max-width: 34rem; box-shadow: 0 0.5rem 2rem var(--shadow); transition: opacity 300ms, transform 300ms; }
+.toast.clip-made { max-width: 30rem; }
+.clip-toast { display: flex; align-items: center; gap: 1rem; }
+.clip-toast-qr { flex: none; width: 7rem; height: 7rem; background: var(--qr-bg); border-radius: 0.4rem; }
+.clip-toast-qr svg { width: 100%; height: 100%; display: block; }
+.clip-toast-text { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.clip-toast-text strong { font-size: 1.25rem; }
+.clip-toast-link { font-weight: 700; color: var(--accent); overflow-wrap: anywhere; }
+.clip-toast-hint { font-size: 0.95rem; font-weight: 500; color: var(--fg-dim); }
 .toast.ok { border-color: var(--ok); }
 .toast.warn { border-color: var(--warn); }
 .toast.out { opacity: 0; transform: translateY(-0.5rem); }

@@ -26,6 +26,7 @@ export function button(label, onClick, extra = {}) {
 }
 
 let toastHost = null;
+/** Shows a toast; returns its node (remove it to end it early). */
 export function toast(message, ms = 3500, kind = '') {
   toastHost = toastHost || document.getElementById('toasts');
   const t = el('div', { class: `toast ${kind}`.trim(), role: 'status' }, message);
@@ -33,6 +34,7 @@ export function toast(message, ms = 3500, kind = '') {
   setTimeout(() => t.classList.add('out'), ms);
   setTimeout(() => t.remove(), ms + 400);
   while (toastHost.children.length > 3) toastHost.firstElementChild.remove();
+  return t;
 }
 
 export function fmtViewers(n) {

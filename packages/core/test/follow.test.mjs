@@ -118,3 +118,12 @@ test('clip overlay: next/previous, "Watch from here" and their labels', () => {
   assert.equal(controlLabel('prev', {}), 'Previous clip');
   for (const k of ['vod', 'prev', 'next']) assert.ok(PLAYER_ICONS[controlIcon(k)], k);
 });
+
+test('live overlay: the scissors (make a clip) when signed in', () => {
+  assert.deepEqual(overlayControls({ kind: 'live', points: true, clip: true, follow: true }), ['play', 'volume', 'quality', 'chat', 'live', 'points', 'clip', 'follow', 'channel', 'more', 'back']);
+  assert.ok(!overlayControls({ kind: 'live' }).includes('clip'), 'signed out: no scissors');
+  assert.ok(!overlayControls({ kind: 'video', clip: true }).includes('clip'), 'only live streams are clipped');
+  assert.equal(controlLabel('clip', {}), 'Clip');
+  assert.equal(controlLabel('clip', { clipping: true }), 'Clipping…');
+  assert.ok(PLAYER_ICONS[controlIcon('clip')]);
+});

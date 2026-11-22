@@ -128,7 +128,7 @@ function createDemoHost(opts = {}) {
     'auth:remove': (id) => handlers['auth:signOut'](String(id)),
     helix: (req) => {
       if (!active) return { ok: false, status: 401, error: 'NOT_SIGNED_IN', data: null, resetAt: null };
-      return helix.demoHelix(db, req || {}, { activeId: active });
+      return helix.demoHelix(db, req || {}, { activeId: active, now: () => data.DEMO_NOW + (now() - startedAt) }); // the renderer's demo clock
     },
     'qr:svg': (text) => QR(text),
     'keyboard:open': () => false, // the built-in keyboard (no Steam in demo mode)
