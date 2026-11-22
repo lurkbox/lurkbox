@@ -10,7 +10,7 @@ const os = require('os');
 const path = require('path');
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'lurkbox-channel-'));
-fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ videoOnlyUnfocused: false, navSounds: false, inputWhenUnfocused: true }));
+fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ videoOnlyUnfocused: false, navSounds: false, inputWhenUnfocused: true, continueWatchingOn: false }));
 Object.assign(process.env, { TZ: 'UTC', LURKBOX_DEMO: '1', LURKBOX_USER_DATA: userData, LURKBOX_DEMO_SIZE: '1280x800' });
 if (!process.argv.includes('--windowed')) process.argv.push('--windowed');
 

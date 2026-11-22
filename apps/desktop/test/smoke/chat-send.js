@@ -12,7 +12,7 @@ const os = require('os');
 const path = require('path');
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'lurkbox-chat-send-'));
-fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ chatDefault: true, chatStyle: 'lurkbox', videoOnlyUnfocused: false, navSounds: false, inputWhenUnfocused: true }));
+fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ chatDefault: true, chatStyle: 'lurkbox', videoOnlyUnfocused: false, navSounds: false, inputWhenUnfocused: true, continueWatchingOn: false }));
 Object.assign(process.env, { LURKBOX_DEMO: '1', LURKBOX_USER_DATA: userData, LURKBOX_DEMO_SIZE: '1280x800' });
 if (!process.argv.includes('--windowed')) process.argv.push('--windowed');
 
