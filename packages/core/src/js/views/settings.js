@@ -223,6 +223,7 @@ export function settingsView() {
           }, { class: 'clear-whispers' }), 'Whispers are kept on this device only (at most 50 conversations of 200 messages), per account.') : null,
           row('Refresh live lists', pickRow('refreshInterval', 'Refresh live lists every', [10, 15, 30, 60].map((v) => ({ value: v, label: `${v} s` })))),
           row('Hide chat and controls when Lurkbox isn\'t focused', toggle('videoOnlyUnfocused'), 'Shows just the video while another app (e.g. a game under Floater) has focus.'),
+          state.info.pip ? row('Picture-in-picture when leaving the app', toggle('pipOnLeave'), 'While a video plays, going home or switching apps keeps it playing in a small window.') : null,
           row('Confirm before exiting', toggle('confirmExit'), 'B on the home screen exits Lurkbox.'),
           row('Navigation sounds', toggle('navSounds'), 'Quiet ticks when you move, select and go back with the controller.'),
           row('Sound volume', pickRow('navSoundVolume', 'Sound volume', [{ value: 30, label: 'Subtle' }, { value: 60, label: 'Normal' }, { value: 90, label: 'Loud' }])),

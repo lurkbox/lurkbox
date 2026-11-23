@@ -163,6 +163,19 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
   })();
   const after = (fn) => async (...args) => { await ready; return fn(...args); };
 
+  // Picture-in-picture (pip.js, MainActivity): its play/pause button and its closing, for the open player.
+  const hasPip = !!(native.pip && native.addListener);
+  if (hasPip) {
+    try {
+      const h = native.addListener('pipAction', (d) => { if (d && typeof d.action === 'string') bus.emit('media', d.action); });
+      if (h && h.catch) h.catch(() => {});
+    } catch { /* no events: the window still works, without its button */ }
+  }
+  const pipSupported = (async () => {
+    if (!native.pipSupported) return false;
+    try { return !!(await native.pipSupported()).supported; } catch { return false; }
+  })();
+
   if (app && app.addListener) {
     // The core's "window focus": the app in front (resumed) or not (paused, home screen, another app).
     app.addListener('appStateChange', (st) => bus.emit('focus', !!(st && st.isActive)));
@@ -191,10 +204,14 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
     onDropsEvent: on('drops:event'),
   } : {};
 
+  const pipMembers = hasPip ? { onMediaAction: on('media') } : {};
+
   return {
+    ...pipMembers,
     // ---- app and window ----
     // hostPages: the chat page (points) and the Drops inventory are shown in the native windows, not the app's iframes.
-    appInfo: async () => ({ windowed: false, gamescope: false, startChannel: null, startVod: null, version, touch: true, hostPages: true, defaults: DEFAULT_SETTINGS }),
+    // pip: picture-in-picture on this device (a phone or tablet; Settings shows its switch).
+    appInfo: async () => ({ windowed: false, gamescope: false, startChannel: null, startVod: null, version, touch: true, hostPages: true, pip: await pipSupported, defaults: DEFAULT_SETTINGS }),
     quit: async () => { if (app && app.exitApp) await app.exitApp(); },
     onWindowFocus: on('focus'),
     log,

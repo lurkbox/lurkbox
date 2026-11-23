@@ -8,6 +8,7 @@ import { makeNativeFetch } from './http.js';
 import { createPlatform } from './platform.js';
 import { installBackButton } from './input.js';
 import { installKeepScreenOn } from './playback.js';
+import { installPip } from './pip.js';
 
 const Native = registerPlugin('LurkboxNative');
 // Credentials (tokens): encrypted with a key in the Android Keystore (SecureStorePlugin.java), same shape as Preferences.
@@ -31,3 +32,4 @@ window.lurkbox = createPlatform({
 });
 installBackButton(App, window);
 installKeepScreenOn(document, Native);
+installPip(document, Native, window.lurkbox);

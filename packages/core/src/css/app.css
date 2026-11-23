@@ -603,12 +603,17 @@ body[data-glyphs="keyboard"] kbd.glyph { font-size: 0.85em; }
   .signin { flex-direction: column; gap: 1.5rem; }
 }
 
-/* Video only while Lurkbox is unfocused (player screen only). The raid banner stays. */
+/* Video only while Lurkbox is unfocused (player screen only). The raid banner stays.
+   body.pip: in the host's picture-in-picture window (Android) the same, plus the badges, the status line and the
+   safe-area padding, so the video fills the small window; the layout comes back when the class goes. */
 body.video-only.player-active:not(.composing) #chat,
 body.video-only.player-active #player-overlay,
 body.video-only.player-active #toasts,
-body.video-only.player-active .play-prompt { display: none !important; }
+body.video-only.player-active .play-prompt,
+body.pip #chat, body.pip #player-overlay, body.pip #toasts, body.pip .play-prompt,
+body.pip .corner-badge, body.pip #player-status, body.pip #modal-root { display: none !important; }
 body.video-only.player-active .raid-card { transform: scale(1.3); }
+body.pip #player-screen, body.pip #player-stage { padding: 0 !important; margin: 0 !important; }
 .exit-modal .row { justify-content: center; }
 
 .refresh-status { margin-left: auto; color: var(--warn); font-weight: 700; font-size: 0.95rem; }

@@ -67,6 +67,8 @@ contextBridge.exposeInMainWorld('lurkbox', {
   emoteIndexSet: (index) => ipcRenderer.invoke('emote-index:set', index),
   onWindowFocus: on('window:focus'),
   onJoydevPad: on('joydev:pad'),
+  // Android's picture-in-picture buttons; the desktop has none (a media-key hookup could use it later).
+  onMediaAction: () => () => {},
   steamArtApply: (pngs) => ipcRenderer.invoke('steam-art:apply', pngs),
   steamArtRestore: () => ipcRenderer.invoke('steam-art:restore'),
   openReady: () => ipcRenderer.invoke('open:ready'),

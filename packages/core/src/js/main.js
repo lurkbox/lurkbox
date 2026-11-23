@@ -604,6 +604,14 @@ async function start() {
   // Quality while in the background: after 3 s unfocused, the direct engine drops to the chosen cap.
   const background = new UnfocusedMode({ delay: 3000, onChange: (on) => { player.setBackground(on); multi.setBackground(on); } });
   window.lurkbox.onWindowFocus((f) => { unfocused.setFocus(f); background.setFocus(f); blurredAt = f ? null : Date.now(); if (f) nav.pokePollers(); });
+  // The host's media buttons (Android's picture-in-picture window): play/pause the open player.
+  if (window.lurkbox.onMediaAction) {
+    window.lurkbox.onMediaAction((action) => {
+      if (!player.active || !player.embed) return;
+      const paused = !!player.embed.isPaused();
+      if (action === 'toggle-pause' || (action === 'pause' && !paused) || (action === 'play' && paused)) player.togglePause();
+    });
+  }
   setInterval(() => nav.pokePollers(), 5000); // re-check pause conditions (modal, player, long blur)
   onState(() => {
     unfocused.setEnabled(state.settings.videoOnlyUnfocused !== false);

@@ -40,6 +40,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   clipAutoplay: true, // the player goes on to the next clip of the list when one ends
   myClips: Object.freeze({}), // clips you made, per account: { <user id>: [{ id, broadcasterId, login, name, at, editUrl }] } (shared/my-clips.js)
   videoOnlyUnfocused: true, // hide chat/controls while unfocused (player only)
+  pipOnLeave: true, // Android phones/tablets (AppInfo.pip): leaving the app while a video plays opens picture-in-picture
   confirmExit: true,
   navSounds: true,
   navSoundVolume: 30,
@@ -80,7 +81,7 @@ export function sanitizeSettings(patch) {
   const out = {};
   if ('clientId' in patch) out.clientId = String(patch.clientId || '').trim().replace(/[^A-Za-z0-9]/g, '');
   if ('defaultQuality' in patch) out.defaultQuality = String(patch.defaultQuality || 'auto');
-  for (const k of ['chatDefault', 'raidFollow', 'skipContentGate', 'inputWhenUnfocused', 'confirmExit', 'videoOnlyUnfocused', 'hwDecode', 'lowLatency', 'autoCatchUp', 'steamArtSync', 'autoClaimPoints', 'autoClaimDrops', 'earnWatchPoints', 'chatEmotes7tv', 'chatEmotesBttv', 'chatEmotesFfz', 'chatAnimatedEmotes', 'chat7tvCosmetics', 'chatExtensions', 'navSounds', 'searchHistoryOn', 'continueWatchingOn', 'clipAutoplay', 'hideBlockedChat']) {
+  for (const k of ['chatDefault', 'raidFollow', 'skipContentGate', 'inputWhenUnfocused', 'confirmExit', 'videoOnlyUnfocused', 'pipOnLeave', 'hwDecode', 'lowLatency', 'autoCatchUp', 'steamArtSync', 'autoClaimPoints', 'autoClaimDrops', 'earnWatchPoints', 'chatEmotes7tv', 'chatEmotesBttv', 'chatEmotesFfz', 'chatAnimatedEmotes', 'chat7tvCosmetics', 'chatExtensions', 'navSounds', 'searchHistoryOn', 'continueWatchingOn', 'clipAutoplay', 'hideBlockedChat']) {
     if (k in patch) out[k] = !!patch[k];
   }
   if ('screenMargin' in patch) out.screenMargin = [0, 2.5, 5].includes(Number(patch.screenMargin)) && patch.screenMargin !== 'auto' ? Number(patch.screenMargin) : 0;
