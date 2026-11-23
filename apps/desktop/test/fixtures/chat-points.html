@@ -141,10 +141,15 @@
   const SUMMARY_MIN_LAYOUT = 300;
   const summary = document.querySelector('[data-test-selector=community-points-summary]');
   const summarySlot = summary.parentNode;
+  // Modelled too: the chat input row is lazily rendered, so the summary is only there while the chat input is in the
+  // top-level viewport (an IntersectionObserver, as for a frame moved off-screen; covered by other content still counts).
+  let inView = false;
+  new IntersectionObserver((es) => { inView = es[es.length - 1].isIntersecting; layoutSummary(); }).observe(document.querySelector('.chat-input'));
   function layoutSummary() {
     const wide = document.querySelector('.chat-room').offsetWidth >= SUMMARY_MIN_LAYOUT;
-    if (wide && !summary.isConnected) summarySlot.prepend(summary);
-    else if (!wide && summary.isConnected) summary.remove();
+    const show = wide && inView;
+    if (show && !summary.isConnected) summarySlot.prepend(summary);
+    else if (!show && summary.isConnected) summary.remove();
   }
   layoutSummary();
   setInterval(layoutSummary, 50);

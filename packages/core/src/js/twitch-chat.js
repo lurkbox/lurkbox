@@ -1,5 +1,5 @@
 // Twitch's own embedded chat page (twitch.tv/embed/<channel>/chat) in an iframe. It is the chat panel in
-// "Twitch chat" style; otherwise it stays loaded off-screen while a live channel plays, so the bonus chest can be
+// "Twitch chat" style; otherwise it stays loaded under the video (in the viewport, so Twitch renders it fully) while a live channel plays, so the bonus chest can be
 // claimed. The platform layer (window.lurkbox.points*) scans it, claims and drives it with the controller.
 import { el } from './ui.js';
 import { state } from './state.js';
@@ -46,7 +46,7 @@ export class TwitchChatFrame {
     this.setMode('hidden');
   }
 
-  /** 'hidden' (off-screen, still running), 'panel' (the chat panel), 'modal' (the large rewards/predictions view). */
+  /** 'hidden' (under the video, still running), 'panel' (the chat panel), 'modal' (the large rewards/predictions view). */
   setMode(mode) {
     this.mode = mode;
     this.host.className = `tc-${mode}`;

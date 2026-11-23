@@ -21,8 +21,45 @@ const SHOTS = process.env.LURKBOX_SHOT_DIR || '';
 const fail = (m) => { console.log(`[points-smoke] FAIL: ${m}`); app.exit(1); };
 const wait = (ms) => new Promise((res) => setTimeout(res, ms));
 
+// The off-screen bug: in the frame where the hidden mode used to put it (left: -10000px) Twitch's chat never renders
+// the points summary, even at a desktop layout (the fixture renders it only while the chat input is in the top-level
+// viewport); the hidden mode keeps the frame in the viewport, under the opaque player stage. Its own window, shown
+// (inactive): a hidden window draws no frames, so IntersectionObserver would never update.
+async function offScreenCheck() {
+  const w = new BrowserWindow({ show: false, x: 0, y: 0, frame: false, width: 1280, height: 800, useContentSize: true, focusable: false, webPreferences: { sandbox: true, contextIsolation: true } });
+  try {
+    await w.loadFile(path.join(__dirname, '..', 'fixtures', 'points-host.html'));
+    w.showInactive();
+    const host = (s) => w.webContents.executeJavaScript(s);
+    const css = pathToFileURL(require.resolve('@lurkbox/core/src/css/app.css')).href;
+    await host(`new Promise((res) => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = ${JSON.stringify(css)}; l.onload = res; document.head.append(l); })`);
+    const js = (s) => w.webContents.mainFrame.frames[0].executeJavaScript(s);
+    await host("const h = document.getElementById('twitch-chat-host'); h.className = 'tc-hidden'; h.style.left = '-10000px'; true");
+    await js(zoomFrameSource(1));
+    await wait(400);
+    const off = await js(points.scanSource({ autoClaim: false }));
+    if (off.signedIn || off.balanceText || !off.diag || !off.diag.chatInput) return `the fixture did not reproduce the off-screen bug: ${JSON.stringify(off)}`;
+    console.log(`[points-smoke] off-screen frame: no points; ${points.noPointsDetail(off)}`);
+    await host("document.getElementById('twitch-chat-host').style.left = ''; true");
+    await wait(400);
+    const under = await host(`(() => {
+      const h = document.getElementById('twitch-chat-host'); const r = h.getBoundingClientRect(); const cs = getComputedStyle(h);
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { r: [r.left, r.top, r.right, r.bottom].map(Math.round), covered: !!top && !h.contains(top), vis: cs.visibility, op: cs.opacity, disp: cs.display, pe: cs.pointerEvents };
+    })()`);
+    if (under.r[0] < 0 || under.r[1] < 0 || under.r[2] > 1280 || under.r[3] > 800 || !under.covered || under.vis !== 'visible' || under.op !== '1' || under.disp === 'none' || under.pe !== 'none') return `hidden frame not in the viewport under the video: ${JSON.stringify(under)}`;
+    const on = await js(points.scanSource({ autoClaim: false }));
+    if (!on.signedIn || on.balanceText !== '12.3K' || on.diag) return `no summary with the frame in the viewport under the video: ${JSON.stringify(on)}`;
+    return null;
+  } finally {
+    w.destroy();
+  }
+}
+
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: !!SHOTS, x: 0, y: 0, frame: false, width: 1280, height: 800, useContentSize: true, webPreferences: { sandbox: true, contextIsolation: true } });
+  const offErr = await offScreenCheck(); // (after the main window: closing the only window would quit the app)
+  if (offErr) return fail(offErr);
   await win.loadFile(path.join(__dirname, '..', 'fixtures', 'points-host.html'));
   const host = (s) => win.webContents.executeJavaScript(s);
   const css = pathToFileURL(require.resolve('@lurkbox/core/src/css/app.css')).href;
