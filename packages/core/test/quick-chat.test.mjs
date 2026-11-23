@@ -8,7 +8,7 @@ import {
   editPhrases, listOps, MAX_PHRASES, MAX_RECENTS,
 } from '../src/shared/quick-chat.js';
 import { sanitizeSettings, DEFAULT_SETTINGS } from '../src/shared/settings.js';
-import { insertEmote, pickerTabs, initialTab } from '../src/js/emote-picker.js';
+import { insertEmote, pickerTabs, initialTab, filterTabs, emptyNote } from '../src/js/emote-picker.js';
 import { fetchUserEmotes, emoteUrlFromTemplate, UserEmoteCache } from '../src/js/user-emotes.js';
 import { Popover } from '../src/js/popover.js';
 import { overlayControls, controlLabel, controlIcon, POPOVER_CONTROLS } from '../src/js/player-ui.js';
@@ -121,6 +121,29 @@ test('the picker\'s tabs: Recent, Twitch, then 7TV / BTTV / FFZ (channel before 
   assert.equal(initialTab(tabs), 'recent');
   assert.equal(initialTab(pickerTabs({ own, sets })), 'twitch', 'no recents: the first tab with emotes');
   assert.equal(initialTab(pickerTabs({})), 'twitch', 'nothing at all: Twitch');
+});
+
+test('the picker\'s search filters every tab by name: prefix matches first, ignoring case; a "no matches" note', () => {
+  const e = (name) => ({ provider: '7tv', name, id: name, url: `u/${name}` });
+  const tabs = [
+    { key: 'recent', label: 'Recent', emotes: [e('catJAM'), e('Kappa')] },
+    { key: 'twitch', label: 'Twitch', emotes: [e('lurkerHi')] },
+    { key: '7tv', label: '7TV', emotes: [e('PepeCat'), e('catKISS'), e('wave'), e('CATS')] },
+    { key: 'ffz', label: 'FFZ', emotes: [] },
+  ];
+  assert.equal(filterTabs(tabs, ''), tabs, 'empty query: unchanged');
+  assert.equal(filterTabs(tabs, '   '), tabs, 'spaces only: unchanged');
+  const f = filterTabs(tabs, ' Cat ');
+  assert.deepEqual(f.map((t) => t.key), ['recent', 'twitch', '7tv', 'ffz'], 'every tab stays (with its count)');
+  assert.deepEqual(f[0].emotes.map((x) => x.name), ['catJAM']);
+  assert.deepEqual(f[1].emotes, []);
+  assert.deepEqual(f[2].emotes.map((x) => x.name), ['catKISS', 'CATS', 'PepeCat'], 'starts-with first, then contains');
+  assert.equal(tabs[2].emotes.length, 4, 'the input is not changed');
+  assert.equal(emptyNote(f[1], ' Cat '), 'No Twitch emotes match "Cat".');
+  assert.equal(emptyNote(f[0], 'zz'), 'No recent emotes match "zz".');
+  assert.equal(emptyNote(tabs[3], ''), 'No FFZ emotes here.');
+  assert.equal(emptyNote(tabs[1], '', 'Loading your emotes…'), 'Loading your emotes…');
+  assert.equal(emptyNote({ key: 'recent', label: 'Recent' }, ''), 'Emotes you insert show here.');
 });
 
 test('your Twitch emotes: every page of /chat/emotes/user, the template, the channel\'s own first', async () => {
