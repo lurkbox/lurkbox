@@ -6,9 +6,16 @@ import { state } from './state.js';
 
 const EMBED_PARENT = 'localhost';
 
-/** Frame URL for a channel (parent must match the host the UI is served from). */
-export function chatFrameUrl(login) {
-  return `https://www.twitch.tv/embed/${encodeURIComponent(String(login).toLowerCase())}/chat?parent=${EMBED_PARENT}&darkpopout`;
+/**
+ * Marks the frame that is only there for channel points (Lurkbox chat style: hidden under the video, and the rewards
+ * view). The experimental chat extensions (7TV etc.) exclude URLs with it: they replace Twitch's chat UI, and without
+ * Twitch's chat input row there is no points summary to read or bonus to claim.
+ */
+export const POINTS_MARKER = 'lurkbox=points';
+
+/** Frame URL for a channel (parent must match the host the UI is served from); `points` adds POINTS_MARKER. */
+export function chatFrameUrl(login, { points = false } = {}) {
+  return `https://www.twitch.tv/embed/${encodeURIComponent(String(login).toLowerCase())}/chat?parent=${EMBED_PARENT}&darkpopout${points ? `&${POINTS_MARKER}` : ''}`;
 }
 
 export class TwitchChatFrame {
@@ -18,6 +25,7 @@ export class TwitchChatFrame {
     screen.append(this.host);
     this.login = null;
     this.frame = null;
+    this.pointsOnly = false;
     this.mode = 'hidden';
   }
 
@@ -27,12 +35,15 @@ export class TwitchChatFrame {
     if (!l) return this.close();
     // A host that keeps the chat page itself (AppInfo.hostPages) needs the iframe only as the visible chat panel.
     const wantFrame = !(state.info && state.info.hostPages) || state.settings.chatStyle === 'twitch';
-    if (this.login === l && !!this.frame === wantFrame) return;
+    // Not the visible chat panel: only for channel points, so the chat extensions stay out of it.
+    const pointsOnly = state.settings.chatStyle !== 'twitch';
+    if (this.login === l && !!this.frame === wantFrame && (!this.frame || this.pointsOnly === pointsOnly)) return;
     this.close();
     this.login = l;
+    this.pointsOnly = pointsOnly;
     if (wantFrame) {
       // Moving an iframe in the DOM reloads it, so it is created once per channel and only repositioned with CSS.
-      this.frame = el('iframe', { src: chatFrameUrl(l), title: 'Twitch chat', tabindex: '-1', allow: 'clipboard-write' });
+      this.frame = el('iframe', { src: chatFrameUrl(l, { points: pointsOnly }), title: 'Twitch chat', tabindex: '-1', allow: 'clipboard-write' });
       this.host.append(this.frame);
     }
     if (window.lurkbox.pointsWatch) window.lurkbox.pointsWatch(l);

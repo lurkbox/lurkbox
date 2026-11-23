@@ -18,6 +18,12 @@ const path = require('path');
 const { readZip, readTarGz, extractTo } = require('./archive');
 
 const CHAT_MATCHES = ['https://www.twitch.tv/embed/*', 'https://www.twitch.tv/popout/*'];
+/**
+ * Never in the frame that is only there for channel points (the core's POINTS_MARKER, `lurkbox=points` in its URL:
+ * Lurkbox chat style's hidden frame and the rewards view): the extensions replace Twitch's chat UI, and without its
+ * chat input row Twitch renders no points summary, so there is no balance, bonus or rewards list.
+ */
+const POINTS_EXCLUDE_GLOBS = ['*lurkbox=points*'];
 /** Pages that may load an extension's web-accessible files (the chat page's own scripts inject them). */
 const RESOURCE_MATCHES = ['https://www.twitch.tv/*'];
 
@@ -93,9 +99,9 @@ function scopeManifest(m) {
   const out = { ...m };
   for (const k of DROPPED_KEYS) delete out[k];
   out.content_scripts = (m.content_scripts || []).map((cs) => {
-    const c = { ...cs, matches: CHAT_MATCHES, all_frames: true };
-    delete c.exclude_globs;
+    const c = { ...cs, matches: CHAT_MATCHES, all_frames: true, exclude_globs: POINTS_EXCLUDE_GLOBS };
     delete c.include_globs;
+    delete c.exclude_matches;
     return c;
   });
   if (Array.isArray(m.web_accessible_resources)) {
@@ -110,7 +116,7 @@ function bttvManifest(version) {
     name: 'BetterTTV (Lurkbox wrapper)',
     description: 'BetterTTV\'s published page script, loaded into Twitch chat by Lurkbox.',
     version: chromeVersion(version),
-    content_scripts: [{ matches: CHAT_MATCHES, js: ['betterttv.js'], all_frames: true, run_at: 'document_start', world: 'MAIN' }],
+    content_scripts: [{ matches: CHAT_MATCHES, exclude_globs: POINTS_EXCLUDE_GLOBS, js: ['betterttv.js'], all_frames: true, run_at: 'document_start', world: 'MAIN' }],
   };
 }
 
@@ -205,6 +211,14 @@ class ChatExtensions {
     fs.writeFileSync(mf, JSON.stringify(scopeManifest(m), null, 2));
   }
 
+  /** Rewrites an installed package's manifest with the current scoping (a package installed by an older Lurkbox). */
+  rescope(key, dir, version) {
+    const mf = path.join(dir, 'manifest.json');
+    if (key === 'bttv') { fs.writeFileSync(mf, JSON.stringify(bttvManifest(version), null, 2)); return; }
+    const orig = path.join(dir, 'manifest.orig.json');
+    if (fs.existsSync(orig)) fs.writeFileSync(mf, JSON.stringify(scopeManifest(JSON.parse(fs.readFileSync(orig, 'utf8'))), null, 2));
+  }
+
   /**
    * Loads every installed, enabled extension into the session (the one Twitch's chat iframe uses).
    * Missing packages are downloaded first. A failure disables that extension and records why.
@@ -228,6 +242,7 @@ class ChatExtensions {
       try { pin = this.pinned(key); } catch { /* no pin */ }
       if (!pin || e.version !== pin.version || e.sha256 !== pin.sha256) { this.log(`[extensions] ${key}: installed package is not the pinned release; not loaded`); continue; }
       try {
+        this.rescope(key, e.path, e.version);
         const ext = await api.loadExtension(e.path, { allowFileAccess: false });
         this.loaded.set(key, ext.id);
         e.status = 'loaded';
@@ -281,7 +296,7 @@ const PROBE_JS = `(() => ({
   bttv: !!(window.BetterTTV || document.querySelector('[class*="bttv-"], #bttv-settings-button')),
 }))()`;
 
-module.exports = { ChatExtensions, EXTENSIONS, LOCK_FILE, readPins, sha256, parseVersion, compareVersions, chromeVersion, scopeManifest, bttvManifest, CHAT_MATCHES, RESOURCE_MATCHES, PROBE_JS };
+module.exports = { ChatExtensions, EXTENSIONS, POINTS_EXCLUDE_GLOBS, LOCK_FILE, readPins, sha256, parseVersion, compareVersions, chromeVersion, scopeManifest, bttvManifest, CHAT_MATCHES, RESOURCE_MATCHES, PROBE_JS };
 
 /**
  * Main-process wiring: IPC for Settings, loading at startup when the setting is on, and a probe of Twitch's chat
@@ -307,7 +322,7 @@ function setupChatExtensions({ ipcMain, ses, getSettings, dir, fetch, log }) {
 
   const watched = new Set();
   const chatFrames = (wc) => wc.mainFrame.framesInSubtree.filter((f) => {
-    try { const u = new URL(f.url); return u.hostname === 'www.twitch.tv' && u.pathname.startsWith('/embed/'); } catch { return false; }
+    try { const u = new URL(f.url); return u.hostname === 'www.twitch.tv' && u.pathname.startsWith('/embed/') && !f.url.includes('lurkbox=points'); } catch { return false; }
   });
   function reloadChatFrames() {
     for (const wc of watched) {
