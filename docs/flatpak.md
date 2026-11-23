@@ -64,9 +64,13 @@ With `org.flatpak.Builder`, run it as `flatpak run --env=FLATPAK_USER_DIR=$HOME/
 - **Gamepads.** The Gamepad API and the joydev reader both work: with `--device=all` the sandbox can read `/dev/input/js*` and `/sys/class/input/js*/device/name` (tested on a laptop). As on the host, the device nodes must be readable by the user (`input` group or the seat's ACL).
 - **Steam keyboard.** There is no `steam` binary in the sandbox, so in the Flatpak Lurkbox runs `xdg-open steam://open/keyboard`. The runtime passes that to the OpenURI portal, which hands it to the host's `steam://` handler. No `--talk-name` and no `flatpak-spawn --host` are needed. This needs xdg-desktop-portal on the host. It is not tested in Game Mode yet, and the portal may ask once which app should open `steam://` links.
 - **Steam library art: on.** It uses the narrowest grant that works (`~/.local/share/Steam/userdata`, plus the network for the CEF port), and the setting is still off by default. Inside the Flatpak the appid comes only from `SteamGameId`, so art is written only when Steam launched Lurkbox. Steam installs that keep their data only in `~/.steam/steam` (not `~/.local/share/Steam`) aren't covered. Note that write access to Steam's userdata is a broad grant: a compromised app could change other Steam settings there.
-- **Off, or limited, in the Flatpak:**
-  - **Floater audio.** `flatpak run` puts the app in its own `app-flatpak-io.github.lurkbox.Lurkbox-*.scope`, not Steam's `app-steam-app<appid>` scope. That happens before Lurkbox starts (its log shows `[scope] launched in app-flatpak-…`), so the scope keeper has no Steam scope to keep, and Floater may not find Lurkbox's audio. For Floater in Game Mode, use the AppImage.
-  - **Decky plugin bridge.** `notify-channels.json` and `open-request.json` live in the Flatpak's profile (`~/.var/app/io.github.lurkbox.Lurkbox/config/Lurkbox/`), and the decky-lurkbox plugin only looks in `~/.config/Lurkbox/`. It doesn't work with the Flatpak until the plugin also checks that path.
+- **Floater.** Floater (decky-floater) works with the Flatpak when the Steam shortcut runs `flatpak` itself:
+  - **The shortcut:** Exe `/usr/bin/flatpak` (or `flatpak`), launch options `run io.github.lurkbox.Lurkbox` (any options before the id are fine, e.g. `run --branch=stable --arch=x86_64 --command=lurkbox io.github.lurkbox.Lurkbox`, which is what Steam's "Add a Non-Steam Game" writes for a Flatpak). Name it **Lurkbox**. A wrapper script as the Exe (`sh -c "flatpak run …"`, a `.sh`) does **not** work.
+  - **Audio:** `flatpak run` moves the app into its own `app-flatpak-io.github.lurkbox.Lurkbox-*.scope` (Lurkbox's log shows `[scope] launched in app-flatpak-…`), so its audio is not in Steam's `app-steam-app<appid>` scope. Floater handles that: its `flatpaks_for_app()` finds `flatpak run <id>` on the command line of the processes still in the game's Steam scope (Steam's `reaper … -- /usr/bin/flatpak run … io.github.lurkbox.Lurkbox`) and then also takes the audio streams whose client PID is in `app-flatpak-<that id>-*.scope`. That is why the shortcut must call `flatpak` directly.
+  - **Video:** Gamescope gives the window the shortcut's appid from its process tree (it walks up to Steam's `reaper SteamLaunch AppId=…`, which `flatpak run` doesn't change), so Floater's capture by appid works.
+  - **Single instance:** start Lurkbox from the shortcut. If a Lurkbox started outside Steam is already running, the shortcut only hands over to it, and that window and its audio belong to no Steam appid.
+  - Nothing in Lurkbox needs to change for this (from reading Floater's and Gamescope's code; not yet tested on a SteamOS device). The AppImage needs none of it: it stays in Steam's scope.
+- **Decky plugin bridge.** `notify-channels.json` and `open-request.json` live in the Flatpak's profile (`~/.var/app/io.github.lurkbox.Lurkbox/config/Lurkbox/`). The decky-lurkbox plugin (0.1.1 and later) runs on the host, checks both that and the AppImage's `~/.config/Lurkbox/`, and uses the one with the newer `notify-channels.json`, so the Flatpak needs no extra filesystem grant for it. Older plugins only look in `~/.config/Lurkbox/`.
 
 ## Status
 
@@ -79,5 +83,5 @@ Done:
 Left:
 
 - Test the Steam keyboard through the portal, and joydev with Steam's virtual pads, in Game Mode on a SteamOS device.
-- Make the Decky plugin also read the Flatpak profile path.
+- Test Floater with a `flatpak run` shortcut, and the Decky bridge with the Flatpak, on a SteamOS device.
 - Optional: keep repository history across publishes (download the current repo before building) to allow deltas and rollbacks.

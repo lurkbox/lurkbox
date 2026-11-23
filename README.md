@@ -51,7 +51,7 @@ More in [docs/screenshots/](docs/screenshots/): the Undo toast after removing fr
 
 ## Install
 
-- **Flatpak (Linux, KDE Discover):** open **https://lurkbox.github.io/lurkbox/** and click Install, or run `flatpak install --user https://lurkbox.github.io/lurkbox/io.github.lurkbox.Lurkbox.flatpakref`. It updates through Discover or `flatpak update`. This is Lurkbox's own signed repository, not Flathub. See [docs/flatpak.md](docs/flatpak.md), including what the sandbox limits (Floater audio, the Decky bridge).
+- **Flatpak (Linux, KDE Discover):** open **https://lurkbox.github.io/lurkbox/** and click Install, or run `flatpak install --user https://lurkbox.github.io/lurkbox/io.github.lurkbox.Lurkbox.flatpakref`. It updates through Discover or `flatpak update`. This is Lurkbox's own signed repository, not Flathub. See [docs/flatpak.md](docs/flatpak.md), including the Steam shortcut form Floater needs (`/usr/bin/flatpak` with `run io.github.lurkbox.Lurkbox`) and the sandbox limits.
 - **AppImage (SteamOS Game Mode with Floater):** see [Steam (Game Mode)](#steam-game-mode) below.
 
 ## Features (v0.1)
