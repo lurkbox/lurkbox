@@ -190,6 +190,22 @@ public class LurkboxNativePlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * Sign-out of the active account: twitch.tv's own site data in the WebView (local storage, IndexedDB and the other
+     * storage of its origins), and the WebView's HTTP cache. On the UI thread, as WebView APIs need.
+     */
+    @PluginMethod
+    public void webClearSiteData(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                android.webkit.WebStorage storage = android.webkit.WebStorage.getInstance();
+                for (String origin : WebCookies.HOSTS) storage.deleteOrigin(origin);
+                if (getBridge() != null && getBridge().getWebView() != null) getBridge().getWebView().clearCache(true);
+                call.resolve();
+            } catch (Exception e) { call.reject(e.getMessage()); }
+        });
+    }
+
     @PluginMethod
     public void webJarSave(PluginCall call) {
         try {

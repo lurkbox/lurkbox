@@ -178,6 +178,7 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
       resume: (acct) => resume.clear(acct),
       whispers: (acct) => whispersValue.replace(storeWhispers(whispersValue.get(), acct, [])),
       'emote-index': (acct) => emoteIndexValue.replace({ accounts: accountsWithIndex(emoteIndexValue.get().accounts, acct, null) }),
+      'site-data': async (_acct, { wasActive }) => { if (wasActive && web) await web.jar.clearSiteData(); },
       'session-state': async (_acct, { wasActive }) => {
         if (!wasActive) return;
         if (points) await points.watch(null);
