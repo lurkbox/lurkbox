@@ -1,6 +1,6 @@
 {
   "name": "lurkbox-monorepo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lurkbox: a couch/controller client for Twitch. Monorepo for the shared core and the platform apps.",
   "private": true,
   "license": "GPL-3.0-or-later",
