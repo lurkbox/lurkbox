@@ -10,6 +10,7 @@ import { filterPills } from '../grid.js';
 import { focusEl } from '../focus.js';
 import { emoteImg } from '../chat-render.js';
 import { emoteCache } from '../emote-providers.js';
+import { emoteIndex } from '../emote-index-store.js';
 import { ChannelEmoteCache } from '../user-emotes.js';
 import { keyboardFor } from '../text-entry.js';
 import { state, saveSettings } from '../state.js';
@@ -24,18 +25,58 @@ const CHUNK = 96;
 const twitchEmotes = new ChannelEmoteCache((path, query) => helix(path, query));
 let lastTab = '7tv'; // the sub-tab, kept for the session
 
-/** Renders the tab into `body`. ctx: { ch: { id, login, name }, nav, view } (view.tabAction gets A/Y). */
-export function renderEmotes(body, { ch, view }) {
+/**
+ * One grid cell: the picture, the name and a ZW badge for overlay emotes. o: { focusKey, i (its index in the list),
+ * onClick, sub (an optional second line, e.g. the source channel) }. Shared with Emote search.
+ */
+export function emoteCell(e, { focusKey, i, onClick, sub = '' }) {
+  return el('button', {
+    type: 'button', class: `eb-emote focusable${e.overlay ? ' overlay' : ''}`, role: 'gridcell',
+    'aria-label': `${e.name}${e.overlay ? ', zero-width' : ''}${sub ? `, ${sub}` : ''}`,
+    dataset: { focusKey, i: String(i) }, onclick: onClick,
+  },
+  el('span', { class: 'eb-pic' }, emoteImg(e, 'eb-img')),
+  el('span', { class: 'eb-name' }, e.name),
+  sub ? el('span', { class: 'eb-sub' }, sub) : null,
+  e.overlay ? el('span', { class: 'eb-badge', title: 'Zero-width: drawn over the emote before it' }, 'ZW') : null);
+}
+
+/** Fills the detail panel for `e` (hidden for null). o: { facts: extra [label, value] rows, actions: buttons, note }. */
+export function fillDetail(detail, e, { facts: extra = [], actions = [], note = null } = {}) {
+  if (!e) { detail.replaceChildren(); detail.hidden = true; return; }
+  detail.hidden = false;
+  const big = el('img', { class: 'eb-big', src: bigUrl(e), alt: '', decoding: 'async', draggable: 'false' });
+  big.addEventListener('error', () => { if (big.src !== e.url) big.src = e.url; }, { once: true });
+  const facts = el('dl', { class: 'eb-facts' });
+  for (const [k, v] of [...emoteFacts(e), ...extra]) facts.append(el('dt', {}, k), el('dd', { dataset: { fact: k } }, v));
+  detail.replaceChildren(...[
+    el('div', { class: `eb-big-pic${e.overlay ? ' overlay' : ''}` }, big),
+    el('h3', { class: 'eb-detail-name' }, e.name),
+    facts,
+    note,
+    actions.length ? el('div', { class: 'eb-detail-actions' }, ...actions) : null,
+  ].filter(Boolean));
+}
+
+/**
+ * Renders the tab into `body`. ctx: { ch: { id, login, name }, nav, view (view.tabAction gets A/Y), focus: { provider,
+ * name } to open on that emote (from Emote search) }.
+ */
+export function renderEmotes(body, { ch, nav, view, focus = null }) {
   const animated = state.settings.chatAnimatedEmotes !== false;
   const loads = new Map(); // sub-tab → Promise<{ emotes } | { error }>
   const load = (tab) => {
     if (!loads.has(tab)) {
       const p = tab === 'twitch' ? twitchEmotes.get(ch.id, { animated }) : emoteCache.get(tab, ch.id, { animated }).then((r) => r.emotes);
-      loads.set(tab, p.then((list) => ({ emotes: shapeEmotes(list) }), (error) => ({ error })));
+      loads.set(tab, p.then((list) => {
+        if (list.length) emoteIndex().record(ch, tab, list).catch(() => {}); // Emote search → Seen channels
+        return { emotes: shapeEmotes(list) };
+      }, (error) => ({ error })));
     }
     return loads.get(tab);
   };
 
+  if (focus && EMOTE_TABS.some((t) => t.value === focus.provider)) lastTab = focus.provider;
   let tab = EMOTE_TABS.some((t) => t.value === lastTab) ? lastTab : '7tv';
   let query = '';
   let list = []; // the shown (filtered) emotes
@@ -54,8 +95,11 @@ export function renderEmotes(body, { ch, view }) {
   const sentinel = el('div', { class: 'eb-sentinel', 'aria-hidden': 'true' });
   const detail = el('aside', { class: 'eb-detail', 'aria-live': 'polite' });
   const draftLine = el('p', { class: 'hint eb-draft' });
+  const searchAll = nav && nav.openEmoteSearch
+    ? button('Search all', () => nav.openEmoteSearch({ query: input.value.trim(), channel: ch }), { class: 'eb-search-all', title: 'Emote search: all of 7TV, or every channel you\'ve seen', dataset: { focusKey: 'eb-search-all' } })
+    : null;
   body.append(
-    el('div', { class: 'channel-toolbar eb-toolbar' }, pills.el, input),
+    el('div', { class: 'channel-toolbar eb-toolbar' }, pills.el, input, searchAll),
     el('div', { class: 'eb-main' }, el('div', { class: 'eb-grid-wrap' }, grid, sentinel), detail),
     el('p', { class: 'hint eb-hint' }, hint('{A} add to message · {Y} add to quick chat · {LB}/{RB} tabs')),
     draftLine);
@@ -94,6 +138,15 @@ export function renderEmotes(body, { ch, view }) {
     }
     grid.replaceChildren();
     more();
+    // Opened from Emote search: render up to that emote and focus it.
+    const at = focus && focus.provider === want ? list.findIndex((e) => e.name === focus.name) : -1;
+    focus = null;
+    if (at >= 0) {
+      while (shown <= at) more();
+      select(list[at]);
+      focusEl(grid.children[at], { instant: true });
+      return;
+    }
     select(list[0]);
     if (keepFocus || hadFocus) focusEl(grid.firstElementChild, { instant: true });
   }
@@ -105,18 +158,14 @@ export function renderEmotes(body, { ch, view }) {
   }
 
   function cell(e, i) {
-    return el('button', {
-      type: 'button', class: `eb-emote focusable${e.overlay ? ' overlay' : ''}`, role: 'gridcell', 'aria-label': e.overlay ? `${e.name}, zero-width` : e.name,
-      dataset: { focusKey: `eb-${tab}-${e.name}`, i: String(i) },
-      onclick: () => {
+    return emoteCell(e, {
+      focusKey: `eb-${tab}-${e.name}`, i,
+      onClick: () => {
         // A touch selects first (the detail panel has the buttons); a controller's A or a click adds.
         if (document.body.classList.contains('input-touch') && selected !== e) { select(e); return; }
         addToMessage(e);
       },
-    },
-    el('span', { class: 'eb-pic' }, emoteImg(e, 'eb-img')),
-    el('span', { class: 'eb-name' }, e.name),
-    e.overlay ? el('span', { class: 'eb-badge', title: 'Zero-width: drawn over the emote before it' }, 'ZW') : null);
+    });
   }
 
   // The focus ring's event (focusin is deferred while the window lacks OS focus, as under Gamescope).
@@ -137,19 +186,12 @@ export function renderEmotes(body, { ch, view }) {
 
   function select(e) {
     selected = e;
-    if (!e) { detail.replaceChildren(); detail.hidden = true; return; }
-    detail.hidden = false;
-    const big = el('img', { class: 'eb-big', src: bigUrl(e), alt: '', decoding: 'async', draggable: 'false' });
-    big.addEventListener('error', () => { if (big.src !== e.url) big.src = e.url; }, { once: true });
-    const facts = el('dl', { class: 'eb-facts' });
-    for (const [k, v] of emoteFacts(e)) facts.append(el('dt', {}, k), el('dd', {}, v));
-    detail.replaceChildren(
-      el('div', { class: `eb-big-pic${e.overlay ? ' overlay' : ''}` }, big),
-      el('h3', { class: 'eb-detail-name' }, e.name),
-      facts,
-      el('div', { class: 'eb-detail-actions' },
+    fillDetail(detail, e, {
+      actions: e ? [
         button('Add to message', () => addToMessage(e), { class: 'eb-add', dataset: { focusKey: 'eb-add' } }),
-        button('Add to quick chat', () => addToQuickChat(e), { class: 'eb-quick', dataset: { focusKey: 'eb-quick' } })));
+        button('Add to quick chat', () => addToQuickChat(e), { class: 'eb-quick', dataset: { focusKey: 'eb-quick' } }),
+      ] : [],
+    });
   }
 
   function addToMessage(e) {

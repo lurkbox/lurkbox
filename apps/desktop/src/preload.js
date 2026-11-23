@@ -63,6 +63,8 @@ contextBridge.exposeInMainWorld('lurkbox', {
   resumeClear: () => ipcRenderer.invoke('resume:clear'),
   whispersLoad: (accountId) => ipcRenderer.invoke('whispers:load', accountId),
   whispersSave: (accountId, threads) => ipcRenderer.invoke('whispers:save', accountId, threads),
+  emoteIndexGet: () => ipcRenderer.invoke('emote-index:get'),
+  emoteIndexSet: (index) => ipcRenderer.invoke('emote-index:set', index),
   onWindowFocus: on('window:focus'),
   onJoydevPad: on('joydev:pad'),
   steamArtApply: (pngs) => ipcRenderer.invoke('steam-art:apply', pngs),

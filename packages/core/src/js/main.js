@@ -31,6 +31,7 @@ import { channelView } from './views/channel.js';
 import { whispersView, whisperThreadView } from './views/whispers.js';
 import { whispers } from './whispers.js';
 import { hint } from './input.js';
+import { emoteSearchView } from './views/emote-search.js';
 import { installLayout, applyLayout, isTouchLayout, gamepadConnected } from './layout.js';
 import { bindTouchSwipe, bindPullToRefresh } from './touch.js';
 import { tabStepForSwipe } from '../shared/gestures.js';
@@ -229,6 +230,8 @@ const nav = {
     if (currentTop !== 'whispers' || stack.length > 1) nav.goTop('whispers');
     if (peer) nav.push(whisperThreadView(peer));
   },
+  /** Emote search (o: { query, channel, scope }; see views/emote-search.js). */
+  openEmoteSearch(o = {}) { nav.push(emoteSearchView(o)); },
   /** Focus the current section's rail button (B out of a view that keeps the controller, like Drops). */
   focusRail() { focusEl(railButton(currentTop)); },
 

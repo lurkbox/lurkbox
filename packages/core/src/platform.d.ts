@@ -294,6 +294,19 @@ export interface LurkboxPlatform {
    */
   whispersSave(accountId: string, threads: WhisperThread[]): Promise<boolean>;
 
+  // ---- the "seen channels" emote index (per account) ----
+
+  /**
+   * Optional. The active account's emote index (Emote search → Seen channels), as last saved, or null:
+   * { v: 1, channels: [{ id, login, name, at, emotes: [[provider, id, name, url?]] }] } (shared/emote-index.js).
+   */
+  emoteIndexGet?(): Promise<unknown | null>;
+  /**
+   * Optional. Save the active account's emote index (validated with shared/emote-index.js sanitizeEmoteIndex, at most
+   * 20,000 emotes); null forgets it (Settings → Chat → Clear emote index).
+   */
+  emoteIndexSet?(index: unknown | null): Promise<boolean>;
+
   // ---- channel points (Twitch's embedded chat page, scanned by the host) ----
 
   /** Optional. Watch the channel's embedded chat frame for the points balance, bonus chest (auto-claim), predictions and polls; null stops. */

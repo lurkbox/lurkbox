@@ -27,6 +27,7 @@ const follow = require('./follow');
 const { WatchMinutes } = require('./watch-minutes');
 const { ResumeStore } = require('./resume');
 const { WhisperStore } = require('./whispers');
+const { EmoteIndexStore } = require('./emote-index');
 const { WEB_CLIENT_ID, GQL_URL } = require('./direct');
 const { SteamArt } = require('./steam-art');
 const { ScopeKeeper } = require('./keep-scope');
@@ -493,6 +494,9 @@ function registerIpc() {
   appIpc.handle('resume:set', (_e, videoId, position, duration, meta) => resume.set(twitch.store().active, String(videoId), position, duration, meta));
   appIpc.handle('resume:list', () => resume.list(twitch.store().active));
   appIpc.handle('resume:clear', () => resume.clear(twitch.store().active));
+  const emoteIndex = new EmoteIndexStore(path.join(app.getPath('userData'), 'emote-index.json'));
+  appIpc.handle('emote-index:get', () => emoteIndex.get(twitch.store().active));
+  appIpc.handle('emote-index:set', (_e, index) => emoteIndex.set(twitch.store().active, index));
   appIpc.handle('log:write', (_e, line) => appLog(String(line).slice(0, 2000)));
 
   // ---- Steam library art (opt-in; Settings → Appearance). Never throws to the renderer. ----

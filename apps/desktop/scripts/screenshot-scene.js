@@ -37,6 +37,9 @@ const SETUP = {
   'channel-schedule': {},
   // The channel page's Emotes tab: the 7TV set with the zero-width partyHat focused in the detail panel.
   'channel-emotes': {},
+  // Emote search from the channel's Emotes tab: Seen channels (the channel just browsed) checked, then All of 7TV
+  // (the demo's made-up catalogue) for "blob" with the detail panel's usage count.
+  'emote-search': {},
   'player-clip': { settings: { clipPeriod: 'all' } },
   'clip-created': {},
   categories: {},
@@ -398,6 +401,27 @@ app.on('browser-window-created', (_e, win) => {
       await waitFor('the detail panel', "document.querySelector('.eb-detail-name') && document.querySelector('.eb-detail-name').textContent === 'partyHat'");
       await settle();
       await shoot('channel-emotes');
+    },
+    async 'emote-search'() {
+      await openChannelPage();
+      await press('RB', 'RB', 'RB', 'RB');
+      await waitFor('the emotes tab', "document.querySelectorAll('.channel-body .eb-emote').length >= 15");
+      await js("document.querySelector('[data-focus-key=eb-search-all]').focus(); true");
+      await press('A');
+      await waitFor('emote search', "!!document.querySelector('[data-view=emote-search] .es-input')");
+      const type = (q) => js(`(() => { const i = document.querySelector('.es-input'); i.value = ${JSON.stringify(q)}; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+      // Seen channels: the channel's sets were indexed as the tab loaded them.
+      await press('RB');
+      await type('blob');
+      await waitFor('seen results', "document.querySelectorAll('[data-view=emote-search] .eb-emote .eb-sub').length >= 6 && /PixelMoth/i.test(document.querySelector('[data-view=emote-search] .eb-sub').textContent)");
+      // All of 7TV: three made-up variants per demo emote; the usage count loads for the focused one.
+      await press('LB');
+      await waitFor('7TV results', "document.querySelectorAll('[data-view=emote-search] .eb-emote').length >= 18 && /18 emotes/.test(document.querySelector('.es-status').textContent)");
+      await js("document.querySelectorAll('[data-view=emote-search] .eb-emote')[1].focus(); true");
+      await press('RIGHT', 'LEFT');
+      await waitFor('the usage count', "/channels/.test((document.querySelector('[data-fact=\"Used in\"]') || {}).textContent || '')");
+      await settle();
+      await shoot('emote-search');
     },
     async 'player-clip'() {
       // A clip from the Clips tab in the player: the CLIP line, the seek bar, "Watch from here" focused.
