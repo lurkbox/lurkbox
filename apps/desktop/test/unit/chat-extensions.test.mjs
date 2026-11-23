@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import { tmpDir } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
-const { ChatExtensions, EXTENSIONS, readPins, sha256, parseVersion, compareVersions, chromeVersion, scopeManifest, bttvManifest, CHAT_MATCHES, RESOURCE_MATCHES } = require('../../src/main/chat-extensions.js');
+const { ChatExtensions, EXTENSIONS, readPins, sha256, parseVersion, compareVersions, chromeVersion, scopeManifest, bttvManifest, CHAT_MATCHES, RESOURCE_MATCHES, POINTS_EXCLUDE_GLOBS } = require('../../src/main/chat-extensions.js');
 const { readZip, readTarGz, extractTo, safeEntry } = require('../../src/main/archive.js');
 
 /** A zip with stored or deflated entries, built by hand. */
@@ -66,14 +66,48 @@ test('manifests: content scripts scoped to the chat pages in all frames, no back
     permissions: ['scripting', 'storage'], optional_permissions: ['management'], host_permissions: ['*://*.twitch.tv/*'], optional_host_permissions: ['*://*.kick.com/*'],
     externally_connectable: { matches: ['*://*.twitch.tv/*'] }, web_accessible_resources: [{ resources: ['site.js'], matches: ['*://*.twitch.tv/*', '*://*.youtube.com/*'] }],
   });
-  assert.deepEqual(m.content_scripts, [{ matches: CHAT_MATCHES, js: ['content.js'], all_frames: true }]);
+  assert.deepEqual(m.content_scripts, [{ matches: CHAT_MATCHES, js: ['content.js'], all_frames: true, exclude_globs: POINTS_EXCLUDE_GLOBS }]);
   for (const k of ['update_url', 'background', 'permissions', 'optional_permissions', 'host_permissions', 'optional_host_permissions', 'externally_connectable']) assert.equal(m[k], undefined, k);
   assert.deepEqual(m.web_accessible_resources, [{ resources: ['site.js'], matches: RESOURCE_MATCHES }]);
   const b = bttvManifest('7.7.33');
   assert.equal(b.version, '7.7.33');
   assert.equal(b.content_scripts[0].world, 'MAIN');
   assert.deepEqual(b.content_scripts[0].matches, CHAT_MATCHES);
+  assert.deepEqual(b.content_scripts[0].exclude_globs, POINTS_EXCLUDE_GLOBS);
   assert.equal(b.host_permissions, undefined);
+});
+
+/** Chrome's content-script glob: * is any run of characters, ? one character, matched against the whole URL. */
+const globMatch = (glob, url) => new RegExp(`^${glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`).test(url);
+
+test('manifests: no content script in the channel-points frame (lurkbox=points), only in the visible chat', async () => {
+  const { chatFrameUrl } = await import('../../../../packages/core/src/js/twitch-chat.js');
+  const points = chatFrameUrl('SomeOne', { points: true });
+  const panel = chatFrameUrl('SomeOne');
+  assert.equal(points, 'https://www.twitch.tv/embed/someone/chat?parent=localhost&darkpopout&lurkbox=points');
+  const manifests = [scopeManifest({ manifest_version: 3, content_scripts: [{ matches: ['*://*.twitch.tv/*'], js: ['a.js'], exclude_matches: ['*://x/*'] }, { matches: ['<all_urls>'], js: ['b.js'] }] }), bttvManifest('7.7.33')];
+  for (const m of manifests) for (const cs of m.content_scripts) {
+    assert.equal(cs.exclude_matches, undefined);
+    assert.ok(cs.exclude_globs.some((g) => globMatch(g, points)), `${cs.js} excluded from the points frame`);
+    assert.ok(!cs.exclude_globs.some((g) => globMatch(g, panel)), `${cs.js} still runs in the chat panel`);
+  }
+});
+
+test('loadInto rewrites the manifest of a package installed before the points-frame exclusion', async () => {
+  const dir = tmpDir();
+  const m = new ChatExtensions({ dir, fetch: fakeGitHub(), pins: pinsFor(), log: () => {} });
+  await m.update();
+  for (const key of Object.keys(EXTENSIONS)) {
+    const mf = path.join(m.state[key].path, 'manifest.json');
+    const old = JSON.parse(fs.readFileSync(mf, 'utf8'));
+    for (const cs of old.content_scripts) delete cs.exclude_globs;
+    fs.writeFileSync(mf, JSON.stringify(old));
+  }
+  const m2 = new ChatExtensions({ dir, fetch: fakeGitHub(), pins: pinsFor(), log: () => {} });
+  const seen = [];
+  await m2.loadInto({ extensions: { loadExtension: async (p) => { seen.push(JSON.parse(fs.readFileSync(path.join(p, 'manifest.json'), 'utf8'))); return { id: p, name: 'x', version: '1' }; } } }, { download: false });
+  assert.equal(seen.length, Object.keys(EXTENSIONS).length);
+  for (const mf of seen) for (const cs of mf.content_scripts) assert.deepEqual(cs.exclude_globs, POINTS_EXCLUDE_GLOBS);
 });
 
 test('the committed pins: one per extension, a GitHub release URL and a SHA-256 each', () => {
