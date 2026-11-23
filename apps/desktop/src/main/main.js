@@ -26,6 +26,7 @@ const { createDropsFrameHost } = require('./drops-frame');
 const follow = require('./follow');
 const { WatchMinutes } = require('./watch-minutes');
 const { ResumeStore } = require('./resume');
+const { WhisperStore } = require('./whispers');
 const { WEB_CLIENT_ID, GQL_URL } = require('./direct');
 const { SteamArt } = require('./steam-art');
 const { ScopeKeeper } = require('./keep-scope');
@@ -411,9 +412,12 @@ function registerIpc() {
     return twitch.signOut(target || undefined);
   });
   appIpc.handle('auth:switch', (_e, id) => twitch.switchAccount(String(id)));
+  const whisperStore = new WhisperStore(path.join(app.getPath('userData'), 'whispers.json'));
+  appIpc.handle('whispers:load', (_e, accountId) => whisperStore.load(String(accountId)));
+  appIpc.handle('whispers:save', (_e, accountId, threads) => whisperStore.save(String(accountId), threads));
   appIpc.handle('auth:remove', async (_e, id) => {
     const next = await twitch.removeAccount(String(id));
-    if (/^\d+$/.test(String(id))) playerJar.remove(String(id));
+    if (/^\d+$/.test(String(id))) { playerJar.remove(String(id)); whisperStore.removeAccount(String(id)); } // its whisper history goes too
     return next;
   });
 

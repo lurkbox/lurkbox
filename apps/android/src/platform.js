@@ -11,6 +11,7 @@ import { Twitch, Emitter } from '@lurkbox/core/src/shared/twitch-auth.js';
 import { fetchMaster, fetchLiveInfo, fetchStoryboard } from '@lurkbox/core/src/shared/direct.js';
 import { fetchClipSources } from '@lurkbox/core/src/shared/clips.js';
 import { resumeUpdate, resumeEntries, RESUME_MAX_PER_ACCOUNT } from '@lurkbox/core/src/shared/continue-watching.js';
+import { storeWhispers, loadWhispers } from '@lurkbox/core/src/shared/whispers.js';
 import { ProxyHosts, rewriteMaster } from '@lurkbox/core/src/shared/hls-rewrite.js';
 
 /** Same-origin prefix the WebView answers natively (MainActivity's HLS proxy): <prefix><host>/<path>?<query>. */
@@ -98,11 +99,13 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
   const tokens = new PrefValue(prefs, 'tokens', {});
   const resumeValue = new PrefValue(prefs, 'resume', { accounts: {} });
   const resume = new ResumePositions(resumeValue);
+  // Whisper history per account, like the desktop's whispers.json: { accounts: { id: threads } } (shared/whispers.js).
+  const whispersValue = new PrefValue(prefs, 'whispers', { accounts: {} });
   const hosts = new ProxyHosts();
   let twitch = null;
 
   const ready = (async () => {
-    await Promise.all([settings.load(), tokens.load(), resumeValue.load()]);
+    await Promise.all([settings.load(), tokens.load(), resumeValue.load(), whispersValue.load()]);
     twitch = new Twitch({ getSettings: () => settings.get(), tokens, fetch });
     twitch.on('state', (s) => bus.emit('auth:state', s));
     twitch.on('auth', (ev) => bus.emit('auth:event', ev));
@@ -151,7 +154,7 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
     signOut: after((id) => twitch.signOut(id || undefined)),
     accountsStatus: after(() => twitch.state().accounts.map((a) => ({ id: a.id, api: !a.needsSignin, player: false, playerLogin: null }))),
     switchAccount: after((id) => twitch.switchAccount(String(id))),
-    removeAccount: after((id) => twitch.removeAccount(String(id))),
+    removeAccount: after((id) => { whispersValue.replace(storeWhispers(whispersValue.get(), String(id), [])); return twitch.removeAccount(String(id)); }), // its whisper history goes too
     onAuthState: on('auth:state'),
     onAuthEvent: on('auth:event'),
 
@@ -209,6 +212,10 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
     resumeSet: after((videoId, position, duration, meta) => resume.set(twitch.store().active, String(videoId), position, duration, meta)),
     resumeList: after(() => resume.list(twitch.store().active)),
     resumeClear: after(() => resume.clear(twitch.store().active)),
+
+    // ---- whispers (history kept on the device, per account) ----
+    whispersLoad: after((accountId) => loadWhispers(whispersValue.get(), accountId)),
+    whispersSave: after((accountId, threads) => { whispersValue.replace(storeWhispers(whispersValue.get(), accountId, threads)); return true; }),
 
     // ---- channel points, Drops: Twitch's own pages in a twitch.tv session; not on Android yet ----
     pointsOpenPanel: async () => ({ ok: false, reason: UNAVAILABLE }),

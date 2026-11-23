@@ -29,7 +29,7 @@ app.on('browser-window-created', (_e, win) => {
         const w = document.querySelector('.welcome .welcome-signin');
         return { welcome: !!w, focused: document.activeElement === w, rail: document.querySelectorAll('#rail .rail-items .rail-item').length };
       })()`).catch(() => null);
-      if (r && r.welcome && r.rail === 6) {
+      if (r && r.welcome && r.rail === 7) { // Following, Browse, Categories, Search, Whispers, Drops, Settings
         if (errors.length) return finish(1, 'welcome screen rendered, but the renderer logged errors');
         // The Drops section without a twitch.tv session: a sign-in prompt with its button focused.
         await win.webContents.executeJavaScript("window.__lurkbox.nav.goTop('drops'), true");

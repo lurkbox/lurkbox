@@ -1,3 +1,4 @@
+import { whispers } from '../whispers.js';
 import { el, button, toast } from '../ui.js';
 import { state, saveSettings, QUALITY_OPTIONS, RAID_DELAYS, THEMES, applyTheme, SCREEN_MARGINS, UI_SCALES } from '../state.js';
 import { pickFromList, confirmDialog } from '../modal.js';
@@ -216,6 +217,9 @@ export function settingsView() {
           window.lurkbox.resumeClear ? row('Clear watch history', button('Clear', () => {
             confirmDialog({ title: 'Clear watch history?', message: 'Forgets where you stopped in every video, for this account. Continue watching starts empty.', yes: 'Clear', onYes: async () => { await window.lurkbox.resumeClear().catch(() => false); toast('Watch history cleared'); } });
           }, { class: 'clear-watch-history' }), 'Removes the saved positions of the account you are signed in with.') : null,
+          window.lurkbox.whispersLoad && state.auth.signedIn ? row('Clear whispers', button('Clear', () => {
+            confirmDialog({ title: 'Clear whispers?', message: 'Deletes every whisper Lurkbox has kept on this device for this account. Twitch keeps its own copy.', yes: 'Clear', onYes: async () => { await whispers().clear(); toast('Whispers cleared'); } });
+          }, { class: 'clear-whispers' }), 'Whispers are kept on this device only (at most 50 conversations of 200 messages), per account.') : null,
           row('Refresh live lists', pickRow('refreshInterval', 'Refresh live lists every', [10, 15, 30, 60].map((v) => ({ value: v, label: `${v} s` })))),
           row('Hide chat and controls when Lurkbox isn\'t focused', toggle('videoOnlyUnfocused'), 'Shows just the video while another app (e.g. a game under Floater) has focus.'),
           row('Confirm before exiting', toggle('confirmExit'), 'B on the home screen exits Lurkbox.'),

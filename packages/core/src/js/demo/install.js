@@ -6,6 +6,9 @@
 import { DEMO_NOW, EMOTES, EMOTE_AUTHORS, buildDemoData } from './data.js';
 import { joinLines, chatLine, ownLine, PAINTED } from './chat-feed.js';
 import { onChatSent } from '../chat-send.js';
+import { onWhisperSent } from '../whispers.js';
+import { state } from '../state.js';
+import { demoIncomingEvent, demoReplyEvent } from './whispers.js';
 
 const BLOCKED = 'Lurkbox demo mode: network access is blocked';
 
@@ -107,7 +110,7 @@ export function demoWebSocket(ctx) {
       this.later(() => {
         this.readyState = 1;
         this.fire('onopen', {});
-        if (this.kind === 'eventsub') this.startEventSub();
+        if (this.kind === 'eventsub') { if (ctx.eventsubs) ctx.eventsubs.add(this); this.startEventSub(); }
         if (this.kind === '7tv') this.start7tv();
       }, 10);
     }
@@ -130,6 +133,7 @@ export function demoWebSocket(ctx) {
       if (this.readyState === 3) return;
       this.readyState = 3;
       if (ctx.sockets) ctx.sockets.delete(this);
+      if (ctx.eventsubs) ctx.eventsubs.delete(this);
       for (const t of this.timers) clearTimer(t);
       this.timers.clear();
       this.fire('onclose', { code, reason });
@@ -165,6 +169,14 @@ export function demoWebSocket(ctx) {
       this.later(keep, 20000);
     }
 
+    /** An EventSub notification (the whisper watcher takes user.whisper.message; the raid one ignores it). */
+    notify(type, event) {
+      this.emit({
+        metadata: { message_id: `demo-${type}-${event.whisper_id || Date.now()}`, message_type: 'notification', message_timestamp: new Date().toISOString(), subscription_type: type, subscription_version: '1' },
+        payload: { subscription: { id: `demo-sub-${type}`, type, version: '1', status: 'enabled' }, event },
+      });
+    }
+
     start7tv() {
       this.emit({ op: 1, d: { heartbeat_interval: 25000, session_id: 'demo', subscription_limit: 500 } });
       this.later(() => { for (const d of paintDispatches()) this.emit({ op: 0, d }); }, 300);
@@ -187,13 +199,21 @@ export function installDemo(win, info = {}) {
   const chat = { paused: false, intervalMs: 1200 };
   const ids = new Map(db.users.map((u) => [u.login, u.id]));
   const sockets = new Set();
-  win.WebSocket = demoWebSocket({ roomIdOf: (l) => ids.get(l), chat, log, sockets });
+  const eventsubs = new Set();
+  win.WebSocket = demoWebSocket({ roomIdOf: (l) => ids.get(l), chat, log, sockets, eventsubs });
+  // Whispers: the fake incoming one (whisper()), and a reply from whoever you whispered, over the fake EventSub.
+  let whisperN = 0;
+  const whisper = (event) => { if (event) for (const s of eventsubs) s.notify('user.whisper.message', event); return !!event; };
+  onWhisperSent((d) => { setTimeout(() => whisper(demoReplyEvent(db, { ...d, n: ++whisperN })), 1800); });
+  if (Number(info.whisperInMs) > 0) setTimeout(() => whisper(demoIncomingEvent(db, state.auth.active, ++whisperN)), Number(info.whisperInMs));
   // Sent messages come back over the fake chat connection of their room, as they would from Twitch.
   onChatSent((d) => { for (const s of sockets) if (s.roomId === String(d.roomId)) s.echo(d); });
   const control = {
     db,
     pauseChat() { chat.paused = true; },
     resumeChat() { chat.paused = false; },
+    /** An incoming whisper to the active account now (screenshots, smoke tests). */
+    whisper() { return whisper(demoIncomingEvent(db, state.auth.active, ++whisperN)); },
   };
   win.__lurkboxDemo = control;
   log('[demo] demo mode: fake data, network blocked');

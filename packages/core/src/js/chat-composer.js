@@ -8,22 +8,26 @@ import { focusEl, moveFocus } from './focus.js';
 import { keyboardFor } from './text-entry.js';
 import { MAX_CHAT_LENGTH, COUNTER_FROM, chatLength, roomModeNote } from './chat-send.js';
 
-/** The counter's text and state for a draft: { text, show, over }. Pure. */
-export function counterState(text) {
+/** The counter's text and state for a draft: { text, show, over }; it shows from 100 characters before the limit. Pure. */
+export function counterState(text, max = MAX_CHAT_LENGTH) {
   const n = chatLength(text);
-  return { text: `${n}/${MAX_CHAT_LENGTH}`, show: n >= COUNTER_FROM, over: n > MAX_CHAT_LENGTH };
+  return { text: `${n}/${max}`, show: n >= max - (MAX_CHAT_LENGTH - COUNTER_FROM), over: n > max };
 }
 
 export class Composer {
   /**
    * @param {object} o
-   * @param {import('./chat.js').Chat} o.chat for the room modes
+   * @param {import('./chat.js').Chat} [o.chat] for the room modes (none for whispers)
    * @param {(text: string) => Promise<{ok: boolean}>} o.onSend
    * @param {() => void} o.onLeave B (or Escape): leave the composer
    * @param {() => void} [o.onEmotes] the emote picker (button, X)
    * @param {() => void} [o.onQuick] quick chat (button, Y)
+   * @param {number} [o.maxLength] the length limit (Twitch chat's 500 by default; whispers change it, setMaxLength)
+   * @param {string} [o.label] the box's placeholder and keyboard title
    */
-  constructor({ chat, onSend, onLeave, onEmotes = null, onQuick = null }) {
+  constructor({ chat = null, onSend, onLeave, onEmotes = null, onQuick = null, maxLength = MAX_CHAT_LENGTH, label = 'Send a message' }) {
+    this.maxLength = maxLength;
+    this.label = label;
     this.onSend = onSend;
     this.onLeave = onLeave;
     this.onEmotes = onEmotes;
@@ -31,7 +35,7 @@ export class Composer {
     this.sending = false;
     this.input = el('input', {
       class: 'cm-input focusable', type: 'text', spellcheck: 'false', autocomplete: 'off', enterkeyhint: 'send',
-      placeholder: 'Send a message', 'aria-label': 'Chat message', dataset: { focusKey: 'cm-input' },
+      placeholder: label, 'aria-label': chat ? 'Chat message' : label, dataset: { focusKey: 'cm-input' },
     });
     this.sendBtn = el('button', { type: 'button', class: 'cm-btn cm-send focusable', 'aria-label': 'Send', title: 'Send', dataset: { focusKey: 'cm-send' }, onclick: () => this.send() }, icon('send'));
     this.note = el('div', { class: 'cm-note', hidden: true });
@@ -44,9 +48,13 @@ export class Composer {
     // While typing, the player's "video only when unfocused" mode leaves the chat alone (Steam's keyboard can take focus).
     this.node.addEventListener('focusin', () => document.body.classList.add('composing'));
     this.node.addEventListener('focusout', () => setTimeout(() => { if (!this.contains(document.activeElement)) document.body.classList.remove('composing'); }, 0));
-    chat.onModes((m) => this.setModes(m));
-    this.setModes(chat.modes);
+    if (chat) {
+      chat.onModes((m) => this.setModes(m));
+      this.setModes(chat.modes);
+    }
   }
+
+  setMaxLength(n) { this.maxLength = n; this.updateCounter(); }
 
   get visible() { return !this.node.hidden; }
 
@@ -62,7 +70,7 @@ export class Composer {
   }
 
   updateCounter() {
-    const c = counterState(this.input.value);
+    const c = counterState(this.input.value, this.maxLength);
     this.counter.textContent = c.text;
     this.counter.hidden = !c.show;
     this.counter.classList.toggle('over', c.over);
@@ -81,8 +89,8 @@ export class Composer {
 
   openKeyboard() {
     return keyboardFor(this.input, {
-      title: 'Chat message',
-      maxLength: MAX_CHAT_LENGTH,
+      title: this.label === 'Send a message' ? 'Chat message' : this.label,
+      maxLength: this.maxLength,
       onDone: () => { this.updateCounter(); focusEl(this.sendBtn, { instant: true }); }, // A then sends
     });
   }
@@ -106,7 +114,7 @@ export class Composer {
     if (this.sending) return;
     const text = this.input.value;
     if (!text.trim()) { this.focus({ keyboard: true }); return; }
-    if (chatLength(text.trim()) > MAX_CHAT_LENGTH) { toast(`Messages can be at most ${MAX_CHAT_LENGTH} characters`, 3000, 'warn'); return; }
+    if (chatLength(text.trim()) > this.maxLength) { toast(`Messages can be at most ${this.maxLength.toLocaleString('en-US')} characters`, 3000, 'warn'); return; }
     this.sending = true;
     this.node.classList.add('sending');
     try {
