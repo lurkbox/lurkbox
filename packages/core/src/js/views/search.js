@@ -184,6 +184,7 @@ export function searchView() {
           input,
           button('Keyboard', () => openKeyboard({ title: 'Search', value: input.value, onDone: (v) => { input.value = v; run(); } }), { class: 'osk-btn' }),
           button('Search', run, { class: 'primary' }),
+          button('Emotes', () => nav.openEmoteSearch({ query: input.value.trim() }), { class: 'search-emotes', dataset: { focusKey: 'search-emotes' } }),
           watchBtn),
         el('p', { class: 'osk-note' }, hint('{A} on the text box opens the keyboard. Steam + X opens the Steam keyboard. A physical keyboard types directly.')),
         results);

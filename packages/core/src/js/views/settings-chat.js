@@ -7,6 +7,7 @@ import { chatHeightApplies } from '../../shared/chat-layout.js';
 import { confirmDialog } from '../modal.js';
 import { tw } from '../api.js';
 import { phraseEditor, pickChannelList, quickChatSetting } from '../quick-chat.js';
+import { emoteIndex } from '../emote-index-store.js';
 
 /** What the chat controls need to know about the screen (also used by the player's chat pop-over). */
 export function chatEnv(direct = true) {
@@ -109,6 +110,12 @@ export function chatSettingsRows({ row, rerender, pickRow }) {
     onYes: async () => { await saveSettings(resetChatLayoutPatch()); toast('Chat layout reset', 2000, 'ok'); rerender(); },
   }), { dataset: { setting: 'chatLayoutReset' } }), 'Also in the player: the chat button opens the same controls.'));
   for (const t of CHAT_TOGGLES) rows.push(row(t.label, toggle(t.key), t.help));
+  rows.push(row('Clear emote index', button('Clear', () => confirmDialog({
+    title: 'Clear emote index?',
+    message: 'Forgets the channel emote sets Lurkbox has seen, for this account. Emote search → Seen channels starts empty and fills again as you watch.',
+    yes: 'Clear',
+    onYes: async () => { await emoteIndex().clear().catch(() => {}); toast('Emote index cleared', 2000, 'ok'); },
+  }), { class: 'clear-emote-index', dataset: { setting: 'emoteIndexClear' } }), 'Emote search\'s "Seen channels" looks through the emotes of every channel you\'ve watched or browsed (up to 20,000).'));
 
   // Quick chat: saved phrases, sent with one press from the player (the quick-chat icon, or the composer).
   const qc = quickChatSetting(s);

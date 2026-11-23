@@ -104,6 +104,7 @@ function createDemoHost(opts = {}) {
   // Resume positions: the real store, in memory, on the demo clock; seeded with a Continue watching row.
   const demoNow = () => data.DEMO_NOW + (now() - startedAt);
   const resume = new (require('./resume').ResumeStore)(null, { now: demoNow });
+  const emoteIndex = new (require('./emote-index').EmoteIndexStore)(null); // in memory, like the resume positions
 
   const authState = () => {
     const me = accounts.find((a) => a.id === active) || null;
@@ -203,6 +204,8 @@ function createDemoHost(opts = {}) {
     'resume:clear': () => resume.clear(active),
     'whispers:load': (id) => whisperStore.load(String(id)),
     'whispers:save': (id, threads) => whisperStore.save(String(id), threads),
+    'emote-index:get': () => emoteIndex.get(active),
+    'emote-index:set': (index) => emoteIndex.set(active, index),
     'points:watch': () => true,
     'points:openPanel': () => ({ ok: false, reason: 'not in demo mode' }),
     'points:pad': () => null,

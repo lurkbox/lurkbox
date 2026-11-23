@@ -12,6 +12,7 @@ import { fetchMaster, fetchLiveInfo, fetchStoryboard } from '@lurkbox/core/src/s
 import { fetchClipSources } from '@lurkbox/core/src/shared/clips.js';
 import { resumeUpdate, resumeEntries, RESUME_MAX_PER_ACCOUNT } from '@lurkbox/core/src/shared/continue-watching.js';
 import { storeWhispers, loadWhispers } from '@lurkbox/core/src/shared/whispers.js';
+import { accountsWithIndex, accountIndexKey } from '@lurkbox/core/src/shared/emote-index.js';
 import { ProxyHosts, rewriteMaster } from '@lurkbox/core/src/shared/hls-rewrite.js';
 
 /** Same-origin prefix the WebView answers natively (MainActivity's HLS proxy): <prefix><host>/<path>?<query>. */
@@ -101,11 +102,12 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
   const resume = new ResumePositions(resumeValue);
   // Whisper history per account, like the desktop's whispers.json: { accounts: { id: threads } } (shared/whispers.js).
   const whispersValue = new PrefValue(prefs, 'whispers', { accounts: {} });
+  const emoteIndexValue = new PrefValue(prefs, 'emoteIndex', { accounts: {} }); // Emote search → Seen channels
   const hosts = new ProxyHosts();
   let twitch = null;
 
   const ready = (async () => {
-    await Promise.all([settings.load(), tokens.load(), resumeValue.load(), whispersValue.load()]);
+    await Promise.all([settings.load(), tokens.load(), resumeValue.load(), whispersValue.load(), emoteIndexValue.load()]);
     twitch = new Twitch({ getSettings: () => settings.get(), tokens, fetch });
     twitch.on('state', (s) => bus.emit('auth:state', s));
     twitch.on('auth', (ev) => bus.emit('auth:event', ev));
@@ -216,6 +218,9 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
     // ---- whispers (history kept on the device, per account) ----
     whispersLoad: after((accountId) => loadWhispers(whispersValue.get(), accountId)),
     whispersSave: after((accountId, threads) => { whispersValue.replace(storeWhispers(whispersValue.get(), accountId, threads)); return true; }),
+    // ---- the "seen channels" emote index (per account) ----
+    emoteIndexGet: after(() => (emoteIndexValue.get().accounts || {})[accountIndexKey(twitch.store().active)] || null),
+    emoteIndexSet: after((index) => { emoteIndexValue.replace({ accounts: accountsWithIndex(emoteIndexValue.get().accounts, twitch.store().active, index) }); return true; }),
 
     // ---- channel points, Drops: Twitch's own pages in a twitch.tv session; not on Android yet ----
     pointsOpenPanel: async () => ({ ok: false, reason: UNAVAILABLE }),

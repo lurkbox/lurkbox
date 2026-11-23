@@ -6,6 +6,7 @@ import { state, onState } from './state.js';
 import { helix } from './api.js';
 import { EmoteIndex, tokenize, PROVIDERS } from './chat-emotes.js';
 import { emoteCache } from './emote-providers.js';
+import { emoteIndex } from './emote-index-store.js';
 import { BadgeCache, parseBadgesTag, lookupBadge } from './chat-badges.js';
 import { SevenTVEvents } from './seventv-events.js';
 import { renderParts, renderBadges, applyPaint, attachChatTips } from './chat-render.js';
@@ -290,6 +291,7 @@ export class Chat {
           if (stale()) return;
           this.index.set(p, scope, r.emotes);
           if (p === '7tv' && scope === 'channel') sevenSetId = r.setId || null;
+          if (scope === 'channel' && r.emotes.length) emoteIndex().record({ id: roomId, login: channel }, p, r.emotes).catch(() => {}); // Emote search → Seen channels
         }).catch((e) => {
           if (!stale()) this.index.set(p, scope, []);
           log(`${p} ${scope} emotes for ${roomId} failed: ${e.message}`);

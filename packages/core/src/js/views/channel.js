@@ -16,8 +16,8 @@ import { shortCount } from '../player-ui.js';
 import { renderEmotes } from './channel-emotes.js';
 import { blockButton } from '../social-ui.js';
 
-/** @param {{ login: string, id?: string, name?: string, tab?: string }} c */
-export function channelView({ login, id, name, tab }) {
+/** @param {{ login: string, id?: string, name?: string, tab?: string, emote?: { provider: string, name: string } }} c (emote: focus it on the Emotes tab) */
+export function channelView({ login, id, name, tab, emote }) {
   login = String(login || '').toLowerCase();
   return {
     id: `channel:${login}`,
@@ -107,7 +107,7 @@ export function channelView({ login, id, name, tab }) {
         }
         body.dataset.tab = view.tab;
         body.replaceChildren();
-        ({ home: renderHome, videos: renderVideos, clips: renderClips, schedule: renderSchedule, emotes: () => renderEmotes(body, { ch, nav, view }), about: renderAbout })[view.tab]();
+        ({ home: renderHome, videos: renderVideos, clips: renderClips, schedule: renderSchedule, emotes: () => { renderEmotes(body, { ch, nav, view, focus: emote }); emote = null; }, about: renderAbout })[view.tab]();
         if (focusTab) focusEl(tabButtons.get(view.tab), { instant: true });
       };
 

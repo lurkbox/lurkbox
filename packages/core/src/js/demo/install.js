@@ -46,6 +46,43 @@ export function emoteResponses(media) {
   };
 }
 
+/**
+ * The demo's "all of 7TV" catalogue for Emote search: every demo emote in a few made-up variants (three per name, so
+ * there is more than one page), newest last. [name, picture, zeroWidth, animated, owner].
+ */
+export function demoCatalog() {
+  const out = [];
+  EMOTES.forEach(([name, , zw], i) => {
+    for (const [k, suffix] of ['', 'XL', 'Mini'].entries()) out.push([`${name}${suffix}`, name, zw, (i + k) % 3 === 0, EMOTE_AUTHORS[(i + k) % EMOTE_AUTHORS.length]]);
+  });
+  return out;
+}
+
+/** Answers Emote search's 7TV GraphQL requests (search, usage) from demoCatalog(). */
+export function demoSevenTvGql(body, media) {
+  let req = null;
+  try { req = JSON.parse(String(body || '')); } catch { req = null; }
+  const v = (req && req.variables) || {};
+  const q = String((req && req.query) || '');
+  const all = demoCatalog();
+  if (q.includes('LurkboxEmoteUsage')) {
+    const i = all.findIndex(([name]) => `demo-x-${name}` === v.id);
+    return { data: { emotes: { emote: i < 0 ? null : { channels: { totalCount: 1200 - i * 13 } } } } };
+  }
+  const query = String(v.query || '').toLowerCase();
+  const f = v.filters || {};
+  let hits = all.filter(([name, , zw, anim]) => (!query || name.toLowerCase().includes(query)) && (!f.animated || anim) && (!f.defaultZeroWidth || zw));
+  if (v.sort && v.sort.sortBy === 'UPLOAD_DATE') hits = hits.reverse();
+  const per = Math.max(1, Number(v.perPage) || 48);
+  const page = Math.max(1, Number(v.page) || 1);
+  const items = hits.slice((page - 1) * per, page * per).map(([name, pic, zw, anim, owner]) => ({
+    id: `demo-x-${name}`, defaultName: name, flags: { animated: anim, defaultZeroWidth: zw },
+    owner: { mainConnection: { platformDisplayName: owner } },
+    images: [{ url: media(`img/emote/${pic}.svg`), mime: 'image/webp', scale: 2, frameCount: 1 }],
+  }));
+  return { data: { emotes: { search: { totalCount: hits.length, pageCount: Math.ceil(hits.length / per), items } } } };
+}
+
 /** A fetch that answers the emote APIs from the demo data and refuses every other remote URL. */
 export function demoFetch({ realFetch, origin, media, log = () => {} }) {
   const r = emoteResponses(media);
@@ -56,6 +93,7 @@ export function demoFetch({ realFetch, origin, media, log = () => {} }) {
     if (u.origin === origin && realFetch) return realFetch(input, init);
     let m;
     if (u.host === '7tv.io') {
+      if (u.pathname === '/v4/gql' && init && init.method === 'POST') return json(demoSevenTvGql(init.body, media));
       if (u.pathname === '/v3/emote-sets/global') return json(r['7tv:global']);
       if ((m = /^\/v3\/users\/twitch\/(\d+)$/.exec(u.pathname))) return json(r['7tv:channel'](m[1]));
     }
