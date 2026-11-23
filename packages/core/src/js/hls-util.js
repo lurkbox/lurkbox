@@ -114,6 +114,32 @@ export function codecsFor(pref, isTypeSupported, efficient = {}) {
 }
 
 /** Height cap for "Quality while in the background": 'same' → null, '720' → 720, '480' → 480. */
+function qualityHeight(q) {
+  const m = /(\d{3,4})p(\d+)?/.exec(q || '');
+  return m ? [Number(m[1]), Number(m[2] || 30)] : null;
+}
+
+/**
+ * Settings → default quality ('auto', 'chunked' = source, or e.g. '720p60') against an engine's qualities
+ * ([{ group, name }], 'auto' first): the group to set, or null for Auto. Without an exact match, the best one at or
+ * under the wanted height and frame rate, else the lowest.
+ */
+export function pickDefaultQuality(qualities, want) {
+  if (!want || want === 'auto') return null;
+  const qs = (qualities || []).filter((q) => q.group && q.group !== 'auto');
+  if (!qs.length) return null;
+  let pick = qs.find((q) => q.group === want);
+  if (!pick && want === 'chunked') pick = qs[0];
+  if (!pick) {
+    const [wh, wf] = qualityHeight(want) || [720, 30];
+    const scored = qs.map((q) => ({ q, hf: qualityHeight(q.name || q.group) }))
+      .filter((x) => x.hf && (x.hf[0] < wh || (x.hf[0] === wh && x.hf[1] <= wf)))
+      .sort((a, b) => b.hf[0] - a.hf[0] || b.hf[1] - a.hf[1]);
+    pick = scored.length ? scored[0].q : qs[qs.length - 1];
+  }
+  return pick;
+}
+
 export function backgroundCap(setting) {
   const n = Number(setting);
   return setting === 'same' || !Number.isFinite(n) || n <= 0 ? null : n;

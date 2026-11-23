@@ -27,6 +27,7 @@
     "test:chat-send": "npm run test:chat-send -w apps/desktop --",
     "test:channel": "npm run test:channel -w apps/desktop --",
     "test:continue": "npm run test:continue -w apps/desktop --",
+    "test:multiview": "npm run test:multiview -w apps/desktop --",
     "screenshots": "npm run screenshots -w apps/desktop --",
     "android:sync": "npm run sync -w apps/android --",
     "android:build": "npm run build -w apps/android --",

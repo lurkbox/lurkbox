@@ -50,7 +50,7 @@ export function onLongPress(node, fn, ms = LONG_PRESS_MS) {
 /** X on a focused card (or a long-press on it) opens its channel page: the card's data-channel-* (main.js). */
 export function channelOfCard(node) {
   const c = node && node.closest ? node.closest('[data-channel-login]') : null;
-  return c ? { login: c.dataset.channelLogin, id: c.dataset.channelId || null, name: c.dataset.channelName || c.dataset.channelLogin } : null;
+  return c ? { login: c.dataset.channelLogin, id: c.dataset.channelId || null, name: c.dataset.channelName || c.dataset.channelLogin, live: c.dataset.live === '1' } : null;
 }
 
 let openChannelFn = null;
@@ -62,7 +62,7 @@ function withChannel(card) {
 }
 
 export function streamCard(s, onSelect) {
-  return withChannel(el('button', { class: 'card focusable', type: 'button', onclick: () => onSelect(s), dataset: channelData(s.user_login, s.user_id, s.user_name) },
+  return withChannel(el('button', { class: 'card focusable', type: 'button', onclick: () => onSelect(s), dataset: { ...channelData(s.user_login, s.user_id, s.user_name), live: '1' } },
     el('div', { class: 'card-thumb' },
       s.thumbnail_url ? el('img', { src: thumb(s.thumbnail_url, 440, 248, refreshMs()), alt: '', loading: 'lazy' }) : null,
       el('span', { class: 'badge live' }, 'LIVE'),

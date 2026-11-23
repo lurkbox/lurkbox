@@ -47,6 +47,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   hwDecode: true,
   videoCodec: 'h264', // 'h264' (smoothest) | 'best' (AV1/H.265 when decoded efficiently)
   backgroundQuality: '720', // while unfocused for 3 s: 'same' | '720' | '480'
+  multiQuality: '480', // multi-view, the tiles without the audio: '480' | '720' | 'same'
   lowLatency: true,
   autoCatchUp: true,
   chatStyle: 'lurkbox', // 'lurkbox' (IRC panel) | 'twitch' (Twitch's embedded chat: points, predictions, polls)
@@ -90,6 +91,7 @@ export function sanitizeSettings(patch) {
   if ('videoFilter' in patch) out.videoFilter = validChoice(VIDEO_FILTERS, patch.videoFilter);
   if ('clipPeriod' in patch) out.clipPeriod = validChoice(CLIP_PERIODS, patch.clipPeriod, '7d');
   if ('videoCodec' in patch) out.videoCodec = patch.videoCodec === 'best' ? 'best' : 'h264';
+  if ('multiQuality' in patch) out.multiQuality = ['same', '720', '480'].includes(String(patch.multiQuality)) ? String(patch.multiQuality) : '480';
   if ('backgroundQuality' in patch) out.backgroundQuality = ['same', '720', '480'].includes(String(patch.backgroundQuality)) ? String(patch.backgroundQuality) : '720';
   Object.assign(out, sanitizeChatLayout(patch));
   if ('quickChat' in patch) out.quickChat = sanitizeQuickChat(patch.quickChat);

@@ -6,10 +6,15 @@ import { parseQualities, adState, shouldFallback, fatalAction, unrecoverableLoad
 export const EVENTS = { READY: 'ready', PLAYING: 'playing', PAUSE: 'pause', ONLINE: 'online', OFFLINE: 'offline', ENDED: 'ended' };
 
 export class DirectEngine {
-  /** @param {HTMLElement} host @param {{onFallback: (reason) => void, onAd: (ad) => void, log: (msg) => void, quality: string}} opts */
+  /**
+   * One engine per <video>: the single player has one, multi-view one per tile (each its own hls.js instance; they
+   * share nothing but the loaded hls.js script). tag: the log prefix ('direct', 'multi:<login>').
+   * @param {HTMLElement} host @param {{onFallback: (reason) => void, onAd: (ad) => void, log: (msg) => void, quality: string, tag?: string}} opts
+   */
   constructor(host, opts) {
     this.host = host;
     this.opts = opts;
+    this.tag = opts.tag || 'direct';
     this.listeners = {};
     this.video = document.createElement('video');
     this.video.className = 'direct-video';
@@ -70,7 +75,7 @@ export class DirectEngine {
       return;
     }
     this.milestone('master', r.authed ? 'signed in' : 'anonymous');
-    this.opts.log(`[direct] master ok in ${Math.round(performance.now() - t0)} ms (${r.authed ? 'signed-in token' : `anon token: ${r.anonReason || '?'}`}), codecs ${codecs.join(',')} (${this.forceH264 ? 'H.264 forced after a fatal error' : `setting: ${pref}`})`);
+    this.opts.log(`[${this.tag}] master ok in ${Math.round(performance.now() - t0)} ms (${r.authed ? 'signed-in token' : `anon token: ${r.anonReason || '?'}`}), codecs ${codecs.join(',')} (${this.forceH264 ? 'H.264 forced after a fatal error' : `setting: ${pref}`})`);
     this.qualities = parseQualities(r.master).filter((q) => !q.audioOnly);
     await loadScript('/vendor/hls.min.js');
     const Hls = window.Hls;
@@ -104,14 +109,14 @@ export class DirectEngine {
     });
     this.levelLoaded = false;
     hls.on(Hls.Events.LEVEL_LOADED, (_e, data) => {
-      if (!this.levelLoaded) { this.levelLoaded = true; this.milestone('first level'); this.opts.log(`[direct] first level playlist loaded after ${Math.round(performance.now() - t0)} ms${data.details && !data.details.live ? ' (VOD)' : ''}`); }
+      if (!this.levelLoaded) { this.levelLoaded = true; this.milestone('first level'); this.opts.log(`[${this.tag}] first level playlist loaded after ${Math.round(performance.now() - t0)} ms${data.details && !data.details.live ? ' (VOD)' : ''}`); }
       const dr = data.details && data.details.dateRanges;
       if (dr) this.ranges = Object.values(dr).map((d) => ({ ...d.attr, CLASS: d.class || (d.attr && d.attr.CLASS) }));
     });
     hls.on(Hls.Events.ERROR, (_e, data) => {
       const code = data.response ? data.response.code : undefined;
       if (this.hls === hls && unrecoverableLoad({ network: data.type === Hls.ErrorTypes.NETWORK_ERROR, details: data.details, code, levelLoaded: this.levelLoaded })) {
-        this.opts.log(`[direct] ${data.details} HTTP ${code} on the first try (${code === 0 ? 'CORS or network refusal' : 'client error'}): not retrying`);
+        this.opts.log(`[${this.tag}] ${data.details} HTTP ${code} on the first try (${code === 0 ? 'CORS or network refusal' : 'client error'}): not retrying`);
         this.teardownHls();
         this.opts.onFallback(`${data.details} HTTP ${code}`);
         return;
@@ -121,7 +126,7 @@ export class DirectEngine {
       const mediaError = data.type === Hls.ErrorTypes.MEDIA_ERROR;
       const h264Only = (this.codecs || []).every((c) => c === 'h264');
       const action = fatalAction({ mediaError, count: this.fatalCount, h264Only, reloaded: !!this.forceH264 });
-      this.opts.log(`[direct] fatal hls error ${data.type}/${data.details} (#${this.fatalCount}, codecs ${(this.codecs || []).join(',')}${this.forceH264 ? ', after H.264 retry' : ''}) -> ${action}`);
+      this.opts.log(`[${this.tag}] fatal hls error ${data.type}/${data.details} (#${this.fatalCount}, codecs ${(this.codecs || []).join(',')}${this.forceH264 ? ', after H.264 retry' : ''}) -> ${action}`);
       if (action === 'recover') { hls.recoverMediaError(); return; }
       if (action === 'restart-load') { hls.startLoad(); return; }
       if (action === 'reload-h264') {
@@ -160,7 +165,7 @@ export class DirectEngine {
     return plan;
   }
 
-  /** Background cap on/off (Floater over a game). maxHeight null = no cap. */
+  /** Quality cap: the background cap (Floater over a game) or a multi-view tile's cap. maxHeight null = no cap. */
   setBackgroundCap(maxHeight) {
     const cap = maxHeight || null;
     if (cap === this.capHeight) return;
@@ -169,15 +174,22 @@ export class DirectEngine {
     if (plan) {
       const target = plan.level >= 0 ? plan.level : plan.autoCap;
       const lvl = this.hls.levels[target];
-      this.opts.log(`[direct] background quality ${cap ? `cap ${cap}p -> ${lvl ? levelLabel(lvl) : 'auto'}` : `off -> ${this.quality}`}`);
+      this.opts.log(`[${this.tag}] quality ${cap ? `cap ${cap}p -> ${lvl ? levelLabel(lvl) : 'auto'}` : `off -> ${this.quality}`}`);
     }
+  }
+
+  /** Quality and cap together (a multi-view tile gaining or losing the sound), switched at the next fragment. */
+  setQualityCap(quality, maxHeight) {
+    this.quality = quality || 'auto';
+    this.capHeight = maxHeight || null;
+    return this.applyQuality({ smooth: true });
   }
 
   checkAd() {
     if (!this.hls) return;
     const now = this.hls.playingDate ? this.hls.playingDate.getTime() : Date.now();
     const s = adState(this.ranges, now);
-    if (s.inAd !== this.ad.inAd) this.opts.log(`[direct] ad ${s.inAd ? 'start' : 'end'}`);
+    if (s.inAd !== this.ad.inAd) this.opts.log(`[${this.tag}] ad ${s.inAd ? 'start' : 'end'}`);
     this.ad = s;
     this.opts.onAd({ inAd: s.inAd, secondsLeft: s.endsAt ? Math.max(0, Math.round((s.endsAt - now) / 1000)) : null });
   }
@@ -191,7 +203,7 @@ export class DirectEngine {
     const dd = q.totalVideoFrames - last.d;
     const dx = q.droppedVideoFrames - last.x;
     const pct = dd > 0 ? ` (last 30 s: ${dx}/${dd}, ${((100 * dx) / dd).toFixed(1)}%)` : '';
-    this.opts.log(`[direct] frames decoded=${q.totalVideoFrames} dropped=${q.droppedVideoFrames}${pct} level=${this.hls ? this.hls.currentLevel : '-'} ${levelLabel(lvl)}${this.capHeight ? ` bg-cap=${this.capHeight}p` : ''}`);
+    this.opts.log(`[${this.tag}] frames decoded=${q.totalVideoFrames} dropped=${q.droppedVideoFrames}${pct} level=${this.hls ? this.hls.currentLevel : '-'} ${levelLabel(lvl)}${this.capHeight ? ` bg-cap=${this.capHeight}p` : ''}`);
   }
 
   /** Seconds behind the live edge (null for VODs / unknown). */
@@ -229,7 +241,7 @@ export class DirectEngine {
     if (!this.hls) { this.play(); return 'play'; }
     const w = this.liveWindow();
     const action = resumeDecision({ live: w.live && !!(this.target && this.target.channel), position: this.v.currentTime, windowStart: w.windowStart, liveSync: w.liveSync, bufferedEnd: w.bufferedEnd });
-    this.opts.log(`[direct] resume at ${this.v.currentTime.toFixed(1)} (window from ${Number.isFinite(w.windowStart) ? w.windowStart.toFixed(1) : '?'}, live ${Number.isFinite(w.liveSync) ? w.liveSync.toFixed(1) : '?'}, buffered to ${w.bufferedEnd != null ? w.bufferedEnd.toFixed(1) : '-'}) -> ${action}`);
+    this.opts.log(`[${this.tag}] resume at ${this.v.currentTime.toFixed(1)} (window from ${Number.isFinite(w.windowStart) ? w.windowStart.toFixed(1) : '?'}, live ${Number.isFinite(w.liveSync) ? w.liveSync.toFixed(1) : '?'}, buffered to ${w.bufferedEnd != null ? w.bufferedEnd.toFixed(1) : '-'}) -> ${action}`);
     if (action === 'jump') {
       this.hls.startLoad(w.liveSync);
       this.v.currentTime = w.liveSync;
@@ -274,7 +286,7 @@ export class DirectEngine {
   // ---- Twitch.Player-like API ----
   setChannel(login) { this.load({ channel: login }); }
   setVideo(id) { this.load({ video: id }); }
-  play() { const p = this.v.play(); if (p && p.catch) p.catch((e) => this.opts.log(`[direct] play() rejected: ${e.name}`)); }
+  play() { const p = this.v.play(); if (p && p.catch) p.catch((e) => this.opts.log(`[${this.tag}] play() rejected: ${e.name}`)); }
   pause() { this.v.pause(); }
   isPaused() { return this.v.paused; }
   setMuted(m) { this.v.muted = !!m; }

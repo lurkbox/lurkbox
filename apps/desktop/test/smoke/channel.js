@@ -76,10 +76,13 @@ app.on('browser-window-created', (_e, win) => {
       await js(PAD);
       await sleep(400);
       await waitFor('Following', "document.querySelectorAll('[data-view=following] .grid .card').length >= 5");
-      // X on the second live card opens its channel page.
+      // X on the second live card: Channel page (focused) or Watch with… (multi-view); A opens its channel page.
       await js("document.querySelectorAll('[data-view=following] .grid-live .card')[1].focus(); true");
       const login = await js("document.activeElement.dataset.channelLogin");
       await press('X');
+      await waitFor('the live card menu', "!!document.querySelector('.modal .pick-item.selected')", 5000);
+      await js("document.querySelector('.modal .pick-item.selected').focus(); true"); // (the modal focuses it on the next frame)
+      await press('A');
       await waitFor('the channel page', `!!document.querySelector('[data-view="channel:${login}"] .channel-tab.selected')`).catch(async (e) => {
         const d = await js("({ active: document.activeElement && document.activeElement.outerHTML.slice(0, 160), views: [...document.querySelectorAll('#content [data-view]')].map((n) => n.dataset.view + (n.hidden ? '(hidden)' : '')), modal: !!document.querySelector('.modal'), player: !document.getElementById('player-screen').hidden, toasts: [...document.querySelectorAll('#toasts .toast')].map((t) => t.textContent.slice(0, 60)) })").catch((x) => String(x));
         throw new Error(`${e.message} (login ${login}): ${JSON.stringify(d)}`);
