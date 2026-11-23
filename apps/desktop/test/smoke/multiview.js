@@ -80,10 +80,13 @@ app.on('browser-window-created', (_e, win) => {
       await js(PAD);
       await sleep(400);
       await waitFor('Following', "document.querySelectorAll('[data-view=following] .grid-live .card').length >= 5");
-      await js("document.querySelector('[data-view=following] .grid-live .card').focus(); true");
-      const first = await js('document.activeElement.dataset.channelLogin');
-      // X on a live card: Channel page or Watch with…
-      await press('X');
+      const first = await js("document.querySelector('[data-view=following] .grid-live .card').dataset.channelLogin");
+      // X on a live card: Channel page or Watch with… (a Following refresh can take the focus on a slow runner: retry).
+      for (let i = 0; i < 5 && !(await js("!!document.querySelector('.modal .pick-item')")); i++) {
+        await js(`document.querySelector('[data-view=following] .grid-live .card[data-channel-login=${JSON.stringify(first)}]').focus(); true`);
+        await press('X');
+        await sleep(500);
+      }
       await pick('/Watch with/');
       await pick('/./');
       await waitFor('multi-view', "!document.getElementById('multi-screen').hidden && document.querySelectorAll('#multi-stage .mv-tile').length === 2");
