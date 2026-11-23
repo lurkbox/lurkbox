@@ -36,6 +36,15 @@ android {
         }
     }
     signingConfigs {
+        // Release key: CI decodes the ANDROID_RELEASE_KEYSTORE secret to a file and passes its path and password here.
+        if (System.getenv('LURKBOX_RELEASE_KEYSTORE')) {
+            lurkboxRelease {
+                storeFile file(System.getenv('LURKBOX_RELEASE_KEYSTORE'))
+                storePassword System.getenv('LURKBOX_RELEASE_PASSWORD')
+                keyAlias System.getenv('LURKBOX_RELEASE_ALIAS') ?: 'lurkbox'
+                keyPassword System.getenv('LURKBOX_RELEASE_PASSWORD')
+            }
+        }
         if (stableDebugKeystore.isFile()) {
             lurkboxDebug {
                 storeFile stableDebugKeystore
@@ -50,8 +59,10 @@ android {
             if (stableDebugKeystore.isFile()) signingConfig signingConfigs.lurkboxDebug
         }
         release {
-            // Debug-signed for now (no release key yet), so the release APK installs too.
-            signingConfig stableDebugKeystore.isFile() ? signingConfigs.lurkboxDebug : signingConfigs.debug
+            // The release key when LURKBOX_RELEASE_KEYSTORE is set (release builds in CI), else debug-signed so a local
+            // release APK still installs.
+            signingConfig System.getenv('LURKBOX_RELEASE_KEYSTORE') ? signingConfigs.lurkboxRelease
+                : (stableDebugKeystore.isFile() ? signingConfigs.lurkboxDebug : signingConfigs.debug)
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

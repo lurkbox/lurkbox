@@ -52,7 +52,8 @@ More in [docs/screenshots/](docs/screenshots/): the Undo toast after removing fr
 ## Install
 
 - **Flatpak (Linux, KDE Discover):** open **https://lurkbox.github.io/lurkbox/** and click Install, or run `flatpak install --user https://lurkbox.github.io/lurkbox/io.github.lurkbox.Lurkbox.flatpakref`. It updates through Discover or `flatpak update`. This is Lurkbox's own signed repository, not Flathub. See [docs/flatpak.md](docs/flatpak.md), including the Steam shortcut form Floater needs (`/usr/bin/flatpak` with `run io.github.lurkbox.Lurkbox`) and the sandbox limits.
-- **AppImage (SteamOS Game Mode with Floater):** see [Steam (Game Mode)](#steam-game-mode) below.
+- **AppImage (SteamOS Game Mode with Floater):** download `Lurkbox-<version>-x86_64.AppImage` from the [latest release](https://github.com/lurkbox/lurkbox/releases/latest), then see [Steam (Game Mode)](#steam-game-mode) below.
+- **Android (Google TV, tablets, phones):** download `Lurkbox-<version>-android.apk` from the [latest release](https://github.com/lurkbox/lurkbox/releases/latest) and sideload it. Each release lists SHA-256 checksums in `SHA256SUMS.txt`.
 
 ## Features (v0.1)
 

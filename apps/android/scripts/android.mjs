@@ -1,7 +1,7 @@
 // npm run android:sync | android:build | android:release (from the repo root).
 //   sync:    build the web assets (build-web.mjs) and copy them into the Android project (cap sync android);
 //   build:   sync, then a debug APK (gradlew assembleDebug);
-//   release: sync, then a release APK (debug-signed until there is a release key).
+//   release: sync, then a release APK (signed with the release key when LURKBOX_RELEASE_KEYSTORE is set, else a debug key).
 // JAVA_HOME must be a JDK 21 (the Android Gradle Plugin doesn't run on newer ones). When it isn't set, a portable JDK
 // in ~/.cache/lurkbox-jdk21/ is used if present. ANDROID_HOME defaults to ~/Android/Sdk.
 import fs from 'node:fs';
