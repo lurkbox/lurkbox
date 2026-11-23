@@ -203,6 +203,7 @@ export function settingsView() {
           row('Default quality', qualityBtn),
           row('Auto-claim bonus points', toggle('autoClaimPoints'), 'Claims the channel-points bonus as soon as it appears, through Twitch\'s chat page in the background. Needs the TV sign-in.'),
           row('Auto-claim drops', toggle('autoClaimDrops'), 'Every 15 minutes, Lurkbox opens Twitch\'s Drops inventory page in the background and presses its Claim button for drops you have finished. Needs the TV sign-in.'),
+          window.lurkbox.predictionsWatch ? row('Predictions and polls in the player', toggle('showPredictions'), 'Shows the channel\'s prediction or poll on the video with live results, and lets you predict and vote with the controller (through Twitch\'s own chat page, which needs the TV sign-in).') : null,
           row('Earn channel points while watching', toggle('earnWatchPoints'), 'With the Direct player, reports the stream you\'re watching once a minute the way Twitch\'s own player does, so watch time earns points. Only while it plays on screen; never for other streams.'),
           ...chatSettingsRows({ row, rerender, pickRow }),
           el('h2', { class: 'section-title settings-section' }, 'General'),

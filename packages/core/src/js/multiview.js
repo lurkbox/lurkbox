@@ -28,6 +28,7 @@ import { moveFocus, focusEl } from './focus.js';
 import { pressFollow } from './follow.js';
 import { chatLayout, chatPanelWidth } from '../shared/chat-layout.js';
 import { twitchChatZoom } from '../shared/tv-zoom.js';
+import { PredictionsUI, watchPredictions } from './predictions-ui.js';
 
 const DIR = { [UP]: 'up', [DOWN]: 'down', [LEFT]: 'left', [RIGHT]: 'right' };
 
@@ -126,6 +127,13 @@ export class MultiView {
     this.tchat = new TwitchChatFrame(this.screen, { id: 'multi-tchat', panelId: 'multi-tchat-panel' });
     this.points = { signedIn: false, balance: null };
     this.pointsPanel = false;
+    // The active tile's prediction/poll: a chip on the screen and the player's dialog (predictions-ui.js).
+    this.pp = new PredictionsUI({
+      chipHost: this.screen,
+      login: () => (this.isOpen ? this.tchat.login : null),
+      balance: () => (this.points && this.points.signedIn ? this.points.balance : null),
+      fallback: () => this.openPointsPanel({ rewards: false }),
+    });
     if (window.lurkbox.onPointsState) {
       window.lurkbox.onPointsState((st) => {
         if (!this.isOpen || !st || st.login !== this.tchat.login) return;
@@ -181,6 +189,7 @@ export class MultiView {
     this.closePointsPanel();
     this.closeBar();
     this.tchat.close();
+    watchPredictions(null);
     this.tchatWant = null;
     for (const t of this.tiles) this.destroyTile(t);
     this.tiles = [];
@@ -342,6 +351,7 @@ export class MultiView {
     if (want === this.tchatWant) return;
     this.tchatWant = want;
     this.points = { signedIn: false, balance: null };
+    watchPredictions(login); // the active tile's prediction and poll
     if (!login) { this.tchat.close(); return; }
     if (state.settings.chatStyle === 'twitch') { this.tchat.open(login); this.render(); return; }
     this.tchat.close();
@@ -708,7 +718,7 @@ export class MultiView {
     };
     update();
     const rewards = button([icon('gift', 'po-item-icon'), el('span', {}, 'Rewards')], () => this.openPointsPanel({ rewards: true }), { class: 'po-item', dataset: { focusKey: 'mv-pop-rewards' } });
-    const preds = button([icon('poll', 'po-item-icon'), el('span', {}, 'Predictions & polls')], () => this.openPointsPanel({ rewards: false }), { class: 'po-item', dataset: { focusKey: 'mv-pop-predictions' } });
+    const preds = button([icon('poll', 'po-item-icon'), el('span', {}, 'Predictions & polls')], () => { if (this.pp.has()) { this.pop.close({ returnFocus: false }); this.pp.open(); } else this.openPointsPanel({ rewards: false }); }, { class: 'po-item', dataset: { focusKey: 'mv-pop-predictions' } });
     const node = el('div', { class: 'po-pop po-ui pop-points', role: 'dialog', 'aria-label': 'Channel points' },
       el('div', { class: 'po-pop-title' }, 'Channel points'), el('div', { class: 'po-pop-body po-list' }, bal, rewards, preds));
     this.pop.open({ key: 'points', node, opener, initial: rewards, update: () => { update(); this.placePop(node, opener); }, onClose: () => this.renderBar() });

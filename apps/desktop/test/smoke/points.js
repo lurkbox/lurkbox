@@ -13,6 +13,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { app, BrowserWindow } = require('electron');
 const points = require('../../src/main/channel-points');
+const predictions = require('@lurkbox/core/src/shared/predictions.js');
 const { navSource, pressSource, backSource } = require('../../src/main/frame-nav');
 const { zoomFrameSource, chatFrameZoom, twitchChatPanelWidth } = require('@lurkbox/core/src/shared/tv-zoom.js');
 const ZOOM = 1.74; // Auto on the 800-px Game Mode screen
@@ -330,6 +331,20 @@ app.whenReady().then(async () => {
   if (!(await openView(true))) return fail('rewards popover did not reopen from the hidden points frame (Twitch chat style)');
   await closeView();
 
-  console.log(`[points-smoke] PASS: hidden frame ${hidden.vw}x${hidden.vh} at zoom 1 (the TV zoom would leave ${old.lw} px and no summary), panel zoom ${panel.zoom}, rewards view zoom ${modalLurkbox.zoom} with ${modalLurkbox.lw} px of layout, reopened from the hidden points frame; balance 12.3K -> 12,350 after one Claim Bonus click (+50), prediction noticed once; rewards view ${layout.modal[2]}x${layout.modal[3]} with the hint below it, popover fitted to the frame, ${targets.length} single-element targets (wrappers skipped), down walked ${seen.length} tiles with the ring on each and the list scrolled, A opened a detail and B went back then closed, Redeem redeemed, A on a text box focused it and asked for the keyboard, a message reward's contenteditable chat input took the keys and Enter sent it (redeemed with the message), B left the box for the reward list, prediction view fitted`);
+  // Predictions and polls through the page's own buttons (shared/predictions.js), in the hidden frame: the pinned
+  // prediction, "Predict with Custom Amount", the second outcome's box and its Vote button; the poll's choice and its
+  // channel-points vote.
+  const bet = await js(predictions.predictSource({ outcomeIndex: 1, outcomeTitle: 'No', points: 250 }));
+  if (!bet || !bet.ok) return fail(`prediction through the page: ${JSON.stringify(bet)}`);
+  if (!(await js("window.predicted && window.predicted.outcome === 'No' && window.predicted.points === 250"))) return fail(`the page took another prediction: ${await js('JSON.stringify(window.predicted)')}`);
+  await js(points.closeRewardsSource());
+  const v1 = await js(predictions.pollVoteSource({ choiceIndex: 1, choiceTitle: 'Ice' }));
+  const v2 = await js(predictions.pollVoteSource({ choiceIndex: 1, choiceTitle: 'Ice', withPoints: true }));
+  if (!v1 || !v1.ok || !v2 || !v2.ok) return fail(`poll votes through the page: ${JSON.stringify([v1, v2])}`);
+  if ((await js('JSON.stringify(window.pollVotes)')) !== '[[1,false],[1,true]]') return fail(`the page took other votes: ${await js('JSON.stringify(window.pollVotes)')}`);
+  const none = await js(predictions.predictSource({ outcomeIndex: 5, outcomeTitle: 'Maybe', points: 10 }));
+  if (!none || none.ok) return fail(`a missing outcome was not refused: ${JSON.stringify(none)}`);
+
+  console.log(`[points-smoke] PASS: predicted 250 on the second outcome and voted twice in the poll through the page's buttons; hidden frame ${hidden.vw}x${hidden.vh} at zoom 1 (the TV zoom would leave ${old.lw} px and no summary), panel zoom ${panel.zoom}, rewards view zoom ${modalLurkbox.zoom} with ${modalLurkbox.lw} px of layout, reopened from the hidden points frame; balance 12.3K -> 12,350 after one Claim Bonus click (+50), prediction noticed once; rewards view ${layout.modal[2]}x${layout.modal[3]} with the hint below it, popover fitted to the frame, ${targets.length} single-element targets (wrappers skipped), down walked ${seen.length} tiles with the ring on each and the list scrolled, A opened a detail and B went back then closed, Redeem redeemed, A on a text box focused it and asked for the keyboard, a message reward's contenteditable chat input took the keys and Enter sent it (redeemed with the message), B left the box for the reward list, prediction view fitted`);
   app.exit(0);
 }).catch((e) => fail((e && e.stack) || String(e)));

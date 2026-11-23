@@ -42,6 +42,14 @@
       <p data-test-selector="community-prediction-highlight-header">Prediction</p>
       <p>Will he finish the mission? 1:59 left</p>
     </button>
+    <div class="community-highlight poll-highlight-root" id="poll">
+      <p data-test-selector="community-poll-highlight" onclick="openPoll()">Poll: Lava or ice? 0:45</p>
+      <div id="poll-choices" style="display:none; flex-direction: column; gap: 4px">
+        <button id="poll-0" onclick="pollVote(0)">Lava 60%</button><button id="poll-0p" onclick="pollVote(0, true)">Lava: vote with channel points</button>
+        <button id="poll-1" onclick="pollVote(1)">Ice 40%</button><button id="poll-1p" onclick="pollVote(1, true)">Ice: vote with channel points</button>
+      </div>
+      <p id="poll-state"></p>
+    </div>
   </div>
   <div class="chat-scrollable-area__message-container">
     <div class="chat-line__message"><span class="chat-author__display-name" role="button" tabindex="0">pebble_fox</span>: that jump was clean</div>
@@ -98,9 +106,26 @@
       (r[3] ? '<textarea id="reward-text" aria-label="Message"></textarea>' : '') +
       `<button id="redeem" onclick="window.redeemed='${id}'">Redeem</button></div>`;
   }
-  function prediction() {
-    return header(true) + '<div class="reward-detail" id="prediction-detail"><div>Will he finish the mission?</div><button id="pred-yes">Yes</button><button id="pred-no">No</button></div>';
+  // The prediction's checkout, shaped like Twitch's: the outcomes, fixed amounts first, "Predict with Custom Amount"
+  // switches to one number box and Vote button per outcome; a vote shows "You predicted …".
+  const OUTCOMES = ['Yes', 'No'];
+  function prediction(custom) {
+    if (window.predicted) return header(true) + `<div class="reward-detail" id="prediction-detail"><div>Will he finish the mission?</div><div id="pred-done">You predicted ${window.predicted.points} points on ${window.predicted.outcome}</div></div>`;
+    const cols = OUTCOMES.map((o, i) => custom
+      ? `<div class="custom-prediction-button" id="pred-col-${i}"><div>${o}</div><input type="number" id="pred-input-${i}" value=""><button id="pred-vote-${i}" disabled onclick="vote(${i})">Vote</button></div>`
+      : `<div class="fixed-prediction-button" id="pred-col-${i}"><div>${o}</div><button id="pred-fixed-${i}">10</button></div>`).join('');
+    return header(true) + '<div class="reward-detail" id="prediction-detail"><div>Will he finish the mission?</div>' + cols +
+      (custom ? '' : '<button data-test-selector="prediction-checkout-active-footer__input-type-toggle" id="pred-custom" onclick="render(prediction(true)); wireInputs()">Predict with Custom Amount</button>') + '</div>';
   }
+  // React-like: the Vote button turns on once the input event carried a number (a plain .value write wouldn't).
+  function wireInputs() { OUTCOMES.forEach((_o, i) => { const n = document.getElementById(`pred-input-${i}`); n.addEventListener('input', () => { document.getElementById(`pred-vote-${i}`).disabled = !(Number(n.value) > 0); }); }); }
+  function vote(i) { window.predicted = { outcome: OUTCOMES[i], points: Number(document.getElementById(`pred-input-${i}`).value) }; render(prediction()); }
+  // The pinned poll: a click on the highlight shows its choices; a vote marks it.
+  function openPoll() {
+    const box = document.getElementById('poll-choices');
+    box.style.display = 'flex';
+  }
+  function pollVote(i, points) { window.pollVotes = (window.pollVotes || []).concat([[i, !!points]]); document.getElementById('poll-state').textContent = `Voted: ${['Lava', 'Ice'][i]}${points ? ' (+1 with points)' : ''}`; }
   const pop = () => document.getElementById('popover');
   function render(html) {
     pop().innerHTML = html;

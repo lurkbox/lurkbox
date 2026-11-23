@@ -24,6 +24,7 @@ import { createPoints } from './points.js';
 import { createFollow } from './follow.js';
 import { createDrops } from './drops.js';
 import { createUpdates } from './updates.js';
+import { PredictionsWatcher, ppQuery, predictSource, pollVoteSource } from '@lurkbox/core/src/shared/predictions.js';
 
 /** Same-origin prefix the WebView answers natively (MainActivity's HLS proxy): <prefix><host>/<path>?<query>. */
 export const PROXY_PREFIX = 'https://localhost/_lbhls/';
@@ -171,6 +172,25 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
     ...(features.watchMinutes || {}),
   }) : null;
   let hiddenSince = null; // the app in the background since (ms), for the 5-minute limit
+  // Predictions and polls: web GQL over native HTTP; with a twitch.tv session through native webGql (which allows this
+  // one query verbatim and adds the auth-token), so the answer has your own bet and the token stays native.
+  const ppWatcher = new PredictionsWatcher({
+    query: async (login) => {
+      const authed = web && native.webGql && (await web.status()).signedIn;
+      return authed ? ppQuery({ fetch: web.gqlFetch(fetch), login, authToken: SESSION_TOKEN }) : ppQuery({ fetch, login });
+    },
+    onState: (st) => bus.emit('predictions:state', st),
+    log,
+    ...(features.predictions || {}),
+  });
+  bus.on('points:event', (ev) => { if (ev && (ev.type === 'prediction' || ev.type === 'poll')) ppWatcher.kick(); });
+  const ppAct = async (login, what, source) => {
+    if (!points) return { ok: false, reason: 'no-session' };
+    const r = await points.act(login, source);
+    log(`[predictions] ${login}: ${what} ${r && r.ok ? 'done' : `failed at ${(r && r.step) || '?'} (${(r && r.reason) || 'no answer'})`}`);
+    setTimeout(() => ppWatcher.kick(), 800);
+    return r && r.ok ? { ok: true } : { ok: false, reason: (r && r.reason) || 'failed' };
+  };
 
   const ready = (async () => {
     if (secure) await migrateToSecure(prefs, secure, 'tokens', log);
@@ -406,6 +426,25 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
     // ---- open requests (Android intents / deep links, later) ----
     openReady: async () => null,
     onOpenChannel: on('open'),
+
+    // ---- predictions and polls (shared/predictions.js) ----
+    predictionsWatch: async (login) => { ppWatcher.watch(login); return true; },
+    onPredictionsState: on('predictions:state'),
+    predictionBet: after(async (req = {}) => {
+      const st = ppWatcher.state;
+      const p = st.prediction;
+      const i = p && p.id === String(req.eventId) ? p.outcomes.findIndex((o) => o.id === String(req.outcomeId)) : -1;
+      const amount = Math.floor(Number(req.points));
+      if (i < 0 || !(amount >= 1) || st.login !== String(req.login || '').toLowerCase()) return { ok: false, reason: 'not open' };
+      return ppAct(st.login, `prediction of ${amount} on outcome ${i + 1}`, predictSource({ outcomeIndex: i, outcomeTitle: p.outcomes[i].title, points: amount }));
+    }),
+    pollVote: after(async (req = {}) => {
+      const st = ppWatcher.state;
+      const q = st.poll;
+      const i = q && q.id === String(req.pollId) ? q.choices.findIndex((c) => c.id === String(req.choiceId)) : -1;
+      if (i < 0 || st.login !== String(req.login || '').toLowerCase()) return { ok: false, reason: 'not open' };
+      return ppAct(st.login, `poll vote for choice ${i + 1}${req.points ? ' with channel points' : ''}`, pollVoteSource({ choiceIndex: i, choiceTitle: q.choices[i].title, withPoints: !!req.points }));
+    }),
 
     // ---- update notifications (updates.js) ----
     updateState: after(() => updates.state()),
