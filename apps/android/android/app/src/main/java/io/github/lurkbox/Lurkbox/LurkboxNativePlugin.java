@@ -48,6 +48,34 @@ public class LurkboxNativePlugin extends Plugin {
         call.resolve();
     }
 
+    private static volatile LurkboxNativePlugin instance;
+
+    @Override
+    public void load() { instance = this; }
+
+    /** An event for the page's listeners (MainActivity's picture-in-picture: pipMode, pipAction). */
+    static void emit(String event, JSObject data) {
+        LurkboxNativePlugin p = instance;
+        if (p != null) p.notifyListeners(event, data);
+    }
+
+    /** Whether this device has picture-in-picture for the app (a phone or tablet on Android 8+, never a TV). */
+    @PluginMethod
+    public void pipSupported(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("supported", MainActivity.pipSupported(getActivity()));
+        call.resolve(r);
+    }
+
+    /** { wanted, playing }: leaving the app enters picture-in-picture while wanted; playing sets the play/pause button. */
+    @PluginMethod
+    public void pip(PluginCall call) {
+        boolean wanted = Boolean.TRUE.equals(call.getBoolean("wanted", false));
+        boolean playing = Boolean.TRUE.equals(call.getBoolean("playing", false));
+        if (getActivity() instanceof MainActivity) ((MainActivity) getActivity()).setPip(wanted, playing);
+        call.resolve();
+    }
+
     /** Keep the screen on (while a video plays) or let it sleep again. */
     @PluginMethod
     public void keepScreenOn(PluginCall call) {

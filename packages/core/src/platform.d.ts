@@ -51,6 +51,9 @@ export interface AppInfo {
    *  iframe), the rewards view and the Drops inventory open in the host's window, which takes the controller until it
    *  closes (onPointsEvent 'panel-closed'; the Drops section shows a button that opens it). */
   hostPages?: boolean;
+  /** Optional. The host can show the player in a picture-in-picture window when the user leaves the app (Android phones
+   *  and tablets, never a TV): Settings shows "Picture-in-picture when leaving the app" (pipOnLeave). */
+  pip?: boolean;
   /** Optional. Set only in demo mode (desktop: LURKBOX_DEMO=1, for screenshots): the page installs ./js/demo/install.js,
    *  which fakes the clock, chat and emote APIs. mediaBase prefixes the demo's pictures; now is the pinned clock (ms);
    *  touch (LURKBOX_DEMO_TOUCH=1) treats the pointer as a touchscreen, for the touch layout screenshots;
@@ -180,6 +183,9 @@ export interface LurkboxPlatform {
   setWindowIcon?(pngDataUrl: string): Promise<boolean>;
   /** Window focus changes (true = focused). Drives "video only while unfocused" and the background quality cap. */
   onWindowFocus(cb: (focused: boolean) => void): Unsubscribe;
+  /** Optional. Media buttons from the host for the open player: 'toggle-pause' (the picture-in-picture window's button),
+   *  'pause' (that window was closed), 'play'. Android; the desktop never sends any. */
+  onMediaAction?(cb: (action: 'toggle-pause' | 'pause' | 'play' | string) => void): Unsubscribe;
   /** Optional, Desktop. Gamepads read outside the Gamepad API (Linux joydev), merged into input handling. */
   onJoydevPad?(cb: (pad: HostPad) => void): Unsubscribe;
   /** Optional. Append a line to the host's log (desktop: userData/lurkbox.log). Must never throw into the caller. */
