@@ -688,19 +688,21 @@ body.pip #player-screen, body.pip #player-stage { padding: 0 !important; margin:
 #live-badge.rewound { background: var(--accent); color: var(--on-accent); }
 
 /* Twitch's embedded chat (channel points). Repositioned with classes only: moving an iframe reloads it. */
-#twitch-chat-host { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; display: flex; }
-#twitch-chat-host iframe { flex: 1; width: 100%; height: 100%; border: 0; background: var(--chat-bg); }
+.twitch-chat-host { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; display: flex; }
+.twitch-chat-host iframe { flex: 1; width: 100%; height: 100%; border: 0; background: var(--chat-bg); }
+/* Twitch chat style: the visible panel's own frame (#twitch-chat-panel), separate from the points frame, while chat is hidden. */
+.twitch-chat-host.tc-off { display: none; }
 /* Lurkbox chat style: the hidden frame stays inside the viewport (off-screen, Twitch's chat never renders the points
    summary in its chat input row) but under the video: z-index -1 paints it below the opaque player stage. It is never
    display:none, visibility:hidden or transparent, and takes no input. */
-#twitch-chat-host.tc-hidden { top: 0; left: 0; right: auto; bottom: auto; width: 340px; height: 720px; z-index: -1; pointer-events: none; }
-#player-screen.chat-left #twitch-chat-host.tc-hidden { left: auto; right: 0; }
+.twitch-chat-host.tc-hidden { top: 0; left: 0; right: auto; bottom: auto; width: 340px; height: 720px; z-index: -1; pointer-events: none; }
+#player-screen.chat-left .twitch-chat-host.tc-hidden { left: auto; right: 0; }
 /* Twitch chat style: the side panel is as wide as the zoomed frame needs (--tchat-w, set from Settings → Chat → Twitch chat size). */
 #player-screen.twitch-chat { --chat-w: calc(var(--tchat-w) + var(--screen-margin) + 1px); }
-#twitch-chat-host.tc-panel { width: var(--chat-w); padding: var(--screen-margin) var(--screen-margin) var(--screen-margin) 0; border-left: 1px solid var(--border); background: var(--chat-bg); }
+.twitch-chat-host.tc-panel { width: var(--chat-w); padding: var(--screen-margin) var(--screen-margin) var(--screen-margin) 0; border-left: 1px solid var(--border); background: var(--chat-bg); }
 /* The rewards view (channel points, predictions, polls): the same frame, moved by CSS only (moving an iframe reloads it)
    into a large modal; the hint sits in the strip below it, never over the page. */
-#twitch-chat-host.tc-modal { top: 3vh; left: 15vw; right: auto; bottom: auto; width: 70vw; height: 85vh; z-index: 9; box-sizing: border-box; border: 0.2rem solid var(--accent); border-radius: 0.8rem; overflow: hidden; box-shadow: 0 1rem 4rem var(--shadow); background: var(--chat-bg); }
+.twitch-chat-host.tc-modal { top: 3vh; left: 15vw; right: auto; bottom: auto; width: 70vw; height: 85vh; z-index: 9; box-sizing: border-box; border: 0.2rem solid var(--accent); border-radius: 0.8rem; overflow: hidden; box-shadow: 0 1rem 4rem var(--shadow); background: var(--chat-bg); }
 .points-backdrop { position: absolute; inset: 0; z-index: 8; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 2.5vh; background: var(--scrim); }
 .points-backdrop[hidden] { display: none; }
 #player-screen.twitch-chat #chat > * { visibility: hidden; }
@@ -818,7 +820,7 @@ body.pip #player-screen, body.pip #player-stage { padding: 0 !important; margin:
 
 /* Chat side and "over the video" (applyChatLayout). */
 #player-screen.chat-left #chat { order: -1; border-left: 0; border-right: 1px solid var(--border); padding-right: 0; padding-left: var(--screen-margin); }
-#player-screen.chat-left #twitch-chat-host.tc-panel { left: 0; right: auto; padding: var(--screen-margin) 0 var(--screen-margin) var(--screen-margin); border-left: 0; border-right: 1px solid var(--border); }
+#player-screen.chat-left .twitch-chat-host.tc-panel { left: 0; right: auto; padding: var(--screen-margin) 0 var(--screen-margin) var(--screen-margin); border-left: 0; border-right: 1px solid var(--border); }
 #player-screen.chat-over #chat { position: absolute; top: 0; bottom: 0; right: 0; z-index: 2; border: 0; background: color-mix(in srgb, var(--chat-bg) var(--chat-over-a), transparent); }
 #player-screen.chat-over.chat-left #chat { left: 0; right: auto; }
 #player-screen.chat-over .chat-title { border-bottom: 0; }
@@ -831,7 +833,7 @@ body.pip #player-screen, body.pip #player-stage { padding: 0 !important; margin:
 #player-screen.chat-short #chat { height: var(--chat-h); align-self: flex-start; }
 #player-screen.chat-short.chat-bottom #chat { align-self: flex-end; }
 #player-screen.chat-short.chat-over #chat { top: var(--chat-top); bottom: var(--chat-bottom); transition: bottom 160ms ease, height 160ms ease; }
-#player-screen.chat-short #twitch-chat-host.tc-panel { top: var(--chat-top); bottom: var(--chat-bottom); height: var(--chat-h); }
+#player-screen.chat-short .twitch-chat-host.tc-panel { top: var(--chat-top); bottom: var(--chat-bottom); height: var(--chat-h); }
 
 /* ---------- Drops: Twitch's inventory page in a large frame, the hint in a strip below it (never over the page) ---------- */
 .drops-stage { position: relative; height: calc(100vh - 12.5rem); min-height: 16rem; border: 0.2rem solid var(--border); border-radius: 0.8rem; overflow: hidden; background: var(--chat-bg); }

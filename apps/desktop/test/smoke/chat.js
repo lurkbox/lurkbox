@@ -88,7 +88,8 @@ async function checkTwitchChat(win) {
   const wc = win.webContents;
   const { twitchChatZoom, twitchChatPanelWidth } = require('@lurkbox/core/src/shared/tv-zoom.js');
   const want = twitchChatZoom({ twitchChatSize: SIZE }, require('electron').screen.getPrimaryDisplay().size.height);
-  const frame = wc.mainFrame.framesInSubtree.find((f) => /^https:\/\/www\.twitch\.tv\/embed\/[^/]+\/chat/.test(f.url));
+  // The visible panel frame (the hidden points frame next to it carries lurkbox=points and is never zoomed).
+  const frame = wc.mainFrame.framesInSubtree.find((f) => /^https:\/\/www\.twitch\.tv\/embed\/[^/]+\/chat/.test(f.url) && !f.url.includes('lurkbox=points'));
   if (!frame) return finish(1, 'no Twitch chat frame');
   const inFrame = await frame.executeJavaScript(`({
     zoom: getComputedStyle(document.documentElement).zoom,
@@ -97,12 +98,13 @@ async function checkTwitchChat(win) {
   })`);
   const page = await wc.executeJavaScript(`(() => {
     const r = (q) => { const e = document.querySelector(q); if (!e) return null; const b = e.getBoundingClientRect(); return { left: Math.round(b.left), right: Math.round(b.right), width: Math.round(b.width) }; };
-    return { panel: r('#twitch-chat-host'), frame: r('#twitch-chat-host iframe'), video: r('#player-screen video') || r('#player-screen iframe:not(#twitch-chat-host iframe)'), winWidth: innerWidth, mode: document.getElementById('twitch-chat-host').className };
+    return { panel: r('#twitch-chat-panel'), frame: r('#twitch-chat-panel iframe'), video: r('#player-screen video') || r('#player-screen iframe:not(.twitch-chat-host iframe)'), winWidth: innerWidth, mode: document.getElementById('twitch-chat-panel').className, points: document.getElementById('twitch-chat-host').className };
   })()`);
   console.log(`[chat-smoke] twitch chat: want zoom ${want}; frame ${JSON.stringify(inFrame)}; page ${JSON.stringify(page)}`);
   if (process.env.LURKBOX_SHOT) fs.writeFileSync(process.env.LURKBOX_SHOT, (await wc.capturePage()).toPNG());
   if (Math.abs(Number(inFrame.zoom) - want) > 0.01) return finish(1, `zoom inside the chat frame is ${inFrame.zoom}, expected ${want}`);
-  if (page.mode !== 'tc-panel' || !page.frame) return finish(1, `chat panel not shown (${page.mode})`);
+  if (page.points !== 'twitch-chat-host tc-hidden') return finish(1, `points frame not hidden (${page.points})`);
+  if (page.mode !== 'twitch-chat-host tc-panel' || !page.frame) return finish(1, `chat panel not shown (${page.mode})`);
   const expectWidth = twitchChatPanelWidth(want, page.winWidth);
   if (Math.abs(page.frame.width - expectWidth) > 2) return finish(1, `chat frame is ${page.frame.width} px wide, expected ${expectWidth}`);
   if (page.video && page.video.right > page.panel.left + 1) return finish(1, `video (right ${page.video.right}) runs under the chat panel (left ${page.panel.left})`);

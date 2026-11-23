@@ -282,6 +282,22 @@ export function isChatFrameUrl(url, login = null) {
   return !!m && (!login || m[1].toLowerCase() === String(login).toLowerCase());
 }
 
+/**
+ * Is this the points frame (the core's POINTS_MARKER, `lurkbox=points`)? Only that frame is scanned, claims and
+ * drives the rewards view: in Twitch chat style the visible panel is a second chat frame (maybe restyled by the chat
+ * extensions) that must never claim as well.
+ */
+export function isPointsFrameUrl(url, login = null) {
+  if (!isChatFrameUrl(url, login)) return false;
+  try { return new URL(url).searchParams.get('lurkbox') === 'points'; } catch { return false; }
+}
+
+/** The zoom mode for one chat frame: the points frame is 'hidden' or 'modal', the visible panel frame is 'panel'. */
+export function chatFrameModeFor(url, mode) {
+  if (!isPointsFrameUrl(url)) return 'panel';
+  return mode === 'modal' ? 'modal' : 'hidden';
+}
+
 /** The scan's diag (no points found) as text for the log: what Twitch rendered in the chat input area. */
 export function noPointsDetail(scan) {
   const d = scan && scan.diag;

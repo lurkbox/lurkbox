@@ -39,6 +39,18 @@ test('chat frame URLs', () => {
   assert.ok(!P.isChatFrameUrl('https://evil.example/embed/lofigirl/chat'));
   assert.ok(!P.isChatFrameUrl('https://www.twitch.tv/lofigirl'));
   assert.ok(!P.isChatFrameUrl('nonsense'));
+  // Only the points frame (lurkbox=points) is scanned and claims; the Twitch chat style panel frame never does.
+  const pts = 'https://www.twitch.tv/embed/lofigirl/chat?parent=localhost&darkpopout&lurkbox=points';
+  const panel = 'https://www.twitch.tv/embed/lofigirl/chat?parent=localhost&darkpopout';
+  assert.ok(P.isPointsFrameUrl(pts, 'lofigirl'));
+  assert.ok(!P.isPointsFrameUrl(pts, 'other'));
+  assert.ok(!P.isPointsFrameUrl(panel));
+  assert.ok(!P.isPointsFrameUrl('https://evil.example/embed/lofigirl/chat?lurkbox=points'));
+  assert.equal(P.chatFrameModeFor(pts, 'panel'), 'hidden');
+  assert.equal(P.chatFrameModeFor(pts, 'hidden'), 'hidden');
+  assert.equal(P.chatFrameModeFor(pts, 'modal'), 'modal');
+  assert.equal(P.chatFrameModeFor(panel, 'modal'), 'panel');
+  assert.equal(P.chatFrameModeFor(panel, 'hidden'), 'panel');
 });
 
 test('tracker: claim amount from the balance change, predictions announced once', () => {
