@@ -58,13 +58,14 @@ Needs Node 22, a JDK 21 (the Android Gradle Plugin doesn't run on newer JDKs) an
 npm ci --ignore-scripts
 npm run android:sync      # core → apps/android/www → the Android project (cap sync android)
 npm run android:build     # debug APK; prints its path, versionName and versionCode
-npm run android:release   # release APK (debug-signed until there is a release key)
+npm run android:release   # release APK (release-signed in CI, debug-signed locally)
 adb install -r apps/android/android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 - `JAVA_HOME` picks the JDK; when it's unset, the scripts use a portable JDK 21 unpacked in `~/.cache/lurkbox-jdk21/` if there is one.
 - **applicationId** `io.github.lurkbox.Lurkbox` (fixed for good). **versionName** is the package version plus the commit (`0.1.0-78501e0`); **versionCode** is the minutes since 2026-01-01 UTC at build time (or `LURKBOX_VERSION_CODE`), so every build upgrades the previous one in place.
 - **Signing:** debug and release builds use `~/.config/lurkbox-android/debug.keystore` (or `LURKBOX_DEBUG_KEYSTORE`) when it exists, so upgrades keep the same key; otherwise Android's default debug key. Make one once with `keytool -genkeypair -keystore ~/.config/lurkbox-android/debug.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"`. Never commit a keystore.
+- **Release signing:** tagged releases (`.github/workflows/release.yml`) sign the APK with the release key from the `ANDROID_RELEASE_KEYSTORE` (base64) and `ANDROID_RELEASE_PASSWORD` secrets, alias `lurkbox`. A debug build can't upgrade to the release build in place (different key): uninstall it first.
 - CI's "Android APK" job builds the debug APK (default debug key) and uploads it as the `Lurkbox-Android-debug-APK` artifact, for reference only.
 - minSdk 24, targetSdk 35, compileSdk 36. The banner (`res/drawable-xhdpi/banner.png`, 320×180) and launcher icons come from `assets/src/build-art.py`.
 
