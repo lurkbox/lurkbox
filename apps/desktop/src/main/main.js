@@ -406,6 +406,7 @@ function registerIpc() {
   // Signing out and removing an account are the same: the account and everything kept for it go (account-data.js).
   const removeAccount = createAccountRemover({
     twitch, settings, playerJar, resume, whispers: whisperStore, emoteIndex, dir: app.getPath('userData'), log: appLog,
+    logFile: path.join(app.getPath('userData'), 'lurkbox.log'), onLogRewritten: () => { if (appLogImpl) appLogImpl.resetSize(); },
     onSettings: (next) => send('settings:changed', next),
     clearSiteData: async () => {
       await session.defaultSession.clearStorageData({ origin: 'https://www.twitch.tv', storages: ['localstorage', 'indexdb', 'cachestorage', 'serviceworkers'] }).catch(() => {});
