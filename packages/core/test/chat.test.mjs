@@ -10,7 +10,7 @@ test('parses a tagged PRIVMSG', () => {
   assert.equal(m.trailing, 'hello there :)');
   assert.equal(m.tags['display-name'], 'Some User', 'escaped \\s becomes a space');
   const ev = ircEvent(m);
-  assert.deepEqual(ev, { kind: 'msg', id: 'abc-123', nick: 'Some User', color: '#1E90FF', text: 'hello there :)', action: false, userId: '', roomId: '', badges: '', emotes: '' });
+  assert.deepEqual(ev, { kind: 'msg', id: 'abc-123', nick: 'Some User', login: 'someuser', color: '#1E90FF', text: 'hello there :)', action: false, userId: '', roomId: '', badges: '', emotes: '' });
 });
 
 test('/me ACTION messages, nick fallback without tags', () => {

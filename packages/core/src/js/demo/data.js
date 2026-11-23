@@ -90,6 +90,11 @@ const OFFLINE = [
   ['yarnyeti', 'YarnYeti', 'Art Studio', 11], ['zigzagzephyr', 'ZigZagZephyr', 'Rhythm Games', 4],
 ];
 
+/** The demo account's subscriptions: [login, tier, gifted by]. */
+const DEMO_SUBS = [['pixelmoth', '1000', ''], ['mossykeyboard', '2000', 'SnackGoblin'], ['teaandtiles', '1000', ''], ['velvetvoxel', '3000', ''], ['lofilighthouse', '1000', 'MapleMochi']];
+/** Blocked users (two of the demo chatters, chat-feed.js): [user id, login, display name]. */
+const DEMO_BLOCKS = [['8000007', 'caffeinecrab', 'CaffeineCrab'], ['8100001', 'spamtastic_bot', 'spamtastic_bot'], ['8100002', 'grumblewhisker', 'GrumbleWhisker']];
+
 /** The signed-in demo accounts ("Who's watching?" shows all three). */
 const ACCOUNTS = [
   ['1000001', 'lurker', 'lurker'],
@@ -250,6 +255,12 @@ export function buildDemoData({ media = (p) => `demo-media/${p}` } = {}) {
     lastLive: new Map(offline.map((o) => [o.u.id, DEMO_NOW - o.days * DAY])),
     gameOf: new Map(offline.map((o) => [o.u.id, o.game])),
     badges: demoBadges(media),
+    // Your subscriptions (GET /subscriptions/user checks one channel at a time) and blocked users (/users/blocks).
+    subs: new Map(DEMO_SUBS.map(([login, tier, gifter]) => {
+      const u = byLogin.get(login);
+      return [u.id, { broadcaster_id: u.id, broadcaster_login: u.login, broadcaster_name: u.display_name, tier, is_gift: !!gifter, gifter_login: gifter ? gifter.toLowerCase() : '', gifter_name: gifter || '' }];
+    })),
+    blocks: DEMO_BLOCKS.map(([user_id, user_login, display_name]) => ({ user_id, user_login, display_name })),
   };
 }
 

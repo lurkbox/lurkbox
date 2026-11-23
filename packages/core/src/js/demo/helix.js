@@ -3,6 +3,7 @@
 // its `helix` IPC handler when LURKBOX_DEMO=1.
 
 import { OWN_EMOTES } from './data.js';
+import { CHATTERS } from './chat-feed.js';
 
 const ok = (data) => ({ ok: true, status: 200, data });
 const list = (items) => ok({ data: items, pagination: {} });
@@ -139,6 +140,34 @@ export function demoHelix(db, req = {}, ctx = {}) {
       sent.n += 1;
       sent.last = { text, to: String(b.broadcaster_id), at: now };
       return ok({ data: [{ message_id: `demo-msg-${sent.n}`, is_sent: true, drop_reason: null }] });
+    }
+    case '/subscriptions/user': {
+      // One channel at a time, like Helix; 404 when you aren't subscribed.
+      if (String(q.user_id) !== String(ctx.activeId)) return { ok: false, status: 403, error: 'Forbidden', data: { message: 'user_id must match the token' }, resetAt: null };
+      const sub = ctx.activeId === db.accounts[0].id ? db.subs.get(String(q.broadcaster_id)) : null;
+      return sub ? list([sub]) : { ok: false, status: 404, error: 'Not Found', data: { message: `${ctx.activeId} has no subscription to ${q.broadcaster_id}` }, resetAt: null };
+    }
+    case '/users/blocks': {
+      if (method === 'GET') {
+        if (String(q.broadcaster_id) !== String(ctx.activeId)) return { ok: false, status: 400, error: 'Bad Request', data: { message: 'broadcaster_id must match the token' }, resetAt: null };
+        // Two to a page, so the core's pagination runs.
+        const start = Number(q.after) || 0;
+        const next = start + 2 < db.blocks.length ? String(start + 2) : null;
+        return ok({ data: db.blocks.slice(start, start + 2), pagination: next ? { cursor: next } : {} });
+      }
+      const id = String(q.target_user_id || '');
+      if (!id) return { ok: false, status: 400, error: 'Bad Request', data: { message: 'Missing target_user_id' }, resetAt: null };
+      if (method === 'PUT') {
+        if (!db.blocks.some((b) => b.user_id === id)) {
+          const u = db.users.find((x) => x.id === id);
+          const c = CHATTERS.find((x) => x[3] === id);
+          const name = u ? u.display_name : c ? c[0] : id;
+          db.blocks.unshift({ user_id: id, user_login: u ? u.login : String(name).toLowerCase(), display_name: name });
+        }
+        return { ok: true, status: 204, data: null };
+      }
+      if (method === 'DELETE') { db.blocks = db.blocks.filter((b) => b.user_id !== id); return { ok: true, status: 204, data: null }; }
+      return { ok: false, status: 404, error: 'Not Found', data: null, resetAt: null };
     }
     case '/eventsub/subscriptions':
       if (method === 'POST') {

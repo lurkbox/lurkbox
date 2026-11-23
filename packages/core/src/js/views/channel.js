@@ -14,6 +14,7 @@ import { state, saveSettings } from '../state.js';
 import { focusEl } from '../focus.js';
 import { shortCount } from '../player-ui.js';
 import { renderEmotes } from './channel-emotes.js';
+import { blockButton } from '../social-ui.js';
 
 /** @param {{ login: string, id?: string, name?: string, tab?: string }} c */
 export function channelView({ login, id, name, tab }) {
@@ -83,6 +84,8 @@ export function channelView({ login, id, name, tab }) {
           button('Watch', watch, { class: 'primary watch-live', dataset: { focusKey: 'channel-watch' } })));
       }
       if (window.lurkbox.followChannel && state.auth.signedIn) nameEl.after(followButton(ch, nav));
+      const blockBtn = blockButton(ch);
+      if (blockBtn) nameEl.parentNode.append(blockBtn);
 
       // Tabs.
       const tabButtons = new Map();

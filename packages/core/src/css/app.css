@@ -825,3 +825,16 @@ body.video-only.player-active .raid-card { transform: scale(1.3); }
 .po-clip[hidden] { display: none; }
 .po-clip-badge { flex: none; padding: 0.12rem 0.55rem; border-radius: 0.35rem; font-size: 1rem; font-weight: 800; letter-spacing: 0.02em; background: var(--accent); color: var(--on-accent); text-shadow: none; }
 .po-clip-meta { font-size: 1rem; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Subscriptions and blocked users (social-ui.js). */
+.badge.sub { top: 0.5rem; right: 0.5rem; background: var(--accent); color: var(--on-accent); }
+.card-avatar .badge.sub { top: -0.3rem; right: -0.6rem; font-size: 0.7rem; }
+.channel-name-row .block-btn { flex: none; min-height: 2.6rem; padding: 0.35rem 1rem; font-size: 1rem; }
+.social-list { display: flex; flex-direction: column; gap: 0.5rem; max-width: 52rem; }
+.social-row { display: flex; align-items: center; gap: 1rem; padding: 0.8rem 1.1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.social-text { flex: 1; min-width: 0; }
+.social-name { font-weight: 800; font-size: 1.1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-sub { color: var(--fg-dim); font-size: 0.95rem; }
+.social-actions { flex: none; display: flex; gap: 0.5rem; }
+.user-card { display: flex; flex-direction: column; gap: 1rem; min-width: 18rem; }
+.user-card-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }

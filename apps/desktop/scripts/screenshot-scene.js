@@ -53,6 +53,8 @@ const SETUP = {
     1000002: [{ q: 'not this account', at: 5 }],
   } } },
   settings: {},
+  subscriptions: {},
+  'blocked-users': { settings: { chatDefault: true } },
   theme: { settings: { theme: THEME, customTheme: CUSTOM } },
   'whos-watching': { settings: { profilePicker: 'ask' } },
   signin: { env: { LURKBOX_DEMO_SIGNED_OUT: '1' } },
@@ -240,6 +242,8 @@ app.on('browser-window-created', (_e, win) => {
       await following();
       // Scrolled so the last live row and the offline channels both show; focus on the first offline channel.
       await waitFor('offline channels', "document.querySelectorAll('[data-view=following] .grid-offline .card').length >= 20");
+      // The sub badges (one Helix check per followed channel): the demo account has five subs.
+      await waitFor('the sub badges', "document.querySelectorAll('[data-view=following] .badge.sub').length === 5", 20000);
       await press('DOWN');
       await js(`(() => {
         const off = document.querySelector('[data-view=following] .grid-offline');
@@ -494,6 +498,46 @@ app.on('browser-window-created', (_e, win) => {
       await waitFor('settings', "!!document.querySelector('[data-view=settings] .focusable')");
       await settle();
       await shoot('settings');
+    },
+    async subscriptions() {
+      // Settings → Account → Subscriptions: the demo account's subs among its follows (one Helix check per channel).
+      await following();
+      await press('RB', 'RB', 'RB', 'RB', 'RB');
+      await waitFor('settings', "!!document.querySelector('[data-setting=subscriptions]')");
+      await js("document.querySelector('[data-setting=subscriptions]').focus(); true");
+      await press('A');
+      await waitFor('every channel checked', "/subscriptions among/.test((document.querySelector('[data-view=subscriptions] .social-status') || {}).textContent || '') && document.querySelectorAll('[data-view=subscriptions] .social-row').length === 5", 30000);
+      await js("document.querySelector('[data-view=subscriptions] .social-row .focusable').focus(); true");
+      await settle();
+      await shoot('subscriptions');
+    },
+    async 'blocked-users'() {
+      // Block a chatter from the chat line's user card (Up from the message box, A, Block, Yes), then Settings → Blocked users.
+      await openFirstLive();
+      await js("window.__lurkbox.player.composer.focus(); true");
+      await waitFor('the message box', "document.activeElement && document.activeElement.classList.contains('cm-input')");
+      await waitFor('chat lines', "document.querySelectorAll('#chat .chat-msg[data-uid]').length >= 5");
+      if (await js("[...document.querySelectorAll('#chat .chat-msg[data-uid]')].some((n) => n.dataset.uid === '8000007')")) throw new Error('a blocked chatter is in chat');
+      await press('UP');
+      await waitFor('a picked line', "!!document.querySelector('#chat .chat-msg.picked')");
+      const who = await js("document.querySelector('#chat .chat-msg.picked .chat-nick').textContent");
+      await press('A');
+      await waitFor('the user card', "!!document.querySelector('.user-card-block')");
+      await js("document.querySelector('.user-card-block').focus(); true");
+      await press('A');
+      await waitFor('the confirm', "!!__shot.byText('.modal .btn', 'Block')");
+      await js("__shot.byText('.modal .btn', 'Block').focus(); true");
+      await press('A');
+      await waitFor('their lines gone', `![...document.querySelectorAll('#chat .chat-msg .chat-nick')].some((n) => n.textContent === ${JSON.stringify(who)})`);
+      await js("window.__lurkbox.nav.closePlayer(); true");
+      await press('RB', 'RB', 'RB', 'RB', 'RB');
+      await waitFor('settings', "!!document.querySelector('[data-setting=blockedUsers]')");
+      await js("document.querySelector('[data-setting=blockedUsers]').focus(); true");
+      await press('A');
+      await waitFor('the blocked users', `document.querySelectorAll('[data-view=blocked-users] .social-row').length === 4 && document.querySelector('[data-view=blocked-users] .social-name').textContent === ${JSON.stringify(who)}`);
+      await js("document.querySelector('[data-view=blocked-users] .social-row .focusable').focus(); true");
+      await settle();
+      await shoot('blocked-users');
     },
     async theme() {
       await following();
