@@ -197,6 +197,9 @@ export class Player {
         if (changed && this.overlayVisible()) this.renderOverlay(true);
       });
       window.lurkbox.onPointsEvent((ev) => {
+        // The host's own rewards window (hostPages) closed: the view is over.
+        if (ev && ev.type === 'panel-closed') { if (this.pointsPanel) this.closePointsPanel({ focusIcon: true }); return; }
+        if (!ev || (ev.type !== 'prediction' && ev.type !== 'poll')) return;
         if (!this.active || !this.current || ev.login !== this.current.login || this.raid.active) return;
         const what = ev.type === 'prediction' ? 'Prediction' : 'Poll';
         this.pointsOfferUntil = performance.now() + 12000;

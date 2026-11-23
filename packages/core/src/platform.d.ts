@@ -46,6 +46,11 @@ export interface AppInfo {
    *  desktop leaves it out, so Settings → Layout → Auto is always the TV layout there. Auto still needs a coarse
    *  pointer and no controller, so Android TV gets the TV layout. */
   touch?: boolean;
+  /** Optional. The host shows twitch.tv's own pages in its own windows instead of the app's iframes (Android): the
+   *  channel-points chat page stays in the host (no hidden iframe; only the "Twitch chat" style's visible panel is an
+   *  iframe), the rewards view and the Drops inventory open in the host's window, which takes the controller until it
+   *  closes (onPointsEvent 'panel-closed'; the Drops section shows a button that opens it). */
+  hostPages?: boolean;
   /** Optional. Set only in demo mode (desktop: LURKBOX_DEMO=1, for screenshots): the page installs ./js/demo/install.js,
    *  which fakes the clock, chat and emote APIs. mediaBase prefixes the demo's pictures; now is the pinned clock (ms);
    *  touch (LURKBOX_DEMO_TOUCH=1) treats the pointer as a touchscreen, for the touch layout screenshots;
@@ -321,7 +326,7 @@ export interface LurkboxPlatform {
   pointsClosePanel(): Promise<boolean>;
   /** Optional. Points state for the watched channel: { login, signedIn, balance, ... }. */
   onPointsState?(cb: (state: { login: string; signedIn?: boolean; balance: number | null; [k: string]: unknown }) => void): Unsubscribe;
-  /** Points events (a prediction or poll appeared). Used together with onPointsState. */
+  /** Points events: 'prediction' or 'poll' (one appeared; title), and 'panel-closed' (hostPages: the user closed the host's rewards view). Used together with onPointsState. */
   onPointsEvent(cb: (event: { login: string; type: string; [k: string]: unknown }) => void): Unsubscribe;
   /** Optional. Once a minute while a live stream plays on the direct engine: report a watched minute (earns watch-time points; the host applies the gates). */
   watchMinute?(info: { login: string; channelId: string; broadcastId: string; direct: boolean; live: boolean; rewound: boolean; playing: boolean }): Promise<{ ok: boolean; [k: string]: unknown }>;
@@ -338,10 +343,10 @@ export interface LurkboxPlatform {
   dropsClose(): Promise<boolean>;
   /** Optional. Campaigns in progress from the last inventory check, for the player's drops chip: [{ game, name, drops: [{ name, percent, claimable }] }]. */
   dropsProgress?(): Promise<{ checkedAt: number | null; campaigns: { game: string; name: string; drops: { name: string; percent: number | null; claimable: boolean }[] }[] }>;
-  /** Optional. Drops events: { type: 'claimed', name } after auto-claim pressed a drop's Claim button and the page took it. */
+  /** Optional. Drops events: { type: 'claimed', name } after auto-claim pressed a drop's Claim button and the page took it; { type: 'closed' } when the host's inventory window closed (hostPages). */
   onDropsEvent?(cb: (event: { type: string; name?: string }) => void): Unsubscribe;
 
-  // ---- follow / unfollow (desktop: Twitch's own channel page in the twitch.tv session; the public API has none) ----
+  // ---- follow / unfollow (Twitch's own channel page in the twitch.tv session, hidden; the public API has none) ----
 
   /**
    * Optional. Presses Twitch's own Follow (or, with confirmed: true after the user confirmed, Unfollow) button on the

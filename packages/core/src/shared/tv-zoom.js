@@ -35,6 +35,16 @@ export function twitchChatPanelWidth(zoom, windowWidth) {
 export const TWITCH_MODAL_MIN_LAYOUT_PX = 400;
 
 /**
+ * The rewards view's zoom when the host applies it to a whole window of width CSS px (Android's twitch.tv window):
+ * the TV zoom, lowered (not below 1) so the layout keeps TWITCH_MODAL_MIN_LAYOUT_PX, as zoomFrameSource does in a frame.
+ */
+export function modalZoom(zoom, width) {
+  const z = Math.min(3, Math.max(0.5, Number(zoom) || 1));
+  const w = Number(width) || 0;
+  return w > 0 ? Math.min(z, Math.max(1, Math.floor((w / TWITCH_MODAL_MIN_LAYOUT_PX) * 100) / 100)) : z;
+}
+
+/**
  * Zoom for Twitch's chat frame in a mode of the core's TwitchChatFrame: 'hidden' (off-screen, for the points scan and
  * the bonus chest) gets none, so Twitch lays it out as a normal desktop chat; at the TV zoom its layout would be under
  * 200 CSS px wide and Twitch drops the chat input row with the points summary. 'panel' gets the TV zoom; 'modal' too,

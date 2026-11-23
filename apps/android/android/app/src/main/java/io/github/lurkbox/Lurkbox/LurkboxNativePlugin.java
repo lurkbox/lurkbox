@@ -79,9 +79,10 @@ public class LurkboxNativePlugin extends Plugin {
         int session = call.getInt("session", 0);
         double zoom = call.getDouble("zoom", 1.0);
         String script = call.getString("script", "");
+        String textScript = call.getString("textScript", "");
         getActivity().runOnUiThread(() -> {
             if (webDialog == null) webDialog = new TwitchWebDialog(getActivity());
-            webDialog.open(url, session, zoom, script, (s) -> {
+            webDialog.open(url, session, zoom, script, textScript, (s) -> {
                 JSObject ev = new JSObject();
                 ev.put("session", s);
                 notifyListeners("webClosed", ev);
@@ -100,6 +101,47 @@ public class LurkboxNativePlugin extends Plugin {
     @PluginMethod
     public void webClose(PluginCall call) {
         getActivity().runOnUiThread(() -> { if (webDialog != null) webDialog.close(); call.resolve(); });
+    }
+
+    // ---- hidden twitch.tv pages (TwitchHiddenPages): points chat, follow, Drops auto-claim ----
+
+    private TwitchHiddenPages hiddenPages;
+
+    private TwitchHiddenPages pages() {
+        if (hiddenPages == null) hiddenPages = new TwitchHiddenPages(getActivity());
+        return hiddenPages;
+    }
+
+    /** Opens the hidden page of a kind ("points", "follow", "drops") at its url; resolves once it loaded. */
+    @PluginMethod
+    public void pageOpen(PluginCall call) {
+        String kind = call.getString("kind", "");
+        String url = call.getString("url", "");
+        if (!TwitchHiddenPages.allowed(kind, url)) { call.reject("not this page's twitch.tv url"); return; }
+        int width = call.getInt("width", 1280);
+        int height = call.getInt("height", 900);
+        getActivity().runOnUiThread(() -> pages().open(kind, url, width, height, new TwitchHiddenPages.Done() {
+            @Override public void ok() { call.resolve(); }
+            @Override public void fail(String reason) { call.reject(reason); }
+        }));
+    }
+
+    /** Runs a source in a hidden page: { json } is evaluateJavascript's JSON answer (null without the page). */
+    @PluginMethod
+    public void pageEval(PluginCall call) {
+        String kind = call.getString("kind", "");
+        String source = call.getString("source", "");
+        getActivity().runOnUiThread(() -> pages().eval(kind, source, (v) -> {
+            JSObject r = new JSObject();
+            r.put("json", v);
+            call.resolve(r);
+        }));
+    }
+
+    @PluginMethod
+    public void pageClose(PluginCall call) {
+        String kind = call.getString("kind", "");
+        getActivity().runOnUiThread(() -> { pages().close(kind); call.resolve(); });
     }
 
     /** { signedIn, login }: whether twitch.tv's auth-token cookie is there, and the public login name. */

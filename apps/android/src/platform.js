@@ -3,9 +3,10 @@
 //
 // Implemented: settings, accounts and the phone (device-code) sign-in, Helix, the direct engine (web GQL + usher, with
 // the master's playlists through the app's HLS proxy), clips, VOD storyboards, resume positions, QR codes, logging,
-// window focus (app pause/resume), and with the native twitch.tv window (web-session.js) the TV sign-in, the player
-// session and subs/Turbo in the direct engine. Left out (optional members) or answered as "unavailable": channel points,
-// Drops, follow and the desktop-only parts (Steam art and keyboard, joydev, window icon, chat extensions).
+// window focus (app pause/resume), and with the native twitch.tv window (web-session.js) and hidden twitch.tv pages
+// (hidden-pages.js) the TV sign-in, the player session, subs/Turbo in the direct engine, channel points (points.js),
+// follow/unfollow (follow.js) and Drops (drops.js). Left out (optional members) or answered as "unavailable":
+// watch-time points and the desktop-only parts (Steam art and keyboard, joydev, window icon, chat extensions).
 // docs/android.md lists what comes later.
 import { DEFAULT_SETTINGS, sanitizeSettings } from '@lurkbox/core/src/shared/settings.js';
 import { Twitch, Emitter } from '@lurkbox/core/src/shared/twitch-auth.js';
@@ -16,6 +17,10 @@ import { storeWhispers, loadWhispers } from '@lurkbox/core/src/shared/whispers.j
 import { accountsWithIndex, accountIndexKey } from '@lurkbox/core/src/shared/emote-index.js';
 import { ProxyHosts, rewriteMaster } from '@lurkbox/core/src/shared/hls-rewrite.js';
 import { createWebSession, mismatchWarning, SESSION_TOKEN } from './web-session.js';
+import { createHiddenPages } from './hidden-pages.js';
+import { createPoints } from './points.js';
+import { createFollow } from './follow.js';
+import { createDrops } from './drops.js';
 
 /** Same-origin prefix the WebView answers natively (MainActivity's HLS proxy): <prefix><host>/<path>?<query>. */
 export const PROXY_PREFIX = 'https://localhost/_lbhls/';
@@ -83,11 +88,12 @@ export class ResumePositions {
  * @param {typeof fetch} d.fetch      native HTTP (http.js makeNativeFetch(CapacitorHttp))
  * @param {{get, set}} d.prefs        Capacitor Preferences
  * @param {{addListener, exitApp}} d.app   Capacitor App
- * @param {{log?, proxyAllow?, webOpen?}} d.native   the app's own LurkboxNative plugin (web*: the twitch.tv window)
+ * @param {{log?, proxyAllow?, webOpen?, pageOpen?}} d.native   the app's own LurkboxNative plugin (web*: the twitch.tv
+ *   window; page*: the hidden twitch.tv pages)
  * @param {(text: string) => string} d.qrSvg
  * @param {string} d.version
  */
-export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version = '0.0.0', setInterval: every = setInterval }) {
+export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version = '0.0.0', setInterval: every = setInterval, features = {} }) {
   const bus = new Emitter();
   const on = (name) => (cb) => { bus.on(name, cb); return () => bus.off(name, cb); };
   const noopUnsub = () => () => {};
@@ -109,6 +115,14 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
   let twitch = null;
   // The twitch.tv web session (TV sign-in, player session) when the native twitch.tv window is there.
   const web = native.webOpen ? createWebSession({ native, log, getSettings: () => settings.get() }) : null;
+  // Channel points, follow and Drops: Twitch's own pages in that session, hidden (page*) or in the twitch.tv window.
+  // features: options for tests (timers).
+  const hidden = web && native.pageOpen ? createHiddenPages({ native, ...(features.pages || {}) }) : null;
+  const getSettings = () => settings.get();
+  const emit = (name, data) => bus.emit(name, data);
+  const points = hidden ? createPoints({ pages: hidden, web, getSettings, emit, log, ...(features.points || {}) }) : null;
+  const follow = hidden ? createFollow({ pages: hidden, web, log, ...(features.follow || {}) }) : null;
+  const drops = hidden ? createDrops({ pages: hidden, web, getSettings, emit, log, ...(features.drops || {}) }) : null;
 
   const ready = (async () => {
     await Promise.all([settings.load(), tokens.load(), resumeValue.load(), whispersValue.load(), emoteIndexValue.load()]);
@@ -117,6 +131,7 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
     twitch.on('auth', (ev) => bus.emit('auth:event', ev));
     twitch.validate().catch((e) => log(`[auth] validate failed: ${e.message}`)).finally(() => twitch.emitState());
     every(() => twitch.validate().then(() => twitch.emitState()).catch(() => {}), 60 * 60 * 1000);
+    if (drops) drops.start();
   })();
   const after = (fn) => async (...args) => { await ready; return fn(...args); };
 
@@ -137,9 +152,21 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
     playerSessionLogin: after(async () => ({ ...(await web.playerLogin(twitch)), ...(await playerState()) })),
   } : {};
 
+  // Only with the hidden pages: without these members the core hides the features (or says "unavailable").
+  const pageMembers = hidden ? {
+    pointsWatch: after((login) => points.watch(login)),
+    onPointsState: on('points:state'),
+    followChannel: after((req) => follow.follow(req)),
+    openChannelPage: after((login) => follow.openPage(login)),
+    dropsStatus: after(() => drops.status()),
+    dropsProgress: after(() => drops.progress()),
+    onDropsEvent: on('drops:event'),
+  } : {};
+
   return {
     // ---- app and window ----
-    appInfo: async () => ({ windowed: false, gamescope: false, startChannel: null, startVod: null, version, touch: true, defaults: DEFAULT_SETTINGS }),
+    // hostPages: the chat page (points) and the Drops inventory are shown in the native windows, not the app's iframes.
+    appInfo: async () => ({ windowed: false, gamescope: false, startChannel: null, startVod: null, version, touch: true, hostPages: true, defaults: DEFAULT_SETTINGS }),
     quit: async () => { if (app && app.exitApp) await app.exitApp(); },
     onWindowFocus: on('focus'),
     log,
@@ -264,14 +291,15 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
     emoteIndexGet: after(() => (emoteIndexValue.get().accounts || {})[accountIndexKey(twitch.store().active)] || null),
     emoteIndexSet: after((index) => { emoteIndexValue.replace({ accounts: accountsWithIndex(emoteIndexValue.get().accounts, twitch.store().active, index) }); return true; }),
 
-    // ---- channel points, Drops: Twitch's own pages in a twitch.tv session; not on Android yet ----
-    pointsOpenPanel: async () => ({ ok: false, reason: UNAVAILABLE }),
-    pointsPad: async () => null,
-    pointsClosePanel: async () => false,
-    onPointsEvent: noopUnsub,
-    dropsOpen: async () => ({ ok: false, reason: UNAVAILABLE }),
-    dropsPad: async () => 'close',
-    dropsClose: async () => false,
+    // ---- channel points, Drops, follow: Twitch's own pages in the twitch.tv session (points.js, drops.js, follow.js) ----
+    pointsOpenPanel: points ? after((opts) => points.openPanel(opts)) : async () => ({ ok: false, reason: UNAVAILABLE }),
+    pointsPad: points ? (key) => points.pad(key) : async () => null,
+    pointsClosePanel: points ? () => points.closePanel() : async () => false,
+    onPointsEvent: points ? on('points:event') : noopUnsub,
+    dropsOpen: drops ? after(() => drops.open()) : async () => ({ ok: false, reason: UNAVAILABLE }),
+    dropsPad: drops ? (key) => drops.pad(key) : async () => 'close',
+    dropsClose: drops ? () => drops.close() : async () => false,
+    ...pageMembers,
 
     // ---- open requests (Android intents / deep links, later) ----
     openReady: async () => null,

@@ -227,15 +227,7 @@ async function scanInventoryHidden({ claim }) {
     wc.setWindowOpenHandler(() => ({ action: 'deny' }));
     restrictNavigation(wc, TWITCH_SITE_URL);
     await Promise.race([wc.loadURL(drops.INVENTORY_URL), new Promise((_r, rej) => setTimeout(() => rej(new Error('load timed out')), 45000))]);
-    let r = null;
-    for (let i = 0; i < 30; i++) {
-      r = await wc.executeJavaScript(drops.scanSource({ claim: false }));
-      if (r && r.state !== 'loading') break;
-      await new Promise((res) => setTimeout(res, 1000));
-    }
-    if (!r || r.state !== 'ready') return r || { state: 'loading', campaigns: [], claimed: [] };
-    await new Promise((res) => setTimeout(res, 2500)); // the campaign list fills in after the first paint
-    return await wc.executeJavaScript(drops.scanSource({ claim }));
+    return await drops.scanInventory({ page: { eval: (src) => wc.executeJavaScript(src) }, claim });
   } finally {
     if (!w.isDestroyed()) w.destroy();
   }

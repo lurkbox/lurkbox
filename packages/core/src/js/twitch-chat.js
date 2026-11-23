@@ -2,6 +2,7 @@
 // "Twitch chat" style; otherwise it stays loaded off-screen while a live channel plays, so the bonus chest can be
 // claimed. The platform layer (window.lurkbox.points*) scans it, claims and drives it with the controller.
 import { el } from './ui.js';
+import { state } from './state.js';
 
 const EMBED_PARENT = 'localhost';
 
@@ -24,12 +25,16 @@ export class TwitchChatFrame {
   open(login) {
     const l = String(login || '').toLowerCase();
     if (!l) return this.close();
-    if (this.login === l && this.frame) return;
+    // A host that keeps the chat page itself (AppInfo.hostPages) needs the iframe only as the visible chat panel.
+    const wantFrame = !(state.info && state.info.hostPages) || state.settings.chatStyle === 'twitch';
+    if (this.login === l && !!this.frame === wantFrame) return;
     this.close();
     this.login = l;
-    // Moving an iframe in the DOM reloads it, so it is created once per channel and only repositioned with CSS.
-    this.frame = el('iframe', { src: chatFrameUrl(l), title: 'Twitch chat', tabindex: '-1', allow: 'clipboard-write' });
-    this.host.append(this.frame);
+    if (wantFrame) {
+      // Moving an iframe in the DOM reloads it, so it is created once per channel and only repositioned with CSS.
+      this.frame = el('iframe', { src: chatFrameUrl(l), title: 'Twitch chat', tabindex: '-1', allow: 'clipboard-write' });
+      this.host.append(this.frame);
+    }
     if (window.lurkbox.pointsWatch) window.lurkbox.pointsWatch(l);
   }
 

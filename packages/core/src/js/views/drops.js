@@ -1,7 +1,7 @@
 // The Drops section: Twitch's own Drops Inventory page (twitch.tv/drops/inventory) in the signed-in twitch.tv session,
 // in a large frame with the controller hint below it (never over the page). The host zooms the page for the TV and runs
 // the shared controller navigation inside it (window.lurkbox.dropsPad); B leaves a dialog first, then goes to the rail.
-import { el, button } from '../ui.js';
+import { el, button, toast } from '../ui.js';
 import { hint } from '../input.js';
 import { state } from '../state.js';
 import { Y } from '../input-core.js';
@@ -62,9 +62,19 @@ export function dropsView() {
       }
       const auto = state.settings.autoClaimDrops !== false;
       const checked = ago(st.lastCheckAt);
-      host.querySelector('.view-header').append(
-        el('span', { class: 'refresh-status drops-status' }, auto ? `Auto-claim on${checked ? ` · checked ${checked}` : ''}` : 'Auto-claim off (Settings → Player)'),
-        hint('{Y} reload'));
+      const status = el('span', { class: 'refresh-status drops-status' }, auto ? `Auto-claim on${checked ? ` · checked ${checked}` : ''}` : 'Auto-claim off (Settings → Player)');
+      if (state.info && state.info.hostPages) {
+        // The host shows the inventory in its own twitch.tv window, which has the controller until it closes.
+        host.querySelector('.view-header').append(status);
+        host.append(el('div', { class: 'empty drops-host' },
+          el('h2', {}, 'Your Drops inventory'),
+          el('p', {}, 'Twitch’s own inventory page opens in a twitch.tv window: claim drops and see their progress there. BACK closes it.'),
+          button('Open the Drops inventory', () => {
+            window.lurkbox.dropsOpen().then((r) => { if (r && !r.ok && r.reason) toast(`Drops: ${r.reason}`, 3000, 'warn'); }).catch(() => {});
+          }, { class: 'primary big drops-open-btn', dataset: { focusKey: 'drops-open' } })));
+        return;
+      }
+      host.querySelector('.view-header').append(status, hint('{Y} reload'));
       frame = el('iframe', {
         src: INVENTORY_URL, title: 'Twitch Drops inventory', tabindex: '-1',
         // No top navigation or popups: the page stays inside its frame.
