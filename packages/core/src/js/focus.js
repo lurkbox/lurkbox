@@ -44,7 +44,7 @@ export function computeScrollTop({ scrollTop, viewHeight, itemTop, itemBottom, m
   return null;
 }
 
-const SCROLLERS = '#content, .modal, .chat-list, .ce, .ep-grid, .po-pop';
+const SCROLLERS = '#content, .pick-list, .modal, .chat-list, .ce, .ep-grid, .po-pop';
 
 function remPx() { return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16; }
 
@@ -72,8 +72,10 @@ function scrollRowToFocus(node, instant) {
 /** Scrolls only the item's own scroll container (never ancestors or the body), and its sideways row if it is in one. */
 export function scrollToFocus(node, instant = false) {
   scrollRowToFocus(node, instant);
-  const sc = node.closest(SCROLLERS);
-  if (!sc || sc.scrollHeight <= sc.clientHeight) return;
+  // The nearest of these containers that actually scrolls (e.g. a long list inside a modal, else the modal itself).
+  let sc = node.parentElement && node.parentElement.closest(SCROLLERS);
+  while (sc && sc.scrollHeight <= sc.clientHeight) sc = sc.parentElement && sc.parentElement.closest(SCROLLERS);
+  if (!sc) return;
   const cr = sc.getBoundingClientRect();
   const r = node.getBoundingClientRect();
   const view = node.closest('.view') || sc;
