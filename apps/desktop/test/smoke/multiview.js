@@ -1,15 +1,18 @@
 'use strict';
 // Multi-view smoke test, offline, in demo mode (LURKBOX_DEMO=1: made-up data, no network): X on a live card →
-// "Watch with…" → a followed channel opens two tiles side by side, only the active tile has sound and the normal
-// quality (the other is capped at 480p), the D-pad moves the sound, A's tile menu adds a third (one big plus two)
-// and X a fourth (2x2), the layout button cycles, B leaves for the single player on the active stream.
-// LURKBOX_SHOT_DIR=<dir> saves multiview-2.png and multiview.png (the README's). Exits 0 on success.
+// "Watch with…" → the multi-select picker (A ticks, Start confirms) opens two tiles side by side, only the active
+// tile has sound and the normal quality (the other is capped at 480p), the D-pad moves the sound, A's tile menu
+// adds a third (one big plus two) and X a fourth (2x2), the layout button cycles. Every tile's raids are watched on
+// the one EventSub socket: a raid on a non-active tile counts down on that tile and swaps it in place, a raid on
+// the active tile is cancelled with B. View/Select opens the active tile's composer and a message goes out in its
+// chat. B leaves for the single player on the active stream; the set was saved and "Resume multi-view" in the
+// player's More opens it again. LURKBOX_SHOT_DIR=<dir> saves multiview-2.png and multiview.png (the README's comes from `npm run screenshots -- multiview`). Exits 0 on success.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'lurkbox-mv-'));
-fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ videoOnlyUnfocused: false, navSounds: false, inputWhenUnfocused: true }));
+fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ videoOnlyUnfocused: false, navSounds: false, inputWhenUnfocused: true, raidFollow: true, raidDelay: 2, chatStyle: 'lurkbox' }));
 Object.assign(process.env, { TZ: 'UTC', LURKBOX_DEMO: '1', LURKBOX_USER_DATA: userData, LURKBOX_DEMO_SIZE: '1280x800' });
 if (!process.argv.includes('--windowed')) process.argv.push('--windowed');
 
@@ -38,7 +41,7 @@ setTimeout(() => finish(1, 'timed out'), 120000).unref();
 // A virtual standard gamepad (the same as the screenshot scenes), so presses take Lurkbox's real input path.
 const PAD = `(() => {
   if (window.__pad) return true;
-  const BUTTON = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+  const BUTTON = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, BACK: 8, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
   const pad = { id: 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)', index: 0, connected: true, mapping: 'standard', timestamp: 1, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })), vibrationActuator: null };
   Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => [pad, null, null, null] });
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -88,7 +91,14 @@ app.on('browser-window-created', (_e, win) => {
         await sleep(500);
       }
       await pick('/Watch with/');
+      // The multi-select picker: A ticks (twice unticks), Start confirms.
+      await waitFor('the multi-select picker', "!!document.querySelector('.modal.pick-many .pick-item')", 8000);
       await pick('/./');
+      await pick('/./');
+      if (await js("document.querySelectorAll('.modal.pick-many .pick-item.selected').length") !== 0) throw new Error('A twice did not untick');
+      await pick('/./');
+      if (await js("document.querySelectorAll('.modal.pick-many .pick-item.selected').length") !== 1) throw new Error('A did not tick');
+      await press('START');
       await waitFor('multi-view', "!document.getElementById('multi-screen').hidden && document.querySelectorAll('#multi-stage .mv-tile').length === 2");
       let t = await tiles();
       if (t[0].login !== first || !t[0].active) throw new Error(`the card's channel is not the active first tile: ${JSON.stringify(t)}`);
@@ -118,7 +128,9 @@ app.on('browser-window-created', (_e, win) => {
       // A: the tile menu → Add stream… → three tiles (one big plus two small, the new one active).
       await press('A');
       await pick('/Add stream/');
+      await waitFor('the multi-select picker', "!!document.querySelector('.modal.pick-many .pick-item')", 8000);
       await pick('/./');
+      await press('START');
       await waitFor('three tiles', "document.querySelectorAll('#multi-stage .mv-tile').length === 3");
       t = await tiles();
       if (!t[2].active || !/^0% 0% 66\.6+\d*% 100%$/.test(t[0].r)) throw new Error(`3 tiles: ${JSON.stringify(t)}`);
@@ -137,6 +149,46 @@ app.on('browser-window-created', (_e, win) => {
       log(`4 tiles ${four ? 'playing' : '(no demo video)'}`);
       await sleep(600);
       await shot('multiview');
+      // Raids: the one socket watches every tile.
+      await waitFor('raid subscriptions for every tile', '__lurkbox.watcher.targets.size === 4 && __lurkbox.watcher.subs.size === 4', 8000);
+      const raid = (i, to) => js(`(() => { const t = __lurkbox.multi.tiles[${i}].ch; __lurkbox.watcher.dispatchEvent(new CustomEvent('raid', { detail: { from_broadcaster_user_id: String(t.userId), from_broadcaster_user_login: t.login, from_broadcaster_user_name: t.name, to_broadcaster_user_id: '9999001', to_broadcaster_user_login: ${JSON.stringify(to)}, to_broadcaster_user_name: ${JSON.stringify(to)}, viewers: 42 } })); return true; })()`);
+      // A non-active tile (0; the active one is 1): its own banner, then it plays the target in place.
+      await raid(0, 'raidtarget');
+      await waitFor('the raid banner on tile 0', "!!document.querySelectorAll('#multi-stage .mv-tile')[0].querySelector('.mv-raid') && !document.querySelectorAll('#multi-stage .mv-tile')[1].querySelector('.mv-raid')", 3000);
+      await waitFor('tile 0 swapped to the raid target', "document.querySelectorAll('#multi-stage .mv-tile')[0].dataset.login === 'raidtarget' && !document.querySelector('.mv-raid')", 6000);
+      t = await tiles();
+      if (!t[1].active || t.length !== 4) throw new Error(`the raid moved the active tile: ${JSON.stringify(t)}`);
+      await waitFor('the raid target watched', "[...__lurkbox.watcher.targets.keys()].includes('9999001')", 5000);
+      // The active tile: B cancels its countdown (and only that; multi-view stays open).
+      const before = t[1].login;
+      await raid(1, 'othertarget');
+      await waitFor('the raid banner on the active tile', "!!document.querySelectorAll('#multi-stage .mv-tile')[1].querySelector('.mv-raid .mv-raid-hint')", 3000);
+      await press('B');
+      await sleep(2600);
+      t = await tiles();
+      if (t[1].login !== before || await js("!!document.querySelector('.mv-raid')") || await js("document.getElementById('multi-screen').hidden")) throw new Error(`B did not cancel the active tile's raid: ${JSON.stringify(t)}`);
+      log('raids: tile 0 followed in place, the active tile\'s cancelled with B');
+      // View/Select: the active tile's composer, with the keyboard; the message goes out in its chat.
+      await press('BACK');
+      await waitFor('the composer in multi-view', "document.getElementById('multi-screen').classList.contains('chat-on') && !document.querySelector('#multi-chat .chat-composer').hidden && (!!document.querySelector('.osk .osk-key') || document.activeElement.matches('#multi-chat .cm-input'))", 4000);
+      if (await js("!!document.querySelector('.osk')")) await press('B'); // the built-in keyboard (no Steam keyboard here)
+      await js("(() => { const i = document.querySelector('#multi-chat .cm-input'); i.focus(); i.value = 'hi from multi'; i.dispatchEvent(new Event('input')); return true; })()");
+      await press('START');
+      await waitFor('the message in the multi-view chat', "[...document.querySelectorAll('#multi-chat .chat-msg.own')].some((n) => n.textContent.includes('hi from multi'))", 6000);
+      if (await js("document.querySelector('#multi-chat .cm-input').value") !== '') throw new Error('the draft was not cleared after sending');
+      if (await js(`__lurkbox.multi.chat.channel`) !== t[1].login) throw new Error('the chat is not the active tile\'s');
+      // Y in the composer: quick chat, above the composer (B closes it, back on the composer).
+      await js("document.querySelector('#multi-chat .cm-input').focus(); true");
+      await press('Y');
+      await waitFor('quick chat in multi-view', "!!document.querySelector('#multi-screen > .po-pop.pop-quick')", 3000);
+      await press('B');
+      await waitFor('quick chat closed', "!document.querySelector('.po-pop.pop-quick') && !!document.activeElement.closest('#multi-chat .chat-composer')", 3000);
+      await press('B'); // out of the composer (Y there is quick chat)
+      if (await js("!!(document.activeElement && document.activeElement.closest('#multi-chat'))")) throw new Error('B did not leave the composer');
+      log('composer: sent from the active tile\'s chat');
+      t = await tiles();
+      const saved = await js('(() => { const s = __lurkbox.state.settings.multiSets[__lurkbox.state.auth.user.id]; return s && s.map((x) => x.login); })()');
+      if (!saved || saved.join() !== t.map((x) => x.login).join()) throw new Error(`the set was not saved: ${JSON.stringify(saved)} vs ${t.map((x) => x.login)}`);
       // Y cycles the layout (grid → one big), and back.
       await press('Y');
       if (await js("document.getElementById('multi-screen').dataset.layout") !== 'big') throw new Error('Y did not switch the layout');
@@ -146,9 +198,21 @@ app.on('browser-window-created', (_e, win) => {
       await press('B');
       await waitFor('the single player', `document.getElementById('multi-screen').hidden && !document.getElementById('player-screen').hidden && __lurkbox.player.current && __lurkbox.player.current.login === ${JSON.stringify(want)}`);
       if (await js("document.querySelectorAll('#multi-stage video').length")) throw new Error('multi-view videos left behind');
+      // The player's More: "Resume multi-view" (the saved set, the channels of it that are live: not the raid target).
+      await js('__lurkbox.player.showOverlay(); true');
+      await waitFor('the overlay', "!!document.querySelector('#player-overlay .po-icon')", 4000);
+      await js("(() => { const b = document.querySelector('#player-overlay .po-icon[data-key=more]'); b.focus(); b.click(); return true; })()");
+      await waitFor('Resume multi-view in More', "[...document.querySelectorAll('.po-pop .po-item')].some((n) => !n.hidden && /Resume multi-view/.test(n.textContent))", 6000);
+      await js("[...document.querySelectorAll('.po-pop .po-item')].find((n) => /Resume multi-view/.test(n.textContent)).click(); true");
+      await waitFor('multi-view resumed', "!document.getElementById('multi-screen').hidden && document.querySelectorAll('#multi-stage .mv-tile').length === 3", 8000);
+      const resumed = (await tiles()).map((x) => x.login);
+      if (resumed.join() !== saved.filter((l) => l !== 'raidtarget').join()) throw new Error(`resumed ${resumed} from ${saved}`);
+      log(`resumed: ${resumed.join(', ')}`);
+      await press('B');
+      await waitFor('the single player again', "document.getElementById('multi-screen').hidden && !document.getElementById('player-screen').hidden", 5000);
       await press('B');
       await waitFor('Following again', "document.getElementById('player-screen').hidden && !!document.activeElement.closest('[data-view=following]')", 5000);
-      finish(0, 'X → Watch with…, 2 and 4 tiles, audio and caps follow the active tile, layouts, B to the single player');
+      finish(0, 'X → Watch with… (multi-select), 2 and 4 tiles, audio and caps follow the active tile, layouts, per-tile raids on one socket, the composer, B to the single player, Resume multi-view');
     } catch (e) {
       finish(1, e.message);
     }

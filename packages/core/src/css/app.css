@@ -902,3 +902,12 @@ body.video-only.player-active .raid-card { transform: scale(1.3); }
 .mv-tile:not(.active) .mv-label { opacity: 0.8; }
 .mv-tile.mv-failed .mv-live { display: none; }
 .mv-error { position: absolute; inset: 3px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 1rem 1.5rem; color: var(--fg); background: color-mix(in srgb, var(--video-bg) 85%, transparent); font-size: 0.95rem; }
+.mv-raid { position: absolute; left: 50%; bottom: 0.9rem; transform: translateX(-50%); max-width: calc(100% - 1.6rem); box-sizing: border-box; padding: 0.55rem 1rem; border-radius: 0.8rem; background: color-mix(in srgb, var(--panel-bg) 92%, transparent); border: 2px solid var(--accent); color: var(--fg); text-align: center; box-shadow: 0 0.3rem 1.2rem var(--shadow); pointer-events: none; }
+.mv-raid-line { display: flex; align-items: baseline; justify-content: center; gap: 0.6rem; font-weight: 800; font-size: 1.05rem; }
+.mv-raid-count { font-size: 1.5rem; color: var(--accent); font-variant-numeric: tabular-nums; }
+.mv-raid-sub { font-size: 0.8rem; color: var(--fg-dim); }
+.mv-raid-hint { display: block; font-size: 0.85rem; font-weight: 700; margin-top: 0.2rem; }
+#multi-chat .chat-composer { margin-top: auto; }
+.pick-many-body { display: flex; flex-direction: column; gap: 0.6rem; min-width: 22rem; }
+.pick-count { color: var(--fg-dim); font-size: 0.95rem; }
+.pick-many .pick-list { max-height: 55vh; overflow: auto; }

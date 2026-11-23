@@ -75,6 +75,8 @@ const SETUP = {
   'phone-landscape': { touch: true, settings: { chatDefault: true }, env: { LURKBOX_DEMO_SIZE: '915x412' } },
   'tablet-following': { touch: true, env: { LURKBOX_DEMO_SIZE: '1280x800' } },
   'tablet-player': { touch: true, settings: { chatDefault: true }, env: { LURKBOX_DEMO_SIZE: '1280x800' } },
+  // Multi-view: X on a live card → Watch with… → three more ticked in the multi-select picker → a 2x2 grid, chat on.
+  multiview: { settings: { chatDefault: true } },
 };
 const TOUCH = !!SETUP[SCENE].touch;
 if (TOUCH) SETUP[SCENE].env.LURKBOX_DEMO_TOUCH = '1';
@@ -112,7 +114,7 @@ const PAGE_HELPERS = `(() => {
   document.head.append(st);
   const visible = (n) => { const r = n.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth && getComputedStyle(n).visibility !== 'hidden'; };
   // A virtual standard-mapping gamepad: presses go through Lurkbox's real gamepad polling (and its Xbox glyphs).
-  const BUTTON = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+  const BUTTON = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
   const pad = { id: 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)', index: 0, connected: true, mapping: 'standard', timestamp: 1, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })), vibrationActuator: null };
   // Touch scenes have no controller (a connected pad would pick the TV layout).
   if (!window.__shotTouch) Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => [pad, null, null, null] });
@@ -726,6 +728,29 @@ app.on('browser-window-created', (_e, win) => {
       await following();
       await settle();
       await shoot('tablet-following');
+    },
+    async multiview() {
+      await following();
+      await js("document.querySelector('[data-view=following] .grid-live .card').focus(); true");
+      await press('X');
+      const pickItem = async (re) => {
+        await waitFor(`a list item ${re}`, `[...document.querySelectorAll('.modal .pick-item')].some((b) => ${re}.test(b.textContent) && !b.classList.contains('selected'))`, 8000);
+        await js(`[...document.querySelectorAll('.modal .pick-item')].find((b) => ${re}.test(b.textContent) && !b.classList.contains('selected')).focus(); true`);
+        await press('A');
+      };
+      await pickItem('/Watch with/');
+      await waitFor('the multi-select picker', "!!document.querySelector('.modal.pick-many .pick-item')", 8000);
+      for (let i = 0; i < 3; i++) await pickItem('/./');
+      await press('START');
+      await waitFor('four tiles', "document.querySelectorAll('#multi-stage .mv-tile').length === 4");
+      await waitFor('every tile playing', "[...document.querySelectorAll('#multi-stage video')].filter((v) => v.readyState >= 3 && v.currentTime > 1.5).length === 4", 40000);
+      await press('RIGHT'); // the sound (and the chat) on the top right tile
+      await waitFor('chat with emotes', "(() => { const c = document.getElementById('multi-chat'); return c && __shot.visible(c) && c.querySelectorAll('.chat-msg').length >= 8 && [...c.querySelectorAll('img')].every((i) => i.complete && i.naturalWidth > 0); })()", 20000);
+      await js('window.__lurkboxDemo.pauseChat(); true');
+      await sleep(1500);
+      await js("(() => { for (const n of document.querySelectorAll('#multi-chat *')) if (n.scrollHeight > n.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(n).overflowY)) n.scrollTop = n.scrollHeight; return true; })()");
+      await settle();
+      await shoot('multiview');
     },
     async 'tablet-player'() {
       await layoutIs('tablet');

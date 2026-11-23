@@ -161,3 +161,68 @@ test('switching account moves the subscription: delete with the old token, resub
   assert.equal(posts()[1].accountId, 'B');
   assert.equal(posts()[1].body.transport.session_id, 'sess-2');
 });
+
+test('multi-view: one socket carries a channel.raid subscription per tile; tiles coming and going add and delete them', async () => {
+  const w = make();
+  const raids = [];
+  w.addEventListener('raid', (e) => raids.push(e.detail.from_broadcaster_user_id));
+  w.watchMany([{ id: '111', login: 'alpha' }, { id: '222', login: 'beta' }]);
+  await flush();
+  FakeWS.all[0].welcome('sess-1');
+  await flush();
+  assert.equal(FakeWS.all.length, 1, 'one connection for every tile');
+  assert.deepEqual(posts().map((c) => c.body.condition.from_broadcaster_user_id), ['111', '222']);
+  assert.ok(posts().every((c) => c.body.transport.session_id === 'sess-1'));
+  // A third tile, and the first one swapped out (a raid followed in place).
+  w.watchMany([{ id: '333', login: 'gamma' }, { id: '222', login: 'beta' }, { id: '444', login: 'delta' }]);
+  await flush();
+  assert.deepEqual(deletes().map((c) => c.query.id), ['sub-1'], "only alpha's subscription is deleted");
+  assert.deepEqual(posts().slice(2).map((c) => c.body.condition.from_broadcaster_user_id), ['333', '444']);
+  assert.equal(w.status, 'active');
+  // The same set again (in another order) changes nothing.
+  w.watchMany([{ id: '444', login: 'delta' }, { id: '333', login: 'gamma' }, { id: '222', login: 'beta' }]);
+  await flush();
+  assert.equal(posts().length, 4);
+  // Raids from any watched tile come through; others don't.
+  const note = (id, from) => ({ metadata: { message_type: 'notification', message_id: id, subscription_type: 'channel.raid', message_timestamp: new Date().toISOString() }, payload: { event: { from_broadcaster_user_id: from, to_broadcaster_user_id: '9', to_broadcaster_user_login: 'z' } } });
+  FakeWS.all[0].recv(note('n1', '444'));
+  FakeWS.all[0].recv(note('n2', '222'));
+  FakeWS.all[0].recv(note('n3', '111'));
+  assert.deepEqual(raids, ['444', '222']);
+  // Back to a single channel (the single player), then nothing.
+  w.watch({ id: '222', login: 'beta' });
+  await flush();
+  assert.deepEqual(deletes().map((c) => c.query.id).sort(), ['sub-1', 'sub-3', 'sub-4']);
+  w.watch(null);
+  await flush();
+  assert.equal(deletes().length, 4);
+  assert.equal(FakeWS.all[0].closed, true);
+});
+
+test('multi-view: a fresh session resubscribes every tile; a revoked one is retried alone', async () => {
+  const w = make();
+  w.watchMany([{ id: '111', login: 'alpha' }, { id: '222', login: 'beta' }]);
+  await flush();
+  FakeWS.all[0].welcome('sess-1');
+  await flush();
+  FakeWS.all[0].onclose({ code: 1006, reason: '' });
+  mock.timers.tick(1000);
+  await flush();
+  FakeWS.all[1].welcome('sess-2');
+  await flush();
+  assert.deepEqual(posts().slice(2).map((c) => [c.body.condition.from_broadcaster_user_id, c.body.transport.session_id]), [['111', 'sess-2'], ['222', 'sess-2']]);
+  FakeWS.all[1].recv({ metadata: { message_type: 'revocation' }, payload: { subscription: { id: 'sub-4', status: 'authorization_revoked' } } });
+  mock.timers.tick(3000);
+  await flush();
+  assert.deepEqual(posts().slice(4).map((c) => c.body.condition.from_broadcaster_user_id), ['222'], 'only the revoked one again');
+});
+
+test('multi-view: targets past the per-connection cost limit are left out', async () => {
+  const w = make();
+  w.watchMany(Array.from({ length: 12 }, (_, i) => ({ id: String(100 + i), login: `c${i}` })));
+  assert.equal(w.targets.size, 10, 'channel.raid costs 1 each; a WebSocket session allows 10');
+  await flush();
+  FakeWS.all[0].welcome('sess-1');
+  await flush();
+  assert.equal(posts().length, 10);
+});
