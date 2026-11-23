@@ -10,6 +10,8 @@ import { BadgeCache, parseBadgesTag, lookupBadge } from './chat-badges.js';
 import { SevenTVEvents } from './seventv-events.js';
 import { renderParts, renderBadges, applyPaint, attachChatTips } from './chat-render.js';
 import { toast } from './ui.js';
+import { hideFromChat } from './social.js';
+import { blocks, refreshBlocks } from './social-ui.js';
 import {
   NO_MODES, parseRoomState, PendingEchoes, SendGate, buildSendRequest, interpretSendResult, sendAuthState, slowModeExempt,
   waitText, emitChatSent, ECHO_TIMEOUT_MS,
@@ -69,6 +71,7 @@ export function ircEvent(m) {
         kind: 'msg',
         id: m.tags.id || '',
         nick: m.tags['display-name'] || m.prefix.split('!')[0],
+        login: (m.prefix || '').split('!')[0].toLowerCase(),
         color: m.tags.color || '',
         text,
         action,
@@ -160,6 +163,15 @@ export class Chat {
     this.title = el('div', { class: 'chat-title' }, 'Chat');
     panel.replaceChildren(this.title, this.list);
     attachChatTips(this.list);
+    // A click or tap on a name (or A on a picked line, player.js) opens the user card: View channel, Block.
+    this.onUser = null;
+    this.list.addEventListener('click', (e) => {
+      const nick = e.target.closest && e.target.closest('.chat-nick');
+      const msg = nick && nick.closest('.chat-msg');
+      if (msg && this.onUser) { e.stopPropagation(); this.openUser(msg); }
+    });
+    // Blocked users' messages leave the list as soon as you block them (and new ones are dropped in onMessage).
+    blocks.subscribe(() => this.dropBlocked());
     this.log = new MessageLog(MAX_MESSAGES);
     this.ws = null;
     this.channel = null;
@@ -219,6 +231,7 @@ export class Chat {
     this.pending.clear();
     this.setModes({ ...NO_MODES });
     this.system('Connecting to chat…');
+    refreshBlocks();
     this.connect();
   }
 
@@ -320,6 +333,7 @@ export class Chat {
     const me = state.auth.user;
     const mine = !!(me && ev.userId && String(ev.userId) === String(me.id));
     if (mine) this.own = { color: ev.color, badges: ev.badges, userId: ev.userId };
+    if (!mine && hideFromChat(ev, blocks, state.settings.hideBlockedChat !== false)) return;
     const p = mine ? this.pending.match(ev) : null;
     const node = this.messageNode(ev);
     if (mine) node.classList.add('own');
@@ -454,7 +468,7 @@ export class Chat {
     const me = state.auth.user;
     const index = me && ev.userId && String(ev.userId) === String(me.id) ? this.lookup() : this.index;
     text.append(renderParts(tokenize(ev.text, ev.emotes, index, { userId: ev.userId, animated: this.prefs.animated })));
-    return el('div', { class: `chat-msg${ev.action ? ' action' : ''}`, dataset: { id: ev.id, uid: ev.userId } },
+    return el('div', { class: `chat-msg${ev.action ? ' action' : ''}`, dataset: { id: ev.id, uid: ev.userId, login: ev.login || '' } },
       renderBadges(badges), nick, ev.action ? ' ' : ': ', text);
   }
 
@@ -477,6 +491,25 @@ export class Chat {
         holder.append(b);
       }
     }
+  }
+
+  /** The user of a message node → the user card (onUser). */
+  openUser(msg) {
+    const nick = msg.querySelector('.chat-nick');
+    if (!nick || !msg.dataset.uid || !this.onUser) return false;
+    this.onUser({ id: msg.dataset.uid, login: msg.dataset.login || '', name: nick.textContent, color: nick.style.color || '' });
+    return true;
+  }
+
+  /** Removes the messages of blocked users (when hiding them is on). */
+  dropBlocked() {
+    if (state.settings.hideBlockedChat === false) return;
+    for (const item of [...this.log.items]) {
+      if (!blocks.has(item.node.dataset && item.node.dataset.uid) || item.node.classList.contains('own')) continue;
+      this.log.remove((x) => x === item);
+      item.node.remove();
+    }
+    this.queue = this.queue.filter((q) => !blocks.has(q.node.dataset && q.node.dataset.uid) || q.node.classList.contains('own'));
   }
 
   system(text, kind = '') {
@@ -507,6 +540,6 @@ export class Chat {
       for (const old of this.log.push(item)) old.node.remove();
     }
     this.list.append(frag);
-    if (atBottom) this.list.scrollTop = this.list.scrollHeight;
+    if (atBottom && !this.holdScroll) this.list.scrollTop = this.list.scrollHeight; // not while a line is picked (player.js)
   }
 }

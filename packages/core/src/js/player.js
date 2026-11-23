@@ -40,6 +40,7 @@ function vlog(line) {
 }
 import { Chat, promptChatSignIn } from './chat.js';
 import { Composer } from './chat-composer.js';
+import { openUserCard } from './social-ui.js';
 import { sendAuthState } from './chat-send.js';
 import { EmotePicker, pickerTabs, insertEmote } from './emote-picker.js';
 import { QuickChatPicker, setQuickChatChannel } from './quick-chat.js';
@@ -125,6 +126,9 @@ export class Player {
       onQuick: (b) => this.openChatPicker('quick', b),
     });
     this.chatPanel.append(this.composer.node);
+    // A name in chat (clicked, or a line picked with Up from the message box and A): the user card.
+    this.chat.onUser = (u) => openUserCard(u, { openChannel: (x) => { this.nav.closePlayer(); this.nav.openChannel({ login: x.login, id: x.id, name: x.name }); } });
+    this.linePick = null; // the chat line picked with the D-pad (from the message box), or null
     this.userEmotes = new UserEmoteCache((path, query) => helix(path, query));
     // The composer's pop-overs (emote picker, quick chat), anchored above its buttons on the chat panel.
     this.cpop = new Popover({
@@ -873,6 +877,7 @@ export class Player {
   }
 
   close() {
+    if (this.linePick) this.endLinePick({ toComposer: false });
     if (this.vodTimeline) { vlog(this.vodTimeline.finish('left before PLAYING')); this.vodTimeline = null; }
     this.saveResume();
     this.scrubber.cancel();
@@ -2018,6 +2023,51 @@ export class Player {
 
   // ---------- input ----------
 
+  /** Up from the message box: pick chat lines with the D-pad (A opens the user card, B or Down past the end goes back). */
+  startLinePick() {
+    const lines = this.pickableLines();
+    if (!lines.length) return false;
+    const a = document.activeElement;
+    if (a && this.composer.contains(a)) a.blur();
+    this.chat.holdScroll = true;
+    this.setLinePick(lines[lines.length - 1]);
+    return true;
+  }
+
+  pickableLines() { return [...this.chatPanel.querySelectorAll('.chat-list .chat-msg[data-uid]')].filter((n) => n.dataset.uid); }
+
+  setLinePick(node) {
+    if (this.linePick) this.linePick.classList.remove('picked');
+    this.linePick = node;
+    if (node) { node.classList.add('picked'); node.scrollIntoView({ block: 'nearest' }); }
+  }
+
+  endLinePick({ toComposer = true } = {}) {
+    this.setLinePick(null);
+    this.chat.holdScroll = false;
+    if (toComposer && this.composerReachable()) this.composer.focus({ keyboard: false });
+  }
+
+  handleLinePick(action) {
+    if (!this.linePick.isConnected || !this.screen.classList.contains('chat-on')) {
+      // The line scrolled out of the log, or chat closed: back to the newest line (or out).
+      const lines = this.screen.classList.contains('chat-on') ? this.pickableLines() : [];
+      if (!lines.length) { this.endLinePick(); return false; }
+      this.setLinePick(lines[lines.length - 1]);
+    }
+    if (action === UP || action === DOWN) {
+      const lines = this.pickableLines();
+      const i = lines.indexOf(this.linePick) + (action === UP ? -1 : 1);
+      if (i >= lines.length) this.endLinePick();
+      else this.setLinePick(lines[Math.max(0, i)]);
+      return true;
+    }
+    if (action === A) { this.chat.openUser(this.linePick); return true; }
+    if (action === B || action === Y || action === LEFT || action === RIGHT) { this.endLinePick(); return true; }
+    if (action === START) { this.endLinePick({ toComposer: false }); return false; }
+    return true;
+  }
+
   scrollChat(action) {
     const l = this.chatPanel.querySelector('.chat-list');
     if (l) l.scrollBy({ top: action === UP ? -200 : 200, behavior: 'smooth' });
@@ -2045,8 +2095,10 @@ export class Player {
       this.cpop.handle(action); // B closes it (focus back to the composer's button), A, D-pad, LB/RB tabs, X/Y
       return true;
     }
+    if (this.linePick && this.handleLinePick(action)) return true;
     if (this.composer.contains(document.activeElement)) {
       if (this.composer.handle(action, source)) return true;
+      if (action === UP && state.auth.signedIn && this.startLinePick()) return true;
       if (action === UP || action === DOWN) { this.scrollChat(action); return true; }
       if (action === Y) { this.leaveComposer(); return true; }
       return true; // the rest would act on the video behind it

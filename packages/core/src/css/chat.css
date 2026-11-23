@@ -59,3 +59,7 @@ body {
   transform: translate(-50%, calc(-100% - 0.4rem));
 }
 .chat-tip small { display: block; font-weight: 500; color: var(--fg-dim, #aaa); }
+
+/* A name opens the user card (social-ui.js); a line picked with the D-pad from the message box. */
+.chat-msg[data-uid] .chat-nick { cursor: pointer; }
+.chat-msg.picked { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 0.3rem; background: color-mix(in srgb, var(--accent) 14%, transparent); }

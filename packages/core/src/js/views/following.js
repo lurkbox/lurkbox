@@ -10,6 +10,7 @@ import { loadContinueWatching, scheduleRemoval, undoRemoval, UNDO_MS } from '../
 import { LIVE_SORTS, sortStreams } from '../../shared/sorts.js';
 import { mergeFollows, sortOffline, SORTS, fmtAgo } from '../follows.js';
 import { Poller } from '../refresher.js';
+import { checkSubs, paintSubBadge, paintSubBadges } from '../social-ui.js';
 
 // Last data shown, per account, so coming back to Following paints instantly instead of flashing "Loading…".
 let lastShown = null;
@@ -96,6 +97,7 @@ export function followingView() {
       const paintLive = (opts) => {
         liveSorted = sortStreams(liveList, liveSort.value);
         live.set(liveSort.value === 'game' ? withGameHeaders(liveList) : liveSorted, opts);
+        paintSubBadges(liveGridEl);
       };
       let cwItems = new Map();
       const cwPlay = (it) => {
@@ -205,6 +207,17 @@ export function followingView() {
         for (const f of offList) if (known.has(f.broadcaster_id)) f.lastLive = known.get(f.broadcaster_id);
         offChip.set((SORTS.find((s) => s.value === sort) || SORTS[0]).label);
         offline.set(sortOffline(offList, sort, known), opts);
+        paintSubBadges(offGridEl);
+      };
+      // Sub badges: one check per followed channel (Helix has no list), cached for an hour (social.js SubChecker).
+      let subsRunning = false;
+      const checkSubBadges = () => {
+        if (subsRunning) return;
+        subsRunning = true;
+        checkSubs(follows.map((f) => f.broadcaster_id), {
+          cancelled: () => !host.isConnected,
+          onResult: (id, sub) => { for (const c of host.querySelectorAll(`.grid [data-k="${CSS.escape(id)}"]`)) paintSubBadge(c, sub); },
+        }).catch(() => {}).finally(() => { subsRunning = false; });
       };
       const cycleOffline = () => {
         const i = SORTS.findIndex((s) => s.value === sort);
@@ -226,6 +239,7 @@ export function followingView() {
         paintLive();
         liveEmpty.hidden = liveList.length > 0;
         paintOffline(mergeFollows(follows, liveList).offline);
+        checkSubBadges();
         refreshCw(); // also after the player: a finished VOD drops off, a new one comes in
       };
       let first = true;

@@ -12,6 +12,7 @@ import { LIVE_SORTS } from '../../shared/sorts.js';
 import { clearSearches, searchesFor } from '../../shared/search-history.js';
 import { chatSettingsRows } from './settings-chat.js';
 import { LAYOUT_MODES, LAYOUT_LABELS } from '../../shared/layout-mode.js';
+import { subscriptionsView, blockedView } from '../social-ui.js';
 
 function row(label, control, help) {
   return el('div', { class: 'setting-row' },
@@ -175,6 +176,9 @@ export function settingsView() {
           el('h2', { class: 'section-title settings-section' }, 'Account'),
           account ? row('Account', account, 'One sign-in, here on the TV, covers Lurkbox and the video player (your subs and Turbo).') : '',
           (a.accounts || []).length ? row('Accounts', accountsList) : '',
+          a.signedIn ? row('Subscriptions', button('Show', () => nav.push(subscriptionsView()), { dataset: { setting: 'subscriptions' } }), 'The channels you follow that you\'re subscribed to, with the tier and who gifted it.') : '',
+          a.signedIn ? row('Blocked users', button('Manage', () => nav.push(blockedView()), { dataset: { setting: 'blockedUsers' } }), 'Everyone you\'ve blocked on Twitch, with Unblock. Block someone from their name in chat or their channel page.') : '',
+          a.signedIn ? row('Hide messages from blocked users', toggle('hideBlockedChat'), 'Lurkbox chat leaves out what blocked users write.') : '',
           row('At startup', pickRow('profilePicker', 'At startup', [{ value: 'remember', label: 'Remember last account' }, { value: 'ask', label: 'Always ask who\'s watching' }])),
           row('Client ID', idControls, 'From your app at dev.twitch.tv (public client). Not a secret.'),
           el('h2', { class: 'section-title settings-section' }, 'Appearance'),
