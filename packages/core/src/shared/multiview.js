@@ -127,3 +127,96 @@ export function exitTarget(tiles, active) {
 export function candidates(live, tiles) {
   return live.filter((s) => !tiles.some((t) => same(t, { login: s.user_login })));
 }
+
+// ---- raids on every tile (one EventSub connection carries a channel.raid subscription per tile) ----
+
+/** The raid watcher's targets: every tile with a known broadcaster id ({ id, login }). */
+export function raidTargets(tiles) {
+  return tiles.filter((t) => t.userId).map((t) => ({ id: String(t.userId), login: t.login }));
+}
+
+/** The tile a raid comes from (the raiding channel), or -1. */
+export function raidTileIndex(tiles, ev) {
+  const from = ev && String(ev.from_broadcaster_user_id || '');
+  return from ? tiles.findIndex((t) => t.userId && String(t.userId) === from) : -1;
+}
+
+/** The raid target as a tile channel. */
+export function raidChannel(ev) {
+  return { login: ev.to_broadcaster_user_login, name: ev.to_broadcaster_user_name || ev.to_broadcaster_user_login, userId: String(ev.to_broadcaster_user_id || '') || null, stream: null };
+}
+
+// ---- the multi-select picker ----
+
+/** Free slots for adding streams to `n` tiles. */
+export function freeSlots(n) { return Math.max(0, MAX_TILES - n); }
+
+/** A toggles `value` in the selection (in pick order), up to `limit`: { selected, error? 'full' }. */
+export function toggleSelection(selected, value, limit) {
+  if (selected.includes(value)) return { selected: selected.filter((v) => v !== value) };
+  if (selected.length >= limit) return { selected, error: 'full' };
+  return { selected: [...selected, value] };
+}
+
+/** Start/Y: the picked values, or the focused item when nothing is ticked (so A-less confirm still adds one). */
+export function confirmSelection(selected, focused, limit) {
+  const out = selected.length ? selected : focused != null ? [focused] : [];
+  return out.slice(0, limit);
+}
+
+// ---- the last set, per account ("Resume multi-view") ----
+
+const LOGIN = /^[a-z0-9_]{1,25}$/i;
+const ACCOUNT = /^\d{1,20}$/;
+
+function cleanTile(t) {
+  if (!t || typeof t !== 'object' || !LOGIN.test(String(t.login || ''))) return null;
+  const login = String(t.login).toLowerCase();
+  const name = typeof t.name === 'string' && t.name.trim() ? t.name.trim().slice(0, 50) : login;
+  const userId = t.userId != null && ACCOUNT.test(String(t.userId)) ? String(t.userId) : null;
+  return { login, name, userId };
+}
+
+function cleanSet(list) {
+  if (!Array.isArray(list)) return null;
+  const out = [];
+  for (const t of list) {
+    const c = cleanTile(t);
+    if (c && !out.some((x) => x.login === c.login)) out.push(c);
+    if (out.length >= MAX_TILES) break;
+  }
+  return out.length >= MIN_TILES ? out : null;
+}
+
+/** settings.multiSets: { <user id>: [{ login, name, userId }] } (2–4 each); anything else is dropped. */
+export function sanitizeMultiSets(v) {
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [id, list] of Object.entries(v)) {
+    if (!ACCOUNT.test(id)) continue;
+    const s = cleanSet(list);
+    if (s) out[id] = s;
+  }
+  return out;
+}
+
+/** Remembers this account's set (2+ tiles; fewer keeps the last one). Returns the new map, or null if unchanged. */
+export function rememberSet(sets, accountId, tiles) {
+  if (!accountId || !ACCOUNT.test(String(accountId))) return null;
+  const s = cleanSet(tiles);
+  if (!s) return null;
+  const cur = (sets || {})[accountId];
+  if (cur && cur.length === s.length && cur.every((t, i) => t.login === s[i].login && t.userId === s[i].userId)) return null;
+  return { ...(sets || {}), [accountId]: s };
+}
+
+/**
+ * "Resume multi-view": this account's saved channels that are live now (`live` = Helix /streams of followed
+ * channels), as the streams in the saved order; [] when fewer than two are live.
+ */
+export function resumableSet(sets, accountId, live) {
+  const saved = (sets || {})[accountId];
+  if (!saved || !Array.isArray(live)) return [];
+  const out = saved.map((t) => live.find((s) => String(s.user_login).toLowerCase() === t.login)).filter(Boolean);
+  return out.length >= MIN_TILES ? out : [];
+}

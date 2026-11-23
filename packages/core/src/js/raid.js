@@ -68,3 +68,42 @@ export class RaidCountdown {
     this.mode = null;
   }
 }
+
+/**
+ * One RaidCountdown per key (multi-view: per tile), so raids on several tiles count down, follow and cancel on
+ * their own. The callbacks get the key first.
+ */
+export class TileRaids {
+  /** @param {{onShow?: (key, state) => void, onTick?: (key, left) => void, onFollow: (key, ev) => void, onEnd?: (key, reason) => void}} cb */
+  constructor(cb) {
+    this.cb = cb;
+    this.map = new Map(); // key -> RaidCountdown
+  }
+
+  start(key, ev, opts) {
+    this.clear(key);
+    const rc = new RaidCountdown({
+      onShow: (s) => { if (this.cb.onShow) this.cb.onShow(key, s); },
+      onTick: (left) => { if (this.cb.onTick) this.cb.onTick(key, left); },
+      onFollow: (e) => { this.map.delete(key); this.cb.onFollow(key, e); },
+      onEnd: (reason) => { this.map.delete(key); if (this.cb.onEnd) this.cb.onEnd(key, reason); },
+    });
+    this.map.set(key, rc);
+    const mode = rc.start(ev, opts);
+    if (!rc.active) this.map.delete(key);
+    return mode;
+  }
+
+  active(key) { const rc = this.map.get(key); return !!(rc && rc.active); }
+
+  get(key) { const rc = this.map.get(key); return rc && rc.active ? { ev: rc.ev, mode: rc.mode, left: rc.secondsLeft() } : null; }
+
+  cancel(key) { const rc = this.map.get(key); return rc ? rc.cancel() : false; }
+
+  followNow(key) { const rc = this.map.get(key); return rc ? rc.followNow() : false; }
+
+  /** Drops a key's countdown without callbacks (its tile closed). */
+  clear(key) { const rc = this.map.get(key); if (rc) rc.clear(); this.map.delete(key); }
+
+  clearAll() { for (const k of [...this.map.keys()]) this.clear(k); }
+}

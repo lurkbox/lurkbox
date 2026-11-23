@@ -9,6 +9,7 @@ import { VIDEO_FILTERS, CLIP_PERIODS, validChoice } from './channel-page.js';
 import { sanitizeMyClips } from './my-clips.js';
 import { DEFAULT_QUICK_CHAT, sanitizeQuickChat, sanitizeEmoteRecents } from './quick-chat.js';
 import { validLayoutMode } from './layout-mode.js';
+import { sanitizeMultiSets } from './multiview.js';
 
 export const THEMES = ['lurkbox', 'game-mode', 'classic-purple', 'oled', 'daylight', 'high-contrast', 'custom'];
 export const CUSTOM_KEYS = ['bg', 'surface', 'accent', 'fg', 'muted'];
@@ -66,6 +67,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   continueWatchingOn: true, // Following → Continue watching row (positions are saved either way, for the resume prompt)
   searchHistory: Object.freeze({}), // Search → Recent searches, per account: { <user id>: [{ q, at, pick? }] } (shared/search-history.js)
   emoteRecents: Object.freeze({}), // the emote picker's Recent tab, per account: { <user id>: [names] }
+  multiSets: Object.freeze({}), // the last multi-view set, per account: { <user id>: [{ login, name, userId }] } (shared/multiview.js)
   // Chat layout (chat pop-over in the player and Settings → Chat; see ./chat-layout.js): chatTextSize, twitchChatSize
   // (Twitch chat style: zoom inside Twitch's chat frame, 'auto' = the TV rule, or 75..250 percent), chatWidth,
   // chatSide, chatHeight (30..100 percent of the player), chatVPos (top/bottom), chatBgOpacity, chatOverlay, chatOverlayOpacity.
@@ -97,6 +99,7 @@ export function sanitizeSettings(patch) {
   if ('quickChat' in patch) out.quickChat = sanitizeQuickChat(patch.quickChat);
   if ('searchHistory' in patch) out.searchHistory = sanitizeSearchHistory(patch.searchHistory);
   if ('emoteRecents' in patch) out.emoteRecents = sanitizeEmoteRecents(patch.emoteRecents);
+  if ('multiSets' in patch) out.multiSets = sanitizeMultiSets(patch.multiSets);
   if ('myClips' in patch) out.myClips = sanitizeMyClips(patch.myClips);
   if ('chatStyle' in patch) out.chatStyle = patch.chatStyle === 'twitch' ? 'twitch' : 'lurkbox';
   if ('profilePicker' in patch) out.profilePicker = patch.profilePicker === 'ask' ? 'ask' : 'remember';

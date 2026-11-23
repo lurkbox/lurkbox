@@ -1,13 +1,17 @@
 // Multi-view: 2–4 live streams at once (TV and tablet layouts). Each tile is its own DirectEngine (one hls.js
-// instance per tile); one tile is active: it alone has the sound, the normal quality, the chat side panel and the
-// raid subscription. The rules (geometry, D-pad, audio, caps, add/remove/swap) are pure, in ../shared/multiview.js.
-import { el, toast } from './ui.js';
-import { A, B, X, Y, UP, DOWN, LEFT, RIGHT } from './input.js';
+// instance per tile); one tile is active: it alone has the sound, the normal quality and the chat side panel (with
+// the composer). Every tile's raids come over the one EventSub socket and count down on their own tile. The rules
+// (geometry, D-pad, audio, caps, add/remove/swap, raids, the saved set) are pure, in ../shared/multiview.js.
+import { el, button, toast, fmtViewers } from './ui.js';
+import { A, B, X, Y, START, BACK, UP, DOWN, LEFT, RIGHT, hint } from './input.js';
 import { DirectEngine, EVENTS } from './direct-engine.js';
-import { Chat } from './chat.js';
-import { state } from './state.js';
+import { Chat, promptChatSignIn } from './chat.js';
+import { ChatSending } from './chat-sending.js';
+import { sendAuthState } from './chat-send.js';
+import { TileRaids } from './raid.js';
+import { state, saveSettings } from './state.js';
 import { backgroundCap, pickDefaultQuality } from './hls-util.js';
-import { pickFromList } from './modal.js';
+import { pickFromList, openModal } from './modal.js';
 import { followedLive } from './api.js';
 import * as MV from '../shared/multiview.js';
 
@@ -24,16 +28,60 @@ export function tileChannel(c) {
   return { login: c.login, name: c.name || c.login, userId: c.userId || c.id || null, stream: c.stream || null };
 }
 
-/** Picks one followed live channel not in `tiles` (a list modal); onPick gets the stream. */
-export async function pickLiveChannel({ tiles, title = 'Watch with…', onPick }) {
+const streamLabel = (s) => `${s.user_name || s.user_login}${s.game_name ? ` · ${s.game_name}` : ''}`;
+
+/**
+ * Picks followed live channels not in `tiles`, up to the free slots: with one slot, a plain list (A picks); with
+ * more, A ticks channels and Start or Y (or the Watch button) confirms. onPick gets the streams in pick order.
+ */
+export async function pickLiveChannels({ tiles, title = 'Watch with…', onPick }) {
+  const limit = MV.freeSlots(tiles.length);
+  if (!limit) { toast(`Multi-view shows at most ${MV.MAX_TILES} streams`, 2500); return; }
   let live = [];
   try { live = state.auth.signedIn ? await followedLive() : []; } catch { live = []; }
   const list = MV.candidates(live, tiles);
   if (!list.length) { toast(state.auth.signedIn ? 'No other followed channel is live' : 'Sign in to pick from your followed channels', 3000); return; }
-  pickFromList({
+  const byLogin = (login) => list.find((s) => s.user_login === login);
+  if (limit === 1 || list.length === 1) {
+    pickFromList({ title, items: list.map((s) => ({ label: streamLabel(s), value: s.user_login })), onPick: (login) => onPick([byLogin(login)]) });
+    return;
+  }
+  let selected = [];
+  const items = list.map((s) => button(streamLabel(s), () => {
+    const r = MV.toggleSelection(selected, s.user_login, limit);
+    if (r.error) toast(`At most ${limit} more stream${limit === 1 ? '' : 's'} fit`, 2000);
+    selected = r.selected;
+    update();
+  }, { class: 'pick-item', dataset: { value: s.user_login } }));
+  const count = el('div', { class: 'pick-count' });
+  const go = button('', () => done(), { class: 'primary pick-go' });
+  const update = () => {
+    for (const b of items) {
+      const on = selected.includes(b.dataset.value);
+      b.classList.toggle('selected', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    count.textContent = `${selected.length} of ${limit} picked`;
+    go.textContent = selected.length ? `Watch ${tiles.length + selected.length} streams` : 'Watch the focused one';
+  };
+  const done = () => {
+    const a = document.activeElement;
+    const focused = a && a.classList.contains('pick-item') ? a.dataset.value : null;
+    const logins = MV.confirmSelection(selected, focused, limit);
+    if (!logins.length) return;
+    m.close();
+    onPick(logins.map(byLogin).filter(Boolean));
+  };
+  update();
+  const m = openModal({
     title,
-    items: list.map((s) => ({ label: `${s.user_name || s.user_login}${s.game_name ? ` · ${s.game_name}` : ''}`, value: s.user_login })),
-    onPick: (login) => onPick(list.find((s) => s.user_login === login)),
+    class: 'pick-many',
+    content: el('div', { class: 'pick-many-body' }, hint('{A} pick · {START} or {Y} watch', 'hint pick-hint'), count, el('div', { class: 'pick-list' }, ...items), el('div', { class: 'row' }, go)),
+    focus: '.pick-item',
+    onAction: (action) => {
+      if (action === START || action === Y) { done(); return true; }
+      return false;
+    },
   });
 }
 
@@ -48,6 +96,17 @@ export class MultiView {
     this.screen.append(this.stage, this.chatPanel);
     document.body.append(this.screen);
     this.chat = new Chat(this.chatPanel);
+    // Sending: the active tile's chat gets the player's composer (View/Select, quick chat, emotes).
+    this.sending = new ChatSending({ chat: this.chat, panel: this.chatPanel, screen: this.screen, current: () => this.current(), onLeave: () => this.leaveComposer() });
+    this.composer = this.sending.composer;
+    this.chatLogin = null;
+    // A raid on any tile counts down on that tile; it then plays the raid target in place.
+    this.raids = new TileRaids({
+      onShow: (t) => this.renderRaid(t),
+      onTick: (t, left) => { const c = t.node.querySelector('.mv-raid-count'); if (c) c.textContent = String(left); },
+      onFollow: (t, ev) => this.followRaid(t, ev),
+      onEnd: (t) => this.renderRaid(t),
+    });
     this.tiles = []; // { ch, node, host, engine, error, quality }
     this.active = 0;
     this.layout = 'side';
@@ -89,7 +148,13 @@ export class MultiView {
     for (const t of this.tiles) this.destroyTile(t);
     this.tiles = [];
     this.stage.replaceChildren();
+    this.raids.clearAll();
+    this.sending.cpop.close({ returnFocus: false });
+    this.leaveComposer();
+    this.composer.clear();
+    this.composer.setVisible(false);
     this.chat.leave();
+    this.chatLogin = null;
     this.watcher.watch(null);
     this.screen.hidden = true;
     document.body.classList.remove('multi-active');
@@ -132,6 +197,7 @@ export class MultiView {
   }
 
   destroyTile(t) {
+    this.raids.clear(t);
     if (t.engine) { try { t.engine.destroy(); } catch { /* ignore */ } }
     t.engine = null;
   }
@@ -180,7 +246,9 @@ export class MultiView {
       const r = rects[i];
       Object.assign(t.node.style, { left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` });
       t.node.classList.toggle('active', i === this.active);
+      this.renderRaid(t);
     });
+    this.composer.setVisible(this.chatOn && state.auth.signedIn);
   }
 
   setActive(i) {
@@ -191,12 +259,28 @@ export class MultiView {
     this.followActive();
   }
 
-  /** The chat panel and the raid subscription follow the active tile. */
+  /** The chat panel follows the active tile; raids are watched on every tile; the set is remembered. */
   followActive() {
     const ch = this.current();
     if (!ch) return;
-    if (this.chatOn) this.chat.join(ch.login); else this.chat.leave();
-    this.watcher.watch(ch.userId ? { id: ch.userId, login: ch.login } : null);
+    const login = this.chatOn ? ch.login : null;
+    if (login !== this.chatLogin) {
+      // A draft (and the composer's pop-overs) belong to their channel.
+      this.sending.cpop.close({ returnFocus: false });
+      this.composer.clear();
+      this.chat.setOwnEmotes([]);
+      if (login) { this.chat.join(login); this.sending.loadOwnEmotes().catch(() => {}); } else this.chat.leave();
+      this.chatLogin = login;
+    }
+    this.watcher.watchMany(MV.raidTargets(this.tiles.map((t) => t.ch)));
+    this.remember();
+  }
+
+  /** Saves this set for "Resume multi-view" (per account, 2+ tiles). */
+  remember() {
+    const me = state.auth.user;
+    const next = me && MV.rememberSet(state.settings.multiSets, me.id, this.tiles.map((t) => t.ch));
+    if (next) saveSettings({ multiSets: next }).catch(() => {});
   }
 
   setBackground(on) {
@@ -221,12 +305,21 @@ export class MultiView {
     this.followActive();
   }
 
-  add(stream) {
-    const ch = tileChannel(stream);
-    const r = MV.addTile(this.tiles.map((t) => t.ch), this.active, ch);
-    if (r.error) { toast(r.error === 'full' ? `Multi-view shows at most ${MV.MAX_TILES} streams` : `${ch.name} is already here`, 2500); return; }
-    const t = this.addTileNode(ch);
-    this.rebuild([...this.tiles.filter((x) => x !== t), t], r.active);
+  /** Adds these streams (the last one added becomes active). */
+  add(streams) {
+    let tiles = this.tiles.map((t) => t.ch);
+    let active = this.active;
+    const added = [];
+    for (const s of [].concat(streams)) {
+      const ch = tileChannel(s);
+      const r = MV.addTile(tiles, active, ch);
+      if (r.error) { toast(r.error === 'full' ? `Multi-view shows at most ${MV.MAX_TILES} streams` : `${ch.name} is already here`, 2500); continue; }
+      ({ tiles, active } = r);
+      added.push(ch);
+    }
+    if (!added.length) return;
+    const fresh = added.map((ch) => this.addTileNode(ch));
+    this.rebuild([...this.tiles.filter((x) => !fresh.includes(x)), ...fresh], active);
   }
 
   remove(i) {
@@ -259,7 +352,7 @@ export class MultiView {
 
   openAdd() {
     if (this.tiles.length >= MV.MAX_TILES) { toast(`Multi-view shows at most ${MV.MAX_TILES} streams`, 2500); return; }
-    pickLiveChannel({ tiles: this.tiles.map((t) => t.ch), title: 'Add to multi-view', onPick: (s) => this.add(s) });
+    pickLiveChannels({ tiles: this.tiles.map((t) => t.ch), title: 'Add to multi-view', onPick: (list) => this.add(list) });
   }
 
   // ---- the active tile's overlay ----
@@ -269,9 +362,15 @@ export class MultiView {
     if (!t) return;
     const i = this.active;
     const items = [];
+    const raid = this.raids.get(t);
+    if (raid) {
+      items.push({ label: `Follow the raid to ${raid.ev.to_broadcaster_user_name} now`, value: 'raid-go' });
+      items.push({ label: raid.mode === 'countdown' ? 'Cancel the raid (stay)' : 'Dismiss the raid', value: 'raid-cancel' });
+    }
     if (t.error) items.push({ label: 'Try again', value: 'retry' });
     if (t.engine) items.push({ label: `Quality: ${t.quality ? (t.engine.getQualities().find((q) => q.group === t.quality) || {}).name || t.quality : 'Auto'}`, value: 'quality' });
     items.push({ label: this.chatOn ? 'Hide chat' : 'Show chat', value: 'chat' });
+    items.push({ label: 'Send a message', value: 'compose' });
     items.push({ label: `Layout: ${MV.LAYOUT_NAMES[MV.nextLayout(this.layout, this.tiles.length)]}`, value: 'layout' });
     if (this.tiles.length < MV.MAX_TILES) items.push({ label: 'Add stream…', value: 'add' });
     if (this.layout === 'big' && i !== 0) items.push({ label: 'Move to the big tile', value: 'big' });
@@ -281,7 +380,10 @@ export class MultiView {
       title: t.ch.name,
       items,
       onPick: (v) => {
-        if (v === 'retry') this.startTile(t);
+        if (v === 'raid-go') this.raids.followNow(t);
+        else if (v === 'raid-cancel') this.raids.cancel(t);
+        else if (v === 'compose') this.openComposer();
+        else if (v === 'retry') this.startTile(t);
         else if (v === 'quality') this.openQuality(t);
         else if (v === 'chat') this.toggleChat();
         else if (v === 'layout') this.cycleLayout();
@@ -303,31 +405,98 @@ export class MultiView {
     });
   }
 
-  // ---- raids: the active tile follows in place ----
+  // ---- raids: each tile counts down and follows in place ----
 
   onRaid(ev) {
     if (!this.isOpen) return;
-    const i = this.tiles.findIndex((t) => t.ch.userId && String(t.ch.userId) === String(ev.from_broadcaster_user_id));
+    const i = MV.raidTileIndex(this.tiles.map((t) => t.ch), ev);
     if (i < 0) return;
-    if (!state.settings.raidFollow) { toast(`${ev.from_broadcaster_user_name} is raiding ${ev.to_broadcaster_user_name}`, 4000); return; }
+    mlog(`[multi] raid ${ev.from_broadcaster_user_login} -> ${ev.to_broadcaster_user_login} (tile ${i})`);
+    this.raids.start(this.tiles[i], ev, { follow: !!state.settings.raidFollow, delaySec: state.settings.raidDelay });
+  }
+
+  /** The tile's compact raid banner (or none). B cancels / A follows only on the active tile; its menu has both. */
+  renderRaid(t) {
+    const r = this.raids.get(t);
+    let n = t.node.querySelector('.mv-raid');
+    t.node.classList.toggle('mv-raiding', !!r);
+    if (!r) { if (n) n.remove(); return; }
+    const isActive = this.tiles[this.active] === t;
+    const sig = `${r.ev.to_broadcaster_user_login}|${r.mode}|${isActive}`;
+    if (n && n.dataset.sig === sig) return;
+    if (n) n.remove();
+    const countdown = r.mode === 'countdown';
+    n = el('div', { class: 'mv-raid', dataset: { sig }, role: 'status' },
+      el('div', { class: 'mv-raid-line' },
+        el('span', { class: 'mv-raid-text' }, countdown ? `Raiding ${r.ev.to_broadcaster_user_name}` : `${r.ev.from_broadcaster_user_name} is raiding ${r.ev.to_broadcaster_user_name}`),
+        countdown ? el('span', { class: 'mv-raid-count' }, String(r.left)) : null),
+      el('div', { class: 'mv-raid-sub' }, `${fmtViewers(r.ev.viewers)} viewers`),
+      isActive ? hint(countdown ? '{B} stay · {A} go now' : '{A} follow · {B} dismiss', 'hint mv-raid-hint') : el('div', { class: 'mv-raid-sub' }, 'Select this tile to stay'));
+    t.node.append(n);
+  }
+
+  /** The raid target replaces its tile in place (or the tile goes, if the target is already on screen). */
+  followRaid(t, ev) {
+    const i = this.tiles.indexOf(t);
+    if (i < 0 || !this.isOpen) return;
+    const ch = MV.raidChannel(ev);
+    const next = MV.replaceTile(this.tiles.map((x) => x.ch), i, ch);
+    if (next.length < this.tiles.length) { toast(`${ev.to_broadcaster_user_name} is already here`, 3000); this.remove(i); return; }
     toast(`${ev.from_broadcaster_user_name} raided ${ev.to_broadcaster_user_name}: following in its tile`, 4000, 'ok');
-    const ch = { login: ev.to_broadcaster_user_login, name: ev.to_broadcaster_user_name, userId: ev.to_broadcaster_user_id, stream: null };
-    const next = MV.replaceTile(this.tiles.map((t) => t.ch), i, ch);
-    if (next.length < this.tiles.length) { this.remove(i); return; } // already on screen
-    const t = this.tiles[i];
     t.ch = ch;
     t.quality = null;
     t.node.dataset.login = ch.login;
     t.node.querySelector('.mv-name').textContent = ch.name;
+    this.renderRaid(t);
     this.startTile(t);
-    if (i === this.active) this.followActive();
+    this.followActive();
+  }
+
+  // ---- sending ----
+
+  /** True when the composer is on screen and usable (chat showing, signed in). */
+  composerReachable() {
+    return this.chatOn && sendAuthState(state.auth) === 'ok' && !this.composer.node.hidden;
+  }
+
+  /** View/Select (or the tile menu): chat on, focus the composer and open a keyboard. */
+  openComposer() {
+    const auth = sendAuthState(state.auth);
+    if (auth !== 'ok') { promptChatSignIn(auth); return; }
+    if (!this.chatOn) this.toggleChat();
+    this.composer.focus({ keyboard: true });
+  }
+
+  leaveComposer() {
+    const a = document.activeElement;
+    if (a && this.composer.contains(a)) a.blur();
+    document.body.classList.remove('composing');
   }
 
   // ---- input ----
 
-  handle(action) {
-    if (DIR[action]) { this.setActive(MV.moveActive(MV.layoutRects(this.layout, this.tiles.length), this.active, DIR[action])); return; }
-    if (action === A) this.openMenu();
+  handle(action, source = 'pad') {
+    const cpop = this.sending.cpop;
+    if (cpop.isOpen) { cpop.handle(action, source); return; } // the emote picker or quick chat
+    if (this.composer.contains(document.activeElement)) {
+      if (this.composer.handle(action, source)) return;
+      if (action === Y) this.leaveComposer();
+      return; // the rest would act on the tiles behind it
+    }
+    const t = this.tiles[this.active];
+    if (t && this.raids.active(t)) {
+      if (action === B) { this.raids.cancel(t); return; }
+      if (action === A) { this.raids.followNow(t); return; }
+    }
+    if (DIR[action]) {
+      const next = MV.moveActive(MV.layoutRects(this.layout, this.tiles.length), this.active, DIR[action]);
+      // RIGHT past the last tile: into the chat's message box (A then opens the keyboard).
+      if (next === this.active && action === RIGHT && this.composerReachable()) { this.composer.focus({ keyboard: false }); return; }
+      this.setActive(next);
+      return;
+    }
+    if (action === BACK) this.openComposer();
+    else if (action === A) this.openMenu();
     else if (action === B) this.exit();
     else if (action === X) this.openAdd();
     else if (action === Y) this.cycleLayout();

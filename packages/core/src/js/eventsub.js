@@ -1,5 +1,5 @@
-// EventSub WebSocket clients: one subscription type per connection. RaidWatcher follows one channel's outgoing
-// raids (channel.raid); WhisperWatcher receives the signed-in account's whispers (user.whisper.message). Each has
+// EventSub WebSocket clients: one subscription type per connection. RaidWatcher follows the watched channel's
+// outgoing raids (channel.raid; in multi-view every tile's, all on this one socket); WhisperWatcher receives the signed-in account's whispers (user.whisper.message). Each has
 // its own socket, so the raid one can come and go with the player while whispers stay connected.
 //
 // Lifecycle (shown for raids; whispers watch the signed-in user instead of a channel):
@@ -38,13 +38,14 @@ export class EventSubWatcher extends EventTarget {
     this.WS = deps.WebSocket || globalThis.WebSocket;
     this.isSignedIn = deps.isSignedIn || (() => state.auth.signedIn);
     this.getAccountId = deps.getAccountId || (() => state.auth.active);
-    this.target = null; // { id, login }
+    this.targets = new Map(); // id -> { id, login }
+    this.maxTargets = spec.maxTargets || 1;
     this.ws = null; // active socket
     this.pendingWs = null; // socket opened for session_reconnect
     this.sessionId = null;
     this.gen = 0; // increments for every fresh (non-reconnect) session
     this.keepaliveMs = 30000;
-    this.sub = null; // { id, targetId, gen, accountId }
+    this.subs = new Map(); // targetId -> { id, targetId, gen, accountId }
     this.watchdog = null;
     this.retryTimer = null;
     this.backoff = 0;
@@ -57,12 +58,32 @@ export class EventSubWatcher extends EventTarget {
 
   /** Watch this target ({ id, login }: the channel for raids, yourself for whispers), or stop with null. */
   watch(target) {
-    const id = target && target.id ? String(target.id) : null;
-    if ((this.target && this.target.id) === id) return;
-    this.target = id ? { id, login: target.login } : null;
-    console.log(`[${this.spec.tag}] watch ${this.target ? `${this.target.login} (${id})` : 'nothing'}`);
+    this.watchMany(target ? [target] : []);
+  }
+
+  /**
+   * Watch several targets on this one connection (multi-view: every tile's raids). Subscriptions are added and
+   * deleted to match; past spec.maxTargets (Twitch's per-connection cost limit) the rest are left out, with a log.
+   */
+  watchMany(list) {
+    const next = new Map();
+    for (const t of list || []) {
+      const id = t && t.id ? String(t.id) : null;
+      if (!id || next.has(id)) continue;
+      if (next.size >= this.maxTargets) { console.warn(`[${this.spec.tag}] over ${this.maxTargets} targets, not watching ${t.login}`); continue; }
+      next.set(id, { id, login: t.login });
+    }
+    if (next.size === this.targets.size && [...next.keys()].every((id) => this.targets.has(id))) return;
+    this.targets = next;
+    console.log(`[${this.spec.tag}] watch ${next.size ? [...next.values()].map((t) => `${t.login} (${t.id})`).join(', ') : 'nothing'}`);
     this.kick();
   }
+
+  /** The first watched target (the only one outside multi-view), or null. */
+  get target() { return this.targets.values().next().value || null; }
+
+  /** The subscription for the first target (compat with the single-target callers and tests). */
+  get sub() { return this.subs.values().next().value || null; }
 
   setStatus(status, detail = '') {
     if (status === this.status && !detail) return;
@@ -89,15 +110,16 @@ export class EventSubWatcher extends EventTarget {
     }
   }
 
+  async deleteAll() {
+    const old = [...this.subs.values()];
+    this.subs.clear();
+    for (const s of old) await this.deleteSub(s.id, s.accountId);
+  }
+
   async syncOnce() {
     clearTimeout(this.retryTimer);
-    const want = this.target;
-    if (!want) {
-      if (this.sub) {
-        const old = this.sub;
-        this.sub = null;
-        await this.deleteSub(old.id, old.accountId);
-      }
+    if (!this.targets.size) {
+      await this.deleteAll();
       this.disconnect();
       this.setStatus('off');
       return;
@@ -107,51 +129,51 @@ export class EventSubWatcher extends EventTarget {
       this.setStatus('signed-out');
       return;
     }
-    // Account switched: delete the old subscription with the OLD account's token,
-    // then start a fresh session so the new account's token owns the subscription.
-    if (this.sub && this.sub.accountId !== this.getAccountId()) {
-      const old = this.sub;
-      this.sub = null;
-      await this.deleteSub(old.id, old.accountId);
+    // Account switched: delete the old subscriptions with the OLD account's token,
+    // then start a fresh session so the new account's token owns the subscriptions.
+    if ([...this.subs.values()].some((s) => s.accountId !== this.getAccountId())) {
+      await this.deleteAll();
       this.disconnect();
     }
     if (!this.ws || !this.sessionId) {
       this.ensureSocket(); // the welcome message kicks another sync
       return;
     }
-    if (this.sub && this.sub.targetId === want.id && this.sub.gen === this.gen) {
-      this.setStatus('active');
-      return;
+    // Delete first (frees cost for the new ones): targets no longer wanted, and leftovers of an older session.
+    for (const [tid, s] of [...this.subs]) {
+      if (this.targets.has(tid) && s.gen === this.gen) continue;
+      this.subs.delete(tid);
+      if (s.gen === this.gen) await this.deleteSub(s.id, s.accountId);
     }
-    if (this.sub) {
-      const old = this.sub;
-      this.sub = null;
-      if (old.gen === this.gen) await this.deleteSub(old.id, old.accountId);
-    }
-    const gen = this.gen;
-    const sessionId = this.sessionId;
-    const accountId = this.getAccountId();
-    try {
-      const id = await this.create(want.id, sessionId, false, accountId);
-      if (gen !== this.gen) {
-        // A fresh session started while we were subscribing; that sub is dead.
-        this.dirty = true;
+    for (const want of [...this.targets.values()]) {
+      if (this.subs.has(want.id)) continue;
+      if (!this.targets.has(want.id)) continue; // dropped while an earlier one was subscribing
+      const gen = this.gen;
+      const sessionId = this.sessionId;
+      const accountId = this.getAccountId();
+      try {
+        const id = await this.create(want.id, sessionId, false, accountId);
+        if (gen !== this.gen) {
+          // A fresh session started while we were subscribing; that sub is dead.
+          this.dirty = true;
+          return;
+        }
+        this.subs.set(want.id, { id, targetId: want.id, gen, accountId });
+        console.log(`[${this.spec.tag}] subscribed ${this.spec.type} for ${want.login} (${id})`);
+        if (!this.targets.has(want.id)) this.dirty = true; // target dropped meanwhile: the next pass deletes it
+      } catch (e) {
+        if (e.code === 'NOT_SIGNED_IN') {
+          this.disconnect();
+          this.setStatus('signed-out');
+          return;
+        }
+        console.warn(`[${this.spec.tag}]`, 'subscribe failed', want.login, e.status, e.message);
+        this.setStatus('error', e.message);
+        this.retryTimer = setTimeout(() => this.kick(), 5000);
         return;
       }
-      this.sub = { id, targetId: want.id, gen, accountId };
-      console.log(`[${this.spec.tag}] subscribed ${this.spec.type} for ${want.login} (${id})`);
-      if (!this.target || this.target.id !== want.id) this.dirty = true; // channel changed meanwhile
-      else this.setStatus('active');
-    } catch (e) {
-      if (e.code === 'NOT_SIGNED_IN') {
-        this.disconnect();
-        this.setStatus('signed-out');
-        return;
-      }
-      console.warn(`[${this.spec.tag}]`, 'subscribe failed', e.status, e.message);
-      this.setStatus('error', e.message);
-      this.retryTimer = setTimeout(() => this.kick(), 5000);
     }
+    this.setStatus('active');
   }
 
   async create(targetId, sessionId, retried = false, accountId = this.getAccountId()) {
@@ -202,7 +224,7 @@ export class EventSubWatcher extends EventTarget {
     }
   }
 
-  async deleteSub(id, accountId = this.sub ? this.sub.accountId : this.getAccountId()) {
+  async deleteSub(id, accountId = this.getAccountId()) {
     try {
       await this.helix('/eventsub/subscriptions', { id }, { method: 'DELETE', accountId });
     } catch (e) {
@@ -212,10 +234,8 @@ export class EventSubWatcher extends EventTarget {
 
   /** Deletes the subscription and closes the socket (used when quitting). */
   async shutdown() {
-    this.target = null;
-    const old = this.sub;
-    this.sub = null;
-    if (old) await this.deleteSub(old.id, old.accountId);
+    this.targets = new Map();
+    await this.deleteAll();
     this.disconnect();
   }
 
@@ -260,7 +280,7 @@ export class EventSubWatcher extends EventTarget {
       }
       this.sessionId = s.id;
       this.gen++;
-      this.sub = null;
+      this.subs.clear();
       this.backoff = 0;
       this.armWatchdog();
       this.kick();
@@ -284,8 +304,9 @@ export class EventSubWatcher extends EventTarget {
       case 'revocation': {
         const sid = msg.payload.subscription && msg.payload.subscription.id;
         console.warn(`[${this.spec.tag}]`, 'revocation', msg.payload.subscription && msg.payload.subscription.status);
-        if (this.sub && this.sub.id === sid) {
-          this.sub = null;
+        const hit = [...this.subs].find(([, x]) => x.id === sid);
+        if (hit) {
+          this.subs.delete(hit[0]);
           this.retryTimer = setTimeout(() => this.kick(), 3000);
         }
         break;
@@ -304,7 +325,7 @@ export class EventSubWatcher extends EventTarget {
       if (this.seen.size > 50) this.seen.delete(this.seen.keys().next().value);
     }
     if (meta.message_timestamp && Date.now() - Date.parse(meta.message_timestamp) > 10 * 60 * 1000) return;
-    if (!this.target || !this.spec.accept(ev, this.target)) return;
+    if (![...this.targets.values()].some((t) => this.spec.accept(ev, t))) return;
     this.dispatchEvent(new CustomEvent(this.spec.event, { detail: ev }));
   }
 
@@ -336,9 +357,9 @@ export class EventSubWatcher extends EventTarget {
     clearTimeout(this.watchdog);
     this.ws = null;
     this.sessionId = null;
-    this.sub = null; // websocket subscriptions die with their session
+    this.subs.clear(); // websocket subscriptions die with their session
     if (this.pendingWs) { this.pendingWs.onclose = null; try { this.pendingWs.close(); } catch { /* ignore */ } this.pendingWs = null; }
-    if (this.target && this.isSignedIn()) {
+    if (this.targets.size && this.isSignedIn()) {
       const delay = Math.min(30000, 1000 * 2 ** this.backoff++);
       this.setStatus('reconnecting', `retry in ${Math.round(delay / 1000)}s`);
       clearTimeout(this.retryTimer);
@@ -359,7 +380,7 @@ export class EventSubWatcher extends EventTarget {
     this.ws = null;
     this.pendingWs = null;
     this.sessionId = null;
-    this.sub = null;
+    this.subs.clear();
   }
 }
 
@@ -368,6 +389,8 @@ export class RaidWatcher extends EventSubWatcher {
   constructor(deps = {}) {
     super(deps, {
       type: 'channel.raid', version: '1', tag: 'eventsub', event: 'raid',
+      // A WebSocket session allows a total cost of 10; each channel.raid on someone else's channel costs 1.
+      maxTargets: 10,
       condition: (id) => ({ from_broadcaster_user_id: id }),
       accept: (ev, target) => {
         if (ev.from_broadcaster_user_id !== target.id) return false;

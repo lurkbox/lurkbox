@@ -104,3 +104,73 @@ test('B: back to the single player on the active stream', () => {
   assert.equal(exitTarget(t, 9).login, 'a');
   assert.equal(exitTarget([], 0), null);
 });
+
+test('raids on every tile: the watcher targets, the raiding tile, the target as a tile', async () => {
+  const { raidTargets, raidTileIndex, raidChannel } = await import('../src/shared/multiview.js');
+  const tiles = [ch('a'), { login: 'nouid', name: 'N' }, ch('c')];
+  assert.deepEqual(raidTargets(tiles), [{ id: 'id-a', login: 'a' }, { id: 'id-c', login: 'c' }], 'tiles without an id are not watched');
+  assert.equal(raidTileIndex(tiles, { from_broadcaster_user_id: 'id-c' }), 2);
+  assert.equal(raidTileIndex(tiles, { from_broadcaster_user_id: 'id-x' }), -1);
+  assert.equal(raidTileIndex(tiles, {}), -1);
+  const t = raidChannel({ to_broadcaster_user_login: 'zed', to_broadcaster_user_name: 'Zed', to_broadcaster_user_id: 77 });
+  assert.deepEqual(t, { login: 'zed', name: 'Zed', userId: '77', stream: null });
+  // The swap in place keeps the other tiles and the order; a target already on screen drops the raiding tile.
+  assert.deepEqual(replaceTile(tiles, 2, t).map((x) => x.login), ['a', 'nouid', 'zed']);
+  assert.deepEqual(replaceTile(tiles, 2, ch('a')).map((x) => x.login), ['a', 'nouid']);
+});
+
+test('multi-select picker: A toggles up to the free slots, Start confirms (or takes the focused one)', async () => {
+  const { toggleSelection, confirmSelection, freeSlots } = await import('../src/shared/multiview.js');
+  assert.equal(freeSlots(1), 3);
+  assert.equal(freeSlots(3), 1);
+  assert.equal(freeSlots(4), 0);
+  assert.equal(freeSlots(9), 0);
+  let s = [];
+  s = toggleSelection(s, 'a', 2).selected;
+  s = toggleSelection(s, 'b', 2).selected;
+  const full = toggleSelection(s, 'c', 2);
+  assert.equal(full.error, 'full');
+  assert.deepEqual(full.selected, ['a', 'b'], 'past the limit nothing changes');
+  s = toggleSelection(s, 'a', 2).selected;
+  assert.deepEqual(s, ['b'], 'A again unticks');
+  s = toggleSelection(s, 'c', 2).selected;
+  assert.deepEqual(s, ['b', 'c'], 'pick order');
+  assert.deepEqual(confirmSelection(s, 'x', 2), ['b', 'c']);
+  assert.deepEqual(confirmSelection([], 'x', 2), ['x'], 'nothing ticked: the focused one');
+  assert.deepEqual(confirmSelection([], null, 2), []);
+  assert.deepEqual(confirmSelection(['a', 'b', 'c'], null, 2), ['a', 'b']);
+});
+
+test('the last set per account: sanitising, remembering, resuming with 2+ live', async () => {
+  const { sanitizeMultiSets, rememberSet, resumableSet } = await import('../src/shared/multiview.js');
+  const clean = sanitizeMultiSets({
+    123: [{ login: 'Alpha', name: 'Alpha', userId: '1' }, { login: 'beta', userId: 2 }, { login: 'alpha' }, { login: 'bad login!' }],
+    456: [{ login: 'solo' }],
+    abc: [{ login: 'a' }, { login: 'b' }],
+    789: 'nope',
+    999: Array.from({ length: 6 }, (_, i) => ({ login: `c${i}`, userId: 'not-a-number' })),
+  });
+  assert.deepEqual(clean, {
+    123: [{ login: 'alpha', name: 'Alpha', userId: '1' }, { login: 'beta', name: 'beta', userId: '2' }],
+    999: [0, 1, 2, 3].map((i) => ({ login: `c${i}`, name: `c${i}`, userId: null })),
+  }, 'lower-case logins, no repeats, 2–4 per set, numeric account ids only');
+  assert.deepEqual(sanitizeMultiSets(null), {});
+  assert.deepEqual(sanitizeSettings({ multiSets: { 1: [ch('a'), ch('b')] } }).multiSets, { 1: [{ login: 'a', name: 'A', userId: null }, { login: 'b', name: 'B', userId: null }] });
+  assert.deepEqual(DEFAULT_SETTINGS.multiSets, {});
+
+  const tiles = [{ login: 'a', name: 'A', userId: '1' }, { login: 'b', name: 'B', userId: '2' }, { login: 'c', name: 'C', userId: '3' }];
+  const sets = rememberSet({}, '42', tiles);
+  assert.deepEqual(sets['42'].map((t) => t.login), ['a', 'b', 'c']);
+  assert.equal(rememberSet(sets, '42', tiles), null, 'unchanged: no save');
+  assert.equal(rememberSet(sets, '42', tiles.slice(0, 1)), null, 'one tile keeps the last set');
+  assert.equal(rememberSet(sets, null, tiles), null, 'signed out: nothing');
+  const both = rememberSet(sets, '43', tiles.slice(1));
+  assert.deepEqual(Object.keys(both).sort(), ['42', '43'], 'per account');
+  assert.deepEqual(both['42'], sets['42']);
+
+  const live = [{ user_login: 'c' }, { user_login: 'x' }, { user_login: 'A' }];
+  assert.deepEqual(resumableSet(both, '42', live).map((s) => s.user_login), ['A', 'c'], 'saved order, live only');
+  assert.deepEqual(resumableSet(both, '43', live), [], 'only one of its channels is live');
+  assert.deepEqual(resumableSet(both, '44', live), []);
+  assert.deepEqual(resumableSet(both, '42', null), []);
+});

@@ -11,7 +11,7 @@ import { openSignIn, tvSignIn } from './auth.js';
 import { Player } from './player.js';
 import { RaidWatcher } from './eventsub.js';
 import { el, toast } from './ui.js';
-import { tw } from './api.js';
+import { tw, followedLive } from './api.js';
 import { channelOfCard, setChannelOpener } from './grid.js';
 import { installMarquee } from './marquee.js';
 import { keepFocusOutOfFrames } from './frame-focus.js';
@@ -33,7 +33,8 @@ import { whispers } from './whispers.js';
 import { hint } from './input.js';
 import { emoteSearchView } from './views/emote-search.js';
 import { installLayout, applyLayout, isTouchLayout, isPhoneLayout, gamepadConnected } from './layout.js';
-import { MultiView, pickLiveChannel, tileChannel } from './multiview.js';
+import { MultiView, pickLiveChannels, tileChannel } from './multiview.js';
+import { resumableSet } from '../shared/multiview.js';
 import { bindTouchSwipe, bindPullToRefresh } from './touch.js';
 import { tabStepForSwipe } from '../shared/gestures.js';
 
@@ -229,11 +230,22 @@ const nav = {
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     multi.open(channels);
   },
-  /** Pick a followed live channel to watch next to c (then multi-view). */
+  /** Pick followed live channels (up to three) to watch next to c (then multi-view). */
   watchWith(c) {
     if (isPhoneLayout()) { toast('Multi-view needs a bigger screen', 3000); return; }
     const first = tileChannel(c);
-    pickLiveChannel({ tiles: [first], onPick: (s) => nav.openMulti([first, s]) });
+    pickLiveChannels({ tiles: [first], onPick: (list) => nav.openMulti([first, ...list]) });
+  },
+  /** The account's last multi-view set, as the streams of its channels that are live now ([] below two). */
+  async resumableMulti() {
+    if (isPhoneLayout() || !state.auth.signedIn || !state.auth.user) return [];
+    try { return resumableSet(state.settings.multiSets, state.auth.user.id, await followedLive()); } catch { return []; }
+  },
+  /** "Resume multi-view" (player More, a live card's X menu). */
+  async resumeMulti() {
+    const list = await nav.resumableMulti();
+    if (list.length < 2) { toast('Fewer than two of your last multi-view channels are live', 3000); return; }
+    nav.openMulti(list);
   },
   /** B in multi-view (or one tile left): the single player on that channel; back from it returns to the list. */
   leaveMulti(ch) {
@@ -243,13 +255,21 @@ const nav = {
     player.openLive({ login: ch.login, name: ch.name, userId: ch.userId, stream: ch.stream || undefined }, []);
   },
   /** X or a long-press on a card: a live card offers "Watch with…" (TV and tablet); others open the channel page. */
-  cardAction(c) {
+  async cardAction(c) {
     if (!c.live || isPhoneLayout()) { nav.openChannel(c); return; }
+    const resume = await nav.resumableMulti();
+    const items = [{ label: 'Channel page', value: 'channel' }, { label: 'Watch with… (multi-view)', value: 'multi' }];
+    if (resume.length >= 2) items.push({ label: `Resume multi-view (${resume.map((s) => s.user_name || s.user_login).join(', ')})`, value: 'resume' });
+    if (hasModal()) return; // something else opened meanwhile
     pickFromList({
       title: c.name,
-      items: [{ label: 'Channel page', value: 'channel' }, { label: 'Watch with… (multi-view)', value: 'multi' }],
+      items,
       current: 'channel',
-      onPick: (v) => { if (v === 'multi') nav.watchWith({ login: c.login, name: c.name, userId: c.id }); else nav.openChannel(c); },
+      onPick: (v) => {
+        if (v === 'multi') nav.watchWith({ login: c.login, name: c.name, userId: c.id });
+        else if (v === 'resume') nav.openMulti(resume);
+        else nav.openChannel(c);
+      },
     });
   },
 
