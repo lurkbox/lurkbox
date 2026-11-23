@@ -31,7 +31,7 @@ import java.util.regex.Pattern;
 public class TwitchWebDialog {
     private static final String TAG = "Lurkbox";
     /** The pages the window may show (as the desktop's TWITCH_WINDOW_URL). */
-    static final Pattern ALLOWED = Pattern.compile("^https://((www|id|passport|m)\\.)?twitch\\.tv(/.*)?$");
+    static final Pattern ALLOWED = Pattern.compile("^https://((www|id|passport|auth|m)\\.)?twitch\\.tv(/.*)?$"); // auth.: the Authorize (consent) step
     /** twitch.tv's desktop pages (the TV zoom expects them); phones and tablets get the WebView's own mobile agent. */
     static final String DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
