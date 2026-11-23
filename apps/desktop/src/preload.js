@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('lurkbox', {
   liveInfo: (login) => ipcRenderer.invoke('direct:liveInfo', login),
   clipSources: (slug) => ipcRenderer.invoke('direct:clip', slug),
   storyboard: (vodId) => ipcRenderer.invoke('direct:storyboard', vodId),
+  vodComments: (req) => ipcRenderer.invoke('direct:vodComments', req),
   resumeGet: (videoId) => ipcRenderer.invoke('resume:get', videoId),
   resumeSet: (videoId, position, duration, meta) => ipcRenderer.invoke('resume:set', videoId, position, duration, meta),
   resumeList: () => ipcRenderer.invoke('resume:list'),

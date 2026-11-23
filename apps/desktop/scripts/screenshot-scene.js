@@ -27,6 +27,8 @@ const SETUP = {
   'player-chat': { settings: { chatDefault: true } },
   'player-chat-overlay': { settings: { chatDefault: true, chatOverlay: true, chatOverlayOpacity: 45, chatHeight: 65, chatVPos: 'bottom' } },
   'player-rewind': {},
+  // A past broadcast at 12:00 with its chat replay beside it (the demo's made-up comments).
+  'player-vod-chat': { settings: { chatDefault: true } },
   // A prediction and a poll on the channel (the demo's, LURKBOX_DEMO_PREDICTIONS): the card in the overlay, then the
   // prediction's dialog with its live totals.
   'player-prediction': { env: { LURKBOX_DEMO_PREDICTIONS: '1' } },
@@ -295,6 +297,20 @@ app.on('browser-window-created', (_e, win) => {
       await press('DOWN'); // the second outcome
       await settle();
       await shoot('player-prediction');
+    },
+    async 'player-vod-chat'() {
+      await following();
+      const video = await js(`(async () => {
+        const s = (await window.lurkbox.helix({ path: '/streams/followed', query: { user_id: window.__lurkbox.state.auth.user.id } })).data.data[0];
+        return (await window.lurkbox.helix({ path: '/videos', query: { user_id: s.user_id, type: 'archive' } })).data.data.find((x) => !x.stream_id);
+      })()`);
+      await js(`window.__lurkbox.nav.playVideo(${JSON.stringify(video)}, { startAt: 720 }); true`);
+      await waitFor('the chat replay', "/Chat replay/.test(document.querySelector('#chat .chat-title').textContent) && document.querySelectorAll('#chat .chat-msg:not(.system)').length >= 9", 30000);
+      await waitFor('the video', "(() => { const v = document.querySelector('#player-screen video'); return v && v.currentTime > 721; })()", 20000).catch(() => null);
+      await overlay();
+      await focusControl('chat');
+      await settle();
+      await shoot('player-vod-chat');
     },
     async 'player-popover'() {
       await openFirstLive();
