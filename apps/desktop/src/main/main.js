@@ -177,8 +177,8 @@ function patchPlayerFrames() {
 // Twitch's embedded chat (chat style "Twitch chat", rewards, predictions, polls) is drawn at desktop size, so it is
 // zoomed for the TV inside the frame: Settings → Chat → Twitch chat size, Auto = the login window's rule.
 // Re-applied on every load of the frame, on every points scan, when the frame's mode changes (points:mode) and when the
-// setting or the UI scale changes. Only the chat panel and the rewards view are zoomed: the hidden frame (Lurkbox chat
-// style) keeps a desktop layout, or Twitch leaves out the points summary (chatFrameZoom).
+// setting or the UI scale changes. Only the chat panel and the rewards view are zoomed: the hidden points frame (both chat
+// styles) keeps a desktop layout, or Twitch leaves out the points summary (chatFrameZoom).
 let lastChatZoomLog = '';
 let chatFrameMode = 'hidden'; // the core's TwitchChatFrame mode: 'hidden', 'panel' or 'modal'
 function chatZoom() {
@@ -187,13 +187,12 @@ function chatZoom() {
 function zoomChatFrames() {
   if (!win || win.isDestroyed()) return;
   const z = chatZoom();
-  const mode = chatFrameMode;
-  const opts = chatFrameZoom(mode, z);
   const jobs = [];
   for (const f of win.webContents.mainFrame.framesInSubtree) {
-    let chat = false;
-    try { chat = points.isChatFrameUrl(f.url); } catch { /* frame gone */ }
-    if (!chat) continue;
+    let mode = null;
+    try { if (points.isChatFrameUrl(f.url)) mode = points.chatFrameModeFor(f.url, chatFrameMode); } catch { /* frame gone */ }
+    if (!mode) continue;
+    const opts = chatFrameZoom(mode, z);
     jobs.push(f.executeJavaScript(zoomFrameSource(opts.zoom, opts)).then((m) => {
       const line = `[chat] Twitch chat frame zoom ${opts.zoom} in ${mode} mode (computed ${m && m.zoom}; CSS viewport ${m && m.vw}x${m && m.vh}, layout ${m && m.lw}x${m && m.lh}) ${f.url.split('?')[0]}`;
       if (line !== lastChatZoomLog) { lastChatZoomLog = line; appLog(line); }
@@ -579,7 +578,8 @@ function registerIpc() {
   const note = (line) => { if (line !== pointsNote) { pointsNote = line; appLog(line); } };
   const chatFrames = (login) => {
     if (!win || win.isDestroyed()) return [];
-    return win.webContents.mainFrame.framesInSubtree.filter((f) => { try { return points.isChatFrameUrl(f.url, login); } catch { return false; } });
+    // Only the points frame: in Twitch chat style the visible panel is a second chat frame, which never claims.
+    return win.webContents.mainFrame.framesInSubtree.filter((f) => { try { return points.isPointsFrameUrl(f.url, login); } catch { return false; } });
   };
   const scanPoints = async () => {
     const login = pointsLogin;

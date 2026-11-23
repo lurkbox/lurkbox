@@ -6,7 +6,7 @@
 // asks for the keyboard on its text box, and B goes back before it closes. The frame is zoomed per mode as the main
 // process zooms Twitch's real chat frame (chatFrameZoom): the fixture, like Twitch, leaves out the points summary when
 // the chat's layout is narrow, so in Lurkbox chat style the hidden frame must keep a desktop layout (zoom 1). The
-// rewards view is opened from both chat styles: from the hidden frame (Lurkbox chat) and from the panel (Twitch chat).
+// rewards view always opens from the hidden points frame (in Twitch chat style the visible panel is a separate frame).
 //   npm run test:points            (LURKBOX_SHOT_DIR=<dir> also saves points-*.png screenshots there)
 const fs = require('fs');
 const path = require('path');
@@ -34,7 +34,7 @@ async function offScreenCheck() {
     const css = pathToFileURL(require.resolve('@lurkbox/core/src/css/app.css')).href;
     await host(`new Promise((res) => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = ${JSON.stringify(css)}; l.onload = res; document.head.append(l); })`);
     const js = (s) => w.webContents.mainFrame.frames[0].executeJavaScript(s);
-    await host("const h = document.getElementById('twitch-chat-host'); h.className = 'tc-hidden'; h.style.left = '-10000px'; true");
+    await host("const h = document.getElementById('twitch-chat-host'); h.className = 'twitch-chat-host tc-hidden'; h.style.left = '-10000px'; true");
     await js(zoomFrameSource(1));
     await wait(400);
     const off = await js(points.scanSource({ autoClaim: false }));
@@ -75,7 +75,7 @@ app.whenReady().then(async () => {
 
   // The frame in a mode of the core's TwitchChatFrame, zoomed the way main.js zooms it for that mode.
   const setMode = async (mode) => {
-    await host(`document.getElementById('twitch-chat-host').className = 'tc-${mode}'; true`);
+    await host(`document.getElementById('twitch-chat-host').className = 'twitch-chat-host tc-${mode}'; true`);
     await wait(100);
     const o = chatFrameZoom(mode, ZOOM);
     const m = await js(zoomFrameSource(o.zoom, o));
@@ -85,7 +85,7 @@ app.whenReady().then(async () => {
 
   // ---- scanning in Lurkbox chat style: the frame is hidden off-screen ----
   // The bug: at the TV zoom the hidden frame (340 CSS px) has a layout under 200 px wide and the summary is not rendered.
-  await host("document.getElementById('twitch-chat-host').className = 'tc-hidden'; true");
+  await host("document.getElementById('twitch-chat-host').className = 'twitch-chat-host tc-hidden'; true");
   await wait(100);
   const old = await js(zoomFrameSource(ZOOM));
   await wait(120);
@@ -140,7 +140,7 @@ app.whenReady().then(async () => {
   };
   const closeView = async () => {
     await js(points.closeRewardsSource());
-    await host("document.getElementById('twitch-chat-host').className = 'tc-panel'; document.querySelector('.points-backdrop').hidden = true; true");
+    await host("document.getElementById('twitch-chat-host').className = 'twitch-chat-host tc-hidden'; document.querySelector('.points-backdrop').hidden = true; true");
   };
   const cur = () => js("(() => { const c = window.__lbNav && window.__lbNav.current(); return c ? c.id || c.getAttribute('aria-label') || c.tagName : null; })()");
   // The ring hugs the element (4 px out, clamped to the frame), the element is fully visible in its scroll container.
@@ -324,11 +324,12 @@ app.whenReady().then(async () => {
   await js('window.__lbNav.start()');
   await shot('prediction-open');
   await closeView();
-  // Twitch chat style: the rewards view also opens from the panel.
-  await setMode('panel');
-  if (!(await openView(true))) return fail('rewards popover did not open from the panel (Twitch chat style)');
+  // Twitch chat style: the visible panel is a separate frame (TwitchChatFrame.panelFrame), so the rewards view opens from
+  // the hidden points frame there too, again after a close.
+  await setMode('hidden');
+  if (!(await openView(true))) return fail('rewards popover did not reopen from the hidden points frame (Twitch chat style)');
   await closeView();
 
-  console.log(`[points-smoke] PASS: hidden frame ${hidden.vw}x${hidden.vh} at zoom 1 (the TV zoom would leave ${old.lw} px and no summary), panel zoom ${panel.zoom}, rewards view zoom ${modalLurkbox.zoom} with ${modalLurkbox.lw} px of layout, opened from both chat styles; balance 12.3K -> 12,350 after one Claim Bonus click (+50), prediction noticed once; rewards view ${layout.modal[2]}x${layout.modal[3]} with the hint below it, popover fitted to the frame, ${targets.length} single-element targets (wrappers skipped), down walked ${seen.length} tiles with the ring on each and the list scrolled, A opened a detail and B went back then closed, Redeem redeemed, A on a text box focused it and asked for the keyboard, a message reward's contenteditable chat input took the keys and Enter sent it (redeemed with the message), B left the box for the reward list, prediction view fitted`);
+  console.log(`[points-smoke] PASS: hidden frame ${hidden.vw}x${hidden.vh} at zoom 1 (the TV zoom would leave ${old.lw} px and no summary), panel zoom ${panel.zoom}, rewards view zoom ${modalLurkbox.zoom} with ${modalLurkbox.lw} px of layout, reopened from the hidden points frame; balance 12.3K -> 12,350 after one Claim Bonus click (+50), prediction noticed once; rewards view ${layout.modal[2]}x${layout.modal[3]} with the hint below it, popover fitted to the frame, ${targets.length} single-element targets (wrappers skipped), down walked ${seen.length} tiles with the ring on each and the list scrolled, A opened a detail and B went back then closed, Redeem redeemed, A on a text box focused it and asked for the keyboard, a message reward's contenteditable chat input took the keys and Enter sent it (redeemed with the message), B left the box for the reward list, prediction view fitted`);
   app.exit(0);
 }).catch((e) => fail((e && e.stack) || String(e)));
