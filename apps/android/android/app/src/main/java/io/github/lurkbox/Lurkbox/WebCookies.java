@@ -17,7 +17,8 @@ import org.json.JSONObject;
 
 /**
  * The twitch.tv web session in Android's CookieManager (shared by the app's WebViews) and the per-account jars in the
- * app's private storage (files/webjars/<user id>.json, like the tokens: private to the app, not encrypted).
+ * app's private storage (files/webjars/<user id>.json, private to the app and encrypted with the Keystore key like the
+ * tokens: SecureCrypto). A jar that can't be decrypted is deleted (that account's web session signs in again).
  * Cookie values stay on the native side: callers get "signed in" and the public login name only. Never log values.
  */
 final class WebCookies {
@@ -91,23 +92,67 @@ final class WebCookies {
         File f = jarFile(filesDir, id);
         File dir = f.getParentFile();
         if (dir != null && !dir.isDirectory() && !dir.mkdirs()) throw new Exception("could not make the jar folder");
-        File tmp = new File(f.getPath() + ".tmp");
-        try (OutputStream out = new FileOutputStream(tmp)) { out.write(jar.toString().getBytes(StandardCharsets.UTF_8)); }
-        if (!tmp.renameTo(f)) throw new Exception("could not write the jar");
+        write(f, SecureCrypto.seal(jar.toString()));
         return true;
     }
 
+    /** Writes through a temporary file, so a jar is never half written. */
+    private static void write(File f, String text) throws Exception {
+        File tmp = new File(f.getPath() + ".tmp");
+        try (OutputStream out = new FileOutputStream(tmp)) { out.write(text.getBytes(StandardCharsets.UTF_8)); }
+        if (!tmp.renameTo(f)) { tmp.delete(); throw new Exception("could not write the jar"); }
+    }
+
+    private static String readText(File f) throws Exception {
+        try (InputStream in = new FileInputStream(f)) {
+            byte[] buf = new byte[(int) Math.min(f.length(), 512 * 1024)];
+            int n = 0;
+            while (n < buf.length) { int r = in.read(buf, n, buf.length - n); if (r < 0) break; n += r; }
+            return new String(buf, 0, n, StandardCharsets.UTF_8);
+        }
+    }
+
+    /**
+     * The jar's cookies, or null. A plaintext jar (from before encryption) is encrypted in place; one that can't be
+     * decrypted (the Keystore key changed) or parsed is deleted.
+     */
     static JSONObject read(File filesDir, String id) {
         File f = jarFile(filesDir, id);
         if (!f.isFile()) return null;
-        try (InputStream in = new FileInputStream(f)) {
-            byte[] buf = new byte[(int) Math.min(f.length(), 256 * 1024)];
-            int n = 0;
-            while (n < buf.length) { int r = in.read(buf, n, buf.length - n); if (r < 0) break; n += r; }
-            return new JSONObject(new String(buf, 0, n, StandardCharsets.UTF_8));
+        try {
+            String text = readText(f);
+            if (SecureCrypto.isSealed(text)) return new JSONObject(SecureCrypto.open(text));
+            JSONObject jar = new JSONObject(text);
+            try { write(f, SecureCrypto.seal(jar.toString())); } catch (Exception e) { f.delete(); }
+            return jar;
         } catch (Exception e) {
+            if (!f.delete()) f.deleteOnExit();
             return null;
         }
+    }
+
+    /** Encrypts every plaintext jar in place (the first run after the update); the number encrypted. */
+    static int migrateAll(File filesDir) {
+        File[] files = new File(filesDir, "webjars").listFiles();
+        if (files == null) return 0;
+        int n = 0;
+        for (File f : files) {
+            String name = f.getName();
+            if (name.endsWith(".tmp")) { f.delete(); continue; }
+            if (!name.matches("\\d{1,20}\\.json")) continue;
+            try {
+                if (SecureCrypto.isSealed(readText(f))) continue;
+            } catch (Exception e) { continue; }
+            if (read(filesDir, name.substring(0, name.length() - 5)) != null) n++;
+        }
+        return n;
+    }
+
+    /** Deletes every jar (the Keystore key was lost, so none of them can be opened). */
+    static void removeAll(File filesDir) {
+        File[] files = new File(filesDir, "webjars").listFiles();
+        if (files == null) return;
+        for (File f : files) if (f.isFile() && !f.delete()) f.deleteOnExit();
     }
 
     /** Clears the session and puts this account's jar in; the number of cookies set. */
