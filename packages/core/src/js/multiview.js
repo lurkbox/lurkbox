@@ -2,6 +2,9 @@
 // instance per tile); one tile is active: it alone has the sound, the normal quality and the chat side panel (with
 // the composer). Every tile's raids come over the one EventSub socket and count down on their own tile. The rules
 // (geometry, D-pad, audio, caps, add/remove/swap, raids, the saved set) are pure, in ../shared/multiview.js.
+// A on the active tile opens its control bar: the player's seek bar (live rewind through the archive VOD), its icon
+// row (live, channel points, follow, More = the tile menu) and pop-overs. Twitch's chat frame follows the active
+// tile: the chat panel in "Twitch chat" style, otherwise hidden under the tiles for channel points.
 import { el, button, toast, fmtViewers } from './ui.js';
 import { A, B, X, Y, START, BACK, UP, DOWN, LEFT, RIGHT, hint } from './input.js';
 import { DirectEngine, EVENTS } from './direct-engine.js';
@@ -9,11 +12,22 @@ import { Chat, promptChatSignIn } from './chat.js';
 import { ChatSending } from './chat-sending.js';
 import { sendAuthState } from './chat-send.js';
 import { TileRaids } from './raid.js';
-import { state, saveSettings } from './state.js';
+import { state, saveSettings, onState } from './state.js';
 import { backgroundCap, pickDefaultQuality } from './hls-util.js';
 import { pickFromList, openModal } from './modal.js';
-import { followedLive } from './api.js';
+import { followedLive, isFollowing } from './api.js';
 import * as MV from '../shared/multiview.js';
+import { TwitchChatFrame } from './twitch-chat.js';
+import { SeekBar } from './seekbar.js';
+import { Scrubber, seekJump } from './seek.js';
+import { LiveRewind } from './live-rewind.js';
+import { Popover } from './popover.js';
+import { icon } from './icons.js';
+import { multiControls, controlIcon, controlLabel, shortCount, anchorPopover, OVERLAY_HIDE_MS, POPOVER_HIDE_MS } from './player-ui.js';
+import { moveFocus, focusEl } from './focus.js';
+import { pressFollow } from './follow.js';
+import { chatLayout, chatPanelWidth } from '../shared/chat-layout.js';
+import { twitchChatZoom } from '../shared/tv-zoom.js';
 
 const DIR = { [UP]: 'up', [DOWN]: 'down', [LEFT]: 'left', [RIGHT]: 'right' };
 
@@ -87,9 +101,10 @@ export async function pickLiveChannels({ tiles, title = 'Watch with…', onPick 
 
 export class MultiView {
   /** onExit(channel): leave for the single player on that channel (B, "Watch only this", one tile left). */
-  constructor({ watcher, onExit }) {
+  constructor({ watcher, onExit, signIn = () => {} }) {
     this.watcher = watcher;
     this.onExit = onExit;
+    this.signIn = signIn;
     this.screen = el('div', { id: 'multi-screen', hidden: true });
     this.stage = el('div', { id: 'multi-stage' });
     this.chatPanel = el('aside', { id: 'multi-chat', 'aria-label': 'Chat' });
@@ -107,18 +122,36 @@ export class MultiView {
       onFollow: (t, ev) => this.followRaid(t, ev),
       onEnd: (t) => this.renderRaid(t),
     });
-    this.tiles = []; // { ch, node, host, engine, error, quality }
+    // Channel points (and the chat panel in "Twitch chat" style): Twitch's chat page for the active tile.
+    this.tchat = new TwitchChatFrame(this.screen, { id: 'multi-tchat', panelId: 'multi-tchat-panel' });
+    this.points = { signedIn: false, balance: null };
+    this.pointsPanel = false;
+    if (window.lurkbox.onPointsState) {
+      window.lurkbox.onPointsState((st) => {
+        if (!this.isOpen || !st || st.login !== this.tchat.login) return;
+        this.points = st;
+        this.renderBar();
+      });
+      window.lurkbox.onPointsEvent((ev) => { if (ev && ev.type === 'panel-closed' && this.pointsPanel) this.closePointsPanel({ focusIcon: true }); });
+    }
+    onState((what) => {
+      if (!this.isOpen) return;
+      if (what === 'settings' || what === 'signin' || what === 'auth') { this.openTwitchChat(); this.render(); this.followActive(); }
+    });
+    this.buildBar();
+    this.tiles = []; // { ch, node, host, engine, error, quality, rewind }
     this.active = 0;
     this.layout = 'side';
     this.background = false;
     this.chatOn = false;
     this.isOpen = false;
     this.stage.addEventListener('click', (e) => {
+      if (e.target.closest('.po-ui')) return; // the control bar and its pop-overs
       const n = e.target.closest('.mv-tile');
       if (!n) return;
       const i = this.tiles.findIndex((t) => t.node === n);
       if (i < 0) return;
-      if (i === this.active) this.openMenu(); else this.setActive(i);
+      if (i === this.active) this.openBar(); else this.setActive(i);
     });
     watcher.addEventListener('raid', (e) => this.onRaid(e.detail));
     window.addEventListener('resize', () => { if (this.isOpen) this.render(); });
@@ -145,6 +178,10 @@ export class MultiView {
   close() {
     if (!this.isOpen) return;
     this.isOpen = false;
+    this.closePointsPanel();
+    this.closeBar();
+    this.tchat.close();
+    this.tchatWant = null;
     for (const t of this.tiles) this.destroyTile(t);
     this.tiles = [];
     this.stage.replaceChildren();
@@ -169,6 +206,7 @@ export class MultiView {
     const node = el('div', { class: 'mv-tile', dataset: { login: ch.login } }, host,
       el('div', { class: 'mv-label' }, el('span', { class: 'mv-live' }, 'LIVE'), el('span', { class: 'mv-name' }, ch.name)), err);
     const t = { ch, node, host, err, engine: null, error: null, quality: null };
+    t.rewind = new LiveRewind({ engine: () => t.engine, channel: () => t.ch, log: mlog, onChange: () => this.renderBar() });
     this.tiles.push(t);
     this.stage.append(node);
     this.startTile(t);
@@ -177,6 +215,7 @@ export class MultiView {
 
   startTile(t) {
     if (t.engine) t.engine.destroy();
+    t.rewind.reset();
     this.setTileError(t, null);
     const engine = new DirectEngine(t.host, {
       tag: `multi:${t.ch.login}`,
@@ -248,11 +287,25 @@ export class MultiView {
       t.node.classList.toggle('active', i === this.active);
       this.renderRaid(t);
     });
-    this.composer.setVisible(this.chatOn && state.auth.signedIn);
+    const twitchStyle = state.settings.chatStyle === 'twitch';
+    this.screen.classList.toggle('twitch-chat', this.chatOn && twitchStyle);
+    // Twitch's chat in the side panel: the panel keeps the width of Twitch's frame at the TV zoom (as in the player).
+    if (twitchStyle) {
+      const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const zoom = twitchChatZoom(state.settings, window.screen && window.screen.height);
+      const px = chatPanelWidth({ style: 'twitch', chatWidth: chatLayout(state.settings).chatWidth, windowWidth: window.innerWidth, zoom, remPx });
+      this.screen.style.setProperty('--chat-w', `${px}px`);
+    } else this.screen.style.removeProperty('--chat-w');
+    const mode = this.pointsPanel ? 'modal' : this.chatOn && twitchStyle && this.tchat.login ? 'panel' : 'hidden';
+    if (this.tchat.mode !== mode) this.tchat.setMode(mode);
+    // Twitch's frame has its own input, so the composer is only in Lurkbox chat.
+    this.composer.setVisible(this.chatOn && !twitchStyle && state.auth.signedIn);
+    this.placeBar();
   }
 
   setActive(i) {
     if (i === this.active || !this.tiles[i]) return;
+    this.closeBar();
     this.active = i;
     this.render();
     this.applyAll();
@@ -263,7 +316,8 @@ export class MultiView {
   followActive() {
     const ch = this.current();
     if (!ch) return;
-    const login = this.chatOn ? ch.login : null;
+    // Lurkbox chat (IRC) only in Lurkbox chat style; Twitch's frame replaces it in the other.
+    const login = this.chatOn && state.settings.chatStyle !== 'twitch' ? ch.login : null;
     if (login !== this.chatLogin) {
       // A draft (and the composer's pop-overs) belong to their channel.
       this.sending.cpop.close({ returnFocus: false });
@@ -272,8 +326,30 @@ export class MultiView {
       if (login) { this.chat.join(login); this.sending.loadOwnEmotes().catch(() => {}); } else this.chat.leave();
       this.chatLogin = login;
     }
+    this.openTwitchChat();
+    if (ch.following == null && ch.userId && state.auth.signedIn) {
+      isFollowing(ch.userId).then((f) => { if (f != null && ch.following == null) { ch.following = f; this.renderBar(); } }).catch(() => {});
+    }
     this.watcher.watchMany(MV.raidTargets(this.tiles.map((t) => t.ch)));
     this.remember();
+  }
+
+  /** Twitch's chat frame for the active tile: always in "Twitch chat" style, else only with a twitch.tv web session. */
+  openTwitchChat() {
+    const ch = this.current();
+    const login = ch ? ch.login : null;
+    const want = login && `${login}|${state.settings.chatStyle}`;
+    if (want === this.tchatWant) return;
+    this.tchatWant = want;
+    this.points = { signedIn: false, balance: null };
+    if (!login) { this.tchat.close(); return; }
+    if (state.settings.chatStyle === 'twitch') { this.tchat.open(login); this.render(); return; }
+    this.tchat.close();
+    if (!window.lurkbox.playerSessionStatus) return;
+    window.lurkbox.playerSessionStatus().then((st) => {
+      if (!this.isOpen || this.tchatWant !== want) return;
+      if (st && st.signedIn) { this.tchat.open(login); this.render(); this.renderBar(); }
+    }).catch(() => {});
   }
 
   /** Saves this set for "Resume multi-view" (per account, 2+ tiles). */
@@ -439,6 +515,7 @@ export class MultiView {
   followRaid(t, ev) {
     const i = this.tiles.indexOf(t);
     if (i < 0 || !this.isOpen) return;
+    if (i === this.active) this.closeBar();
     const ch = MV.raidChannel(ev);
     const next = MV.replaceTile(this.tiles.map((x) => x.ch), i, ch);
     if (next.length < this.tiles.length) { toast(`${ev.to_broadcaster_user_name} is already here`, 3000); this.remove(i); return; }
@@ -450,6 +527,223 @@ export class MultiView {
     this.renderRaid(t);
     this.startTile(t);
     this.followActive();
+  }
+
+  // ---- the active tile's control bar (the player's seek bar, icon row and pop-overs) ----
+
+  buildBar() {
+    this.seekBar = new SeekBar({ onSeek: (t) => this.tileSeek(t), onPreview: () => this.bumpBar() });
+    this.scrubber = new Scrubber({
+      position: () => { const m = this.seekModel(); return m ? m.pos : 0; },
+      bounds: () => { const m = this.seekModel(); return m ? [m.min, m.max] : [0, 0]; },
+      onPreview: (t) => { this.seekBar.preview = t; this.renderSeek(); this.bumpBar(); },
+      onCommit: (t) => { this.seekBar.preview = null; this.tileSeek(t); },
+    });
+    this.barButtons = {};
+    for (const key of multiControls({ points: true, follow: true })) {
+      const b = el('button', { type: 'button', class: 'po-icon focusable', dataset: { key, focusKey: `mv-${key}` }, 'aria-haspopup': key === 'points' ? 'dialog' : null },
+        icon(controlIcon(key, {})), key === 'points' ? el('span', { class: 'po-count', hidden: true }) : null);
+      b.dataset.icon = controlIcon(key, {});
+      b.addEventListener('click', () => { this.bumpBar(); this.onBarControl(key, b); });
+      this.barButtons[key] = b;
+    }
+    this.barRow = el('div', { class: 'po-row' }, Object.values(this.barButtons));
+    this.bar = el('div', { class: 'mv-bar po-panel po-ui', hidden: true }, this.barRow);
+    this.pop = new Popover({
+      scope: this.bar,
+      focus: (n) => focusEl(n, { instant: true }),
+      move: (dir, scope) => moveFocus(dir, scope),
+      active: () => document.activeElement,
+      mount: (node, opener) => { const t = this.tiles[this.active]; if (t) t.node.append(node); this.placePop(node, opener); },
+    });
+    this.barOn = false;
+    setInterval(() => { if (this.barOn) this.renderSeek(); }, 1000);
+  }
+
+  tileSeekState() { const t = this.tiles[this.active]; return t && t.engine ? t : null; }
+  seekModel() { const t = this.tileSeekState(); return t ? t.rewind.model() : null; }
+  tileSeek(t) { const tile = this.tileSeekState(); if (tile) tile.rewind.seekTo(t).catch((e) => mlog(`[multi] seek failed: ${e.message}`)); }
+  renderSeek() {
+    const m = this.barOn ? this.seekModel() : null;
+    const bar = this.seekBar.node;
+    if (m && bar.parentNode !== this.bar) this.bar.insertBefore(bar, this.barRow);
+    if (!m && bar.parentNode) bar.remove();
+    if (m && !bar.matches('.scrubbing:active')) this.seekBar.update(m);
+  }
+
+  barCtx() {
+    const t = this.tiles[this.active];
+    const ch = t ? t.ch : {};
+    let behind = false;
+    try { behind = !!(t && t.engine && t.engine.latency() > 8); } catch { /* not ready */ }
+    return {
+      rewound: !!(t && t.rewind.rewound), behind,
+      points: this.points.signedIn && Number.isFinite(this.points.balance) ? this.points.balance : null,
+      following: ch.following == null ? null : ch.following,
+      name: ch.name || ch.login || '',
+    };
+  }
+
+  /** Shows the bar on the active tile, focused on its first control (or on `focus`, a control key). */
+  openBar(focus = null) {
+    const t = this.tiles[this.active];
+    if (!t) return;
+    this.barOn = true;
+    t.node.append(this.bar);
+    this.bar.hidden = false;
+    t.node.classList.add('mv-bar-on');
+    this.renderBar();
+    const b = (focus && this.barButtons[focus] && !this.barButtons[focus].hidden ? this.barButtons[focus] : null) || this.barRow.querySelector('.po-icon:not([hidden])');
+    if (b) focusEl(b, { instant: true });
+    this.bumpBar();
+  }
+
+  closeBar() {
+    if (!this.barOn) return;
+    this.barOn = false;
+    clearTimeout(this.barTimer);
+    this.pop.close({ returnFocus: false });
+    this.scrubber.cancel();
+    this.seekBar.preview = null;
+    this.bar.hidden = true;
+    for (const t of this.tiles) t.node.classList.remove('mv-bar-on');
+    if (this.bar.contains(document.activeElement)) document.activeElement.blur();
+  }
+
+  /** The bar hides after a few idle seconds (longer with a pop-over open). */
+  bumpBar() {
+    clearTimeout(this.barTimer);
+    if (!this.barOn) return;
+    this.barTimer = setTimeout(() => this.closeBar(), this.pop.isOpen ? POPOVER_HIDE_MS : OVERLAY_HIDE_MS);
+  }
+
+  /** Keeps the bar on the active tile after a re-render (a swap or a new layout moves the tiles, not the bar). */
+  placeBar() {
+    const t = this.tiles[this.active];
+    if (this.barOn && t && this.bar.parentNode !== t.node) this.closeBar();
+  }
+
+  renderBar() {
+    if (!this.barOn) return;
+    const t = this.tiles[this.active];
+    if (!t) return;
+    const ctx = this.barCtx();
+    const shown = new Set(multiControls({
+      points: !!this.tchat.login,
+      follow: !!(t.ch.login && window.lurkbox.followChannel && state.auth.signedIn),
+    }));
+    for (const [key, b] of Object.entries(this.barButtons)) {
+      b.hidden = !shown.has(key);
+      const name = controlIcon(key, ctx);
+      if (b.dataset.icon !== name) { b.dataset.icon = name; b.firstElementChild.replaceWith(icon(name)); }
+      b.setAttribute('aria-label', controlLabel(key, ctx));
+      b.title = controlLabel(key, ctx);
+      b.classList.toggle('on', key === 'follow' && ctx.following === true);
+      b.classList.toggle('expanded', this.pop.key === key);
+    }
+    const count = this.barButtons.points.querySelector('.po-count');
+    count.hidden = ctx.points == null;
+    count.textContent = ctx.points == null ? '' : shortCount(ctx.points);
+    if (this.bar.contains(document.activeElement) && document.activeElement.hidden) focusEl(this.barRow.querySelector('.po-icon:not([hidden])'), { instant: true });
+    this.renderSeek();
+    this.pop.update();
+  }
+
+  onBarControl(key, b) {
+    const t = this.tiles[this.active];
+    if (!t) return;
+    if (key === 'live') t.rewind.goLive();
+    else if (key === 'follow') this.toggleFollow(t);
+    else if (key === 'points') this.openPointsPop(b);
+    else if (key === 'more') { this.closeBar(); this.openMenu(); }
+  }
+
+  /** Controller input while the bar is up: the seek bar scrubs, the row moves, B (or Down from the row) closes it. */
+  handleBar(action) {
+    this.bumpBar();
+    if (this.pop.isOpen) { this.pop.handle(action); return; }
+    const a = document.activeElement;
+    const onSeek = a === this.seekBar.node;
+    const j = seekJump(action, { onBar: onSeek });
+    if (j && this.seekModel()) {
+      if (j.delta) this.scrubber.nudge(j.delta);
+      else { const m = this.seekModel(); this.scrubber.setTarget(j.to === 'start' ? m.min : m.max); }
+      return;
+    }
+    if (onSeek && (action === LEFT || action === RIGHT)) { this.scrubber.press(action === LEFT ? -1 : 1); return; }
+    if (action === B || (action === DOWN && !onSeek)) { this.closeBar(); return; }
+    if (action === A) { if (!onSeek && a && this.bar.contains(a) && a.click) a.click(); return; }
+    if (DIR[action]) {
+      if (!this.bar.contains(a)) { const b = this.barRow.querySelector('.po-icon:not([hidden])'); if (b) focusEl(b, { instant: true }); return; }
+      moveFocus(action, this.bar);
+    }
+  }
+
+  async toggleFollow(t) {
+    const ch = t.ch;
+    if (!ch.login) return;
+    const f = await pressFollow({ login: ch.login, id: ch.userId, name: ch.name || ch.login }, ch.following == null ? null : ch.following, { signIn: () => { this.signIn(); } });
+    ch.following = f;
+    this.renderBar();
+  }
+
+  placePop(node, opener) {
+    const t = this.tiles[this.active];
+    if (!node.isConnected || !opener || !t) return;
+    const box = t.node.getBoundingClientRect();
+    const { left, bottom } = anchorPopover(opener.getBoundingClientRect(), { width: node.offsetWidth, height: node.offsetHeight }, box, { margin: 8, gap: 10 });
+    node.style.left = `${left}px`;
+    node.style.bottom = `${bottom}px`;
+    node.style.maxHeight = `${Math.max(120, box.height - bottom - 8)}px`;
+  }
+
+  /** The player's channel-points pop-over: the balance, Rewards, Predictions & polls. */
+  openPointsPop(opener) {
+    if (this.pop.key === 'points') { this.pop.close(); return; }
+    const bal = el('div', { class: 'po-pop-big' });
+    const update = () => {
+      const p = this.barCtx().points;
+      bal.replaceChildren(icon('points', 'po-item-icon'), el('span', {}, p == null ? 'Balance not available yet' : p.toLocaleString('en-US')));
+      bal.classList.toggle('dim', p == null);
+    };
+    update();
+    const rewards = button([icon('gift', 'po-item-icon'), el('span', {}, 'Rewards')], () => this.openPointsPanel({ rewards: true }), { class: 'po-item', dataset: { focusKey: 'mv-pop-rewards' } });
+    const preds = button([icon('poll', 'po-item-icon'), el('span', {}, 'Predictions & polls')], () => this.openPointsPanel({ rewards: false }), { class: 'po-item', dataset: { focusKey: 'mv-pop-predictions' } });
+    const node = el('div', { class: 'po-pop po-ui pop-points', role: 'dialog', 'aria-label': 'Channel points' },
+      el('div', { class: 'po-pop-title' }, 'Channel points'), el('div', { class: 'po-pop-body po-list' }, bal, rewards, preds));
+    this.pop.open({ key: 'points', node, opener, initial: rewards, update: () => { update(); this.placePop(node, opener); }, onClose: () => this.renderBar() });
+    this.renderBar();
+    this.bumpBar();
+  }
+
+  /** The rewards view: Twitch's chat frame as a large modal over the tiles (as in the player). */
+  async openPointsPanel({ rewards }) {
+    if (!this.tchat.login || !window.lurkbox.pointsOpenPanel) return;
+    this.closeBar();
+    this.pointsPanel = true;
+    if (!this.pointsBackdrop) {
+      this.pointsBackdrop = el('div', { class: 'points-backdrop', hidden: true, onclick: () => this.closePointsPanel({ focusIcon: true }) }, hint('D-pad move · {A} select · {B} back / close', 'points-hint'));
+      this.screen.append(this.pointsBackdrop);
+    }
+    this.pointsBackdrop.hidden = false;
+    this.render();
+    const r = await window.lurkbox.pointsOpenPanel({ rewards });
+    if (r && !r.ok) toast(`Channel points: ${r.reason}`, 3000, 'warn');
+    else if (rewards && r && !r.opened) toast('No channel points here (signed out, or the channel has none)', 3500);
+  }
+
+  async pointsBack() {
+    const r = await window.lurkbox.pointsPad('b');
+    if (r !== 'back' && this.pointsPanel) this.closePointsPanel({ focusIcon: true });
+  }
+
+  closePointsPanel({ focusIcon = false } = {}) {
+    if (!this.pointsPanel) return;
+    this.pointsPanel = false;
+    if (this.pointsBackdrop) this.pointsBackdrop.hidden = true;
+    if (window.lurkbox.pointsClosePanel) window.lurkbox.pointsClosePanel();
+    this.render();
+    if (focusIcon && this.isOpen) this.openBar('points');
   }
 
   // ---- sending ----
@@ -476,6 +770,14 @@ export class MultiView {
   // ---- input ----
 
   handle(action, source = 'pad') {
+    if (this.pointsPanel) {
+      if (action === B) { this.pointsBack(); return; }
+      if (action === START) { this.closePointsPanel({ focusIcon: true }); return; }
+      const key = { UP: 'up', DOWN: 'down', LEFT: 'left', RIGHT: 'right', A: 'a' }[action];
+      if (key) window.lurkbox.pointsPad(key);
+      return;
+    }
+    if (this.barOn) { this.handleBar(action); return; }
     const cpop = this.sending.cpop;
     if (cpop.isOpen) { cpop.handle(action, source); return; } // the emote picker or quick chat
     if (this.composer.contains(document.activeElement)) {
@@ -496,7 +798,7 @@ export class MultiView {
       return;
     }
     if (action === BACK) this.openComposer();
-    else if (action === A) this.openMenu();
+    else if (action === A) this.openBar();
     else if (action === B) this.exit();
     else if (action === X) this.openAdd();
     else if (action === Y) this.cycleLayout();

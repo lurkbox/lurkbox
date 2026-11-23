@@ -1,8 +1,10 @@
 'use strict';
 // Multi-view smoke test, offline, in demo mode (LURKBOX_DEMO=1: made-up data, no network): X on a live card →
 // "Watch with…" → the multi-select picker (A ticks, Start confirms) opens two tiles side by side, only the active
-// tile has sound and the normal quality (the other is capped at 480p), the D-pad moves the sound, A's tile menu
-// adds a third (one big plus two) and X a fourth (2x2), the layout button cycles. Every tile's raids are watched on
+// tile has sound and the normal quality (the other is capped at 480p), the D-pad moves the sound, A opens the active
+// tile's control bar (the player's seek bar and icons; More is the tile menu), whose menu adds a third (one big plus
+// two) and X a fourth (2x2), the layout button cycles. In "Twitch chat" style the side panel is Twitch's chat frame
+// for the active tile (and follows it). Every tile's raids are watched on
 // the one EventSub socket: a raid on a non-active tile counts down on that tile and swaps it in place, a raid on
 // the active tile is cancelled with B. View/Select opens the active tile's composer and a message goes out in its
 // chat. B leaves for the single player on the active stream; the set was saved and "Resume multi-view" in the
@@ -26,11 +28,12 @@ function finish(code, msg) {
   finished = true;
   let blocked = [];
   try { blocked = fs.readFileSync(path.join(userData, 'demo-blocked.log'), 'utf8').trim().split('\n').filter(Boolean); } catch { /* none */ }
-  const EMBED = /player\.twitch\.tv\/js\/embed|clips\.twitch\.tv\/embed/; // no demo video (ffmpeg missing): the player tried the embed
+  const EMBED = /player\.twitch\.tv\/js\/embed|clips\.twitch\.tv\/embed/;
+  const TCHAT = /www\.twitch\.tv\/embed\/[^/]+\/chat/; // Twitch chat style's frame (checked, then blocked offline) // no demo video (ffmpeg missing): the player tried the embed
   if (blocked.some((l) => EMBED.test(l))) console.log('[mv] note: no demo video (ffmpeg missing?), the player tried the embed');
-  blocked = blocked.filter((l) => !EMBED.test(l));
+  blocked = blocked.filter((l) => !EMBED.test(l) && !TCHAT.test(l));
   if (blocked.length) { console.log(`[mv] demo mode tried to reach the network:\n  ${blocked.join('\n  ')}`); code = code || 3; }
-  const errs = errors.filter((e) => !EMBED.test(e));
+  const errs = errors.filter((e) => !EMBED.test(e) && !TCHAT.test(e));
   if (errs.length) console.log(`[mv] renderer errors:\n  ${errs.join('\n  ')}`);
   console.log(`[mv] ${code === 0 ? 'PASS' : 'FAIL'}: ${msg}`);
   fs.rmSync(userData, { recursive: true, force: true });
@@ -125,7 +128,18 @@ app.on('browser-window-created', (_e, win) => {
         if (c[0] !== 480 || c[1] !== null) throw new Error(`caps after RIGHT ${JSON.stringify(c)}`);
       }
 
-      // A: the tile menu → Add stream… → three tiles (one big plus two small, the new one active).
+      // A: the active tile's control bar (live, More; the seek bar when the stream's start is known), focus in it.
+      await press('A');
+      await waitFor('the control bar on the active tile', "!!document.querySelectorAll('#multi-stage .mv-tile')[1].querySelector('.mv-bar:not([hidden]) .po-icon[data-key=live]') && !!document.activeElement.closest('.mv-bar')", 3000);
+      const keys = await js("[...document.querySelectorAll('.mv-bar .po-icon:not([hidden])')].map((b) => b.dataset.key).join()");
+      if (!/^live,.*more$/.test(keys)) throw new Error(`bar controls: ${keys}`);
+      if (two && !(await js("!!document.querySelector('.mv-bar .po-seek:not([hidden])')"))) throw new Error('no seek bar on a playing tile');
+      await press('B');
+      if (await js("!!document.querySelector('.mv-bar:not([hidden])')")) throw new Error('B did not close the bar');
+      if (await js("document.getElementById('multi-screen').hidden")) throw new Error('B in the bar left multi-view');
+      // A, then More: the tile menu → Add stream… → three tiles (one big plus two small, the new one active).
+      await press('A');
+      await js("document.querySelector('.mv-bar .po-icon[data-key=more]').focus(); true");
       await press('A');
       await pick('/Add stream/');
       await waitFor('the multi-select picker', "!!document.querySelector('.modal.pick-many .pick-item')", 8000);
@@ -186,6 +200,22 @@ app.on('browser-window-created', (_e, win) => {
       await press('B'); // out of the composer (Y there is quick chat)
       if (await js("!!(document.activeElement && document.activeElement.closest('#multi-chat'))")) throw new Error('B did not leave the composer');
       log('composer: sent from the active tile\'s chat');
+      // "Twitch chat" style: the side panel is Twitch's chat frame for the active tile (no IRC chat, no composer).
+      // The visible panel is its own frame (#multi-tchat-panel); the points frame (#multi-tchat) stays hidden under the tiles.
+      const tframe = () => js("(() => { const h = document.getElementById('multi-tchat-panel'); const f = h && h.querySelector('iframe'); const p = document.getElementById('multi-tchat'); return { mode: h ? h.className : null, src: f ? f.src : '', points: p ? p.className : null }; })()");
+      await js("__lurkbox.state.settings.chatStyle = 'twitch'; __lurkbox.multi.openTwitchChat(); __lurkbox.multi.followActive(); __lurkbox.multi.render(); true");
+      let tf = await tframe();
+      const act = (await tiles()).find((x) => x.active).login;
+      if (!/\btc-panel\b/.test(tf.mode) || !/\btc-hidden\b/.test(tf.points) || !tf.src.includes(`/embed/${act}/chat`) || tf.src.includes('lurkbox=points')) throw new Error(`Twitch chat style: ${JSON.stringify(tf)} for ${act}`);
+      if (await js('__lurkbox.multi.chat.channel') || await js("!document.querySelector('#multi-chat .chat-composer').hidden")) throw new Error('the IRC chat or the composer stayed in Twitch chat style');
+      await press('LEFT');
+      const act2 = (await tiles()).find((x) => x.active).login;
+      tf = await tframe();
+      if (!tf.src.includes(`/embed/${act2}/chat`)) throw new Error(`Twitch's chat did not follow the active tile: ${tf.src} (${act2})`);
+      await press('RIGHT');
+      await js("__lurkbox.state.settings.chatStyle = 'lurkbox'; __lurkbox.multi.openTwitchChat(); __lurkbox.multi.followActive(); __lurkbox.multi.render(); true");
+      if (!/\btc-off\b/.test((await tframe()).mode) || await js('__lurkbox.multi.chat.channel') !== act) throw new Error('back to Lurkbox chat style: the IRC chat did not come back');
+      log('Twitch chat style: the side panel is the active tile\'s Twitch chat');
       t = await tiles();
       const saved = await js('(() => { const s = __lurkbox.state.settings.multiSets[__lurkbox.state.auth.user.id]; return s && s.map((x) => x.login); })()');
       if (!saved || saved.join() !== t.map((x) => x.login).join()) throw new Error(`the set was not saved: ${JSON.stringify(saved)} vs ${t.map((x) => x.login)}`);
@@ -212,7 +242,7 @@ app.on('browser-window-created', (_e, win) => {
       await waitFor('the single player again', "document.getElementById('multi-screen').hidden && !document.getElementById('player-screen').hidden", 5000);
       await press('B');
       await waitFor('Following again', "document.getElementById('player-screen').hidden && !!document.activeElement.closest('[data-view=following]')", 5000);
-      finish(0, 'X → Watch with… (multi-select), 2 and 4 tiles, audio and caps follow the active tile, layouts, per-tile raids on one socket, the composer, B to the single player, Resume multi-view');
+      finish(0, 'X → Watch with… (multi-select), 2 and 4 tiles, the tile control bar, Twitch chat style, audio and caps follow the active tile, layouts, per-tile raids on one socket, the composer, B to the single player, Resume multi-view');
     } catch (e) {
       finish(1, e.message);
     }

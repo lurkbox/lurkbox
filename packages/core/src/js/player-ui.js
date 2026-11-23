@@ -29,6 +29,14 @@ export function overlayControls(ctx) {
 }
 
 /**
+ * The multi-view active tile's row: the player's controls that make sense for one tile of several (the rest of the
+ * tile's actions stay in its menu, behind More). ctx: { points: bool, follow: bool } as for overlayControls().
+ */
+export function multiControls(ctx = {}) {
+  return ['live', ctx.points ? 'points' : null, ctx.follow ? 'follow' : null, 'more'].filter(Boolean);
+}
+
+/**
  * Which controls leave the row first when it is too narrow: the end of this list goes first. Those in
  * PINNED_CONTROLS never leave it; the rest move into the More pop-over, in their row order.
  */
