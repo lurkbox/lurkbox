@@ -4,7 +4,7 @@
 // twitch.tv window (web-session.js openWindow), with the rewards popover opened, fitted and driven by the remote
 // natively (frame-nav), at the TV zoom lowered so the layout stays at least 400 px wide; the system keyboard comes up
 // for a message reward. Without a twitch.tv session nothing is loaded.
-import { PointsTracker, scanSource, chatPageUrl, rewardsViewSource, rewardsReturnSource } from '@lurkbox/core/src/shared/channel-points.js';
+import { PointsTracker, scanSource, chatPageUrl, rewardsViewSource, rewardsReturnSource, closeRewardsSource } from '@lurkbox/core/src/shared/channel-points.js';
 import { twitchChatZoom, modalZoom } from '@lurkbox/core/src/shared/tv-zoom.js';
 
 const LOGIN = /^[a-z0-9_]{1,25}$/i;
@@ -111,6 +111,21 @@ export function createPoints({ pages, web, getSettings, emit, log, every = setIn
       panel = null;
       if (win) win.close();
       return true;
+    },
+    /**
+     * Runs an action source (a prediction or a poll vote: shared/predictions.js) in the channel's hidden chat page, then
+     * closes Twitch's view it left open. Resolves the source's { ok, reason?, step }.
+     */
+    act: async (forLogin, source) => {
+      const l = forLogin && LOGIN.test(String(forLogin)) ? String(forLogin).toLowerCase() : null;
+      if (!l || l !== login) return { ok: false, reason: 'closed' };
+      if (!(await web.status()).signedIn) return { ok: false, reason: 'no-session' };
+      const p = await ensurePage(l);
+      if (!p) return { ok: false, reason: 'chat page not loaded' };
+      let r;
+      try { r = await p.eval(source, { timeoutMs: 20000 }); } catch (e) { r = { ok: false, reason: e.message }; }
+      p.evalSync(closeRewardsSource()).catch(() => {});
+      return r || { ok: false, reason: 'no answer' };
     },
     /** For tests. */
     scan,

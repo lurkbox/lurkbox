@@ -287,18 +287,30 @@ public class LurkboxNativePlugin extends Plugin {
         try { WebCookies.remove(getContext().getFilesDir(), call.getString("id", "")); call.resolve(); } catch (Exception e) { call.reject(e.getMessage()); }
     }
 
+    /** The predictions/polls read query (packages/core/src/shared/predictions.js PP_QUERY), allowed verbatim. */
+    static final String PREDICTIONS_QUERY = "query LurkboxPredictionsPolls($login: String!) { channel(name: $login) { id activePredictionEvents { ...LbPrediction } lockedPredictionEvents { ...LbPrediction } resolvedPredictionEvents(first: 1) { edges { node { ...LbPrediction } } } } user(login: $login) { viewablePoll { id title status durationSeconds remainingDurationMilliseconds startedAt endedAt choices { id title votes { total base communityPoints bits } } votes { total base communityPoints bits } settings { communityPointsVotes { isEnabled cost } multichoice { isEnabled } } } } } fragment LbPrediction on PredictionEvent { id title status createdAt predictionWindowSeconds lockedAt endedAt winningOutcome { id } outcomes { id title color totalPoints totalUsers } self { prediction { id points outcome { id } result } } }";
+
+    /** Is this GQL body one webGql may send with the session? PlaybackAccessToken, or exactly the predictions query. */
+    static boolean allowedGql(String body) {
+        try {
+            JSONObject o = new JSONObject(body);
+            String op = o.optString("operationName");
+            if ("PlaybackAccessToken".equals(op)) return true;
+            return "LurkboxPredictionsPolls".equals(op) && PREDICTIONS_QUERY.equals(o.optString("query"));
+        } catch (Exception e) { return false; }
+    }
+
     /**
-     * The direct engine's PlaybackAccessToken request with the web session: POSTed to Twitch's web GQL with the
-     * auth-token cookie as Authorization, added here (the page never sees it). Only that one operation, and only the
-     * Client-ID and Content-Type headers from the page. Resolves { status, data } (the response text).
+     * Web GQL with the web session: the direct engine's PlaybackAccessToken request, and the predictions/polls read
+     * query (your own bet), POSTed to Twitch's web GQL with the auth-token cookie as Authorization, added here (the page
+     * never sees it). Only those, and only the Client-ID and Content-Type headers from the page. Resolves { status,
+     * data } (the response text).
      */
     @PluginMethod
     public void webGql(PluginCall call) {
         String body = call.getString("body", "");
         JSObject headers = call.getObject("headers", new JSObject());
-        try {
-            if (!"PlaybackAccessToken".equals(new JSONObject(body).optString("operationName"))) { call.reject("only PlaybackAccessToken"); return; }
-        } catch (Exception e) { call.reject("bad body"); return; }
+        if (!allowedGql(body)) { call.reject("only PlaybackAccessToken and the predictions query"); return; }
         new Thread(() -> {
             HttpURLConnection c = null;
             try {

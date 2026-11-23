@@ -413,3 +413,67 @@ test('watch minutes: in the background for more than 5 minutes, no reports', asy
     assert.equal(r.reason, 'hidden for more than 5 min');
   } finally { Date.now = realNow; }
 });
+
+// ---- predictions and polls ----
+
+const PP = await import('@lurkbox/core/src/shared/predictions.js');
+
+test('predictions: native webGql allows exactly the shared read query (and PlaybackAccessToken), nothing else', () => {
+  const java = fs.readFileSync(new URL('../android/app/src/main/java/io/github/lurkbox/Lurkbox/LurkboxNativePlugin.java', import.meta.url), 'utf8');
+  const m = /static final String PREDICTIONS_QUERY = (".*");/.exec(java);
+  assert.ok(m, 'PREDICTIONS_QUERY in LurkboxNativePlugin.java');
+  assert.equal(JSON.parse(m[1]), PP.PP_QUERY, 'the Java copy of the query matches shared/predictions.js');
+  assert.match(java, /"LurkboxPredictionsPolls"\.equals\(op\) && PREDICTIONS_QUERY\.equals\(o\.optString\("query"\)\)/);
+});
+
+test('predictions: read through native webGql with the session; a bet and a vote press the buttons in the hidden chat page', async () => {
+  const answer = {
+    data: {
+      channel: { activePredictionEvents: [{ id: 'ev', title: 'Win?', status: 'ACTIVE', createdAt: new Date().toISOString(), predictionWindowSeconds: 120, outcomes: [{ id: 'a', title: 'Yes', color: 'BLUE', totalPoints: 10, totalUsers: 1 }, { id: 'b', title: 'No', color: 'PINK', totalPoints: 5, totalUsers: 1 }], self: null }], lockedPredictionEvents: [], resolvedPredictionEvents: { edges: [] } },
+      user: { viewablePoll: { id: 'p', title: 'Map?', status: 'ACTIVE', remainingDurationMilliseconds: 30000, choices: [{ id: 'c1', title: 'Dust', votes: { total: 1 } }, { id: 'c2', title: 'Ice', votes: { total: 0 } }], votes: { total: 1 } } },
+    },
+  };
+  const ran = [];
+  const { platform, native } = setup({
+    respond: (_kind, source) => {
+      if (source.includes('outcome not found')) { ran.push('predict'); return { ok: true, step: 'done' }; }
+      if (source.includes('no poll choices')) { ran.push('vote'); return { ok: true, step: 'done' }; }
+      return { signedIn: true, balanceText: '1,000' };
+    },
+  });
+  const gql = [];
+  native.webGql = async ({ headers, body }) => { gql.push({ headers, body: JSON.parse(body) }); return { status: 200, data: JSON.stringify(answer) }; };
+  const states = [];
+  platform.onPredictionsState((s) => states.push(s));
+  await platform.pointsWatch('somechannel');
+  await platform.predictionsWatch('somechannel');
+  await flush();
+  const st = states.at(-1);
+  assert.equal(st.login, 'somechannel');
+  assert.equal(st.prediction.id, 'ev');
+  assert.equal(st.poll.id, 'p');
+  assert.equal(gql[0].body.operationName, 'LurkboxPredictionsPolls');
+  assert.ok(!Object.keys(gql[0].headers).some((k) => k.toLowerCase() === 'authorization'), 'the page never sends the token');
+  assert.deepEqual(await platform.predictionBet({ login: 'somechannel', eventId: 'ev', outcomeId: 'b', points: 100 }), { ok: true });
+  assert.deepEqual(await platform.pollVote({ login: 'somechannel', pollId: 'p', choiceId: 'c2' }), { ok: true });
+  assert.deepEqual(ran, ['predict', 'vote']);
+  // Something else than what is open: refused without touching the page.
+  assert.equal((await platform.predictionBet({ login: 'somechannel', eventId: 'other', outcomeId: 'b', points: 100 })).ok, false);
+  assert.equal((await platform.predictionBet({ login: 'somechannel', eventId: 'ev', outcomeId: 'b', points: 0 })).ok, false);
+  assert.equal(ran.length, 2);
+  await platform.predictionsWatch(null);
+  assert.deepEqual(states.at(-1), { login: null, prediction: null, poll: null });
+});
+
+test('predictions: signed out, the read is anonymous and acting says no-session', async () => {
+  const { platform, native } = setup({ signedIn: false });
+  let gqlCalls = 0;
+  native.webGql = async () => { gqlCalls++; return { status: 500, data: '' }; };
+  const states = [];
+  platform.onPredictionsState((s) => states.push(s));
+  await platform.predictionsWatch('somechannel');
+  await flush();
+  assert.equal(gqlCalls, 0);
+  assert.equal(states.at(-1).login, 'somechannel');
+  assert.equal((await platform.predictionBet({ login: 'somechannel', eventId: 'x', outcomeId: 'y', points: 5 })).ok, false);
+});

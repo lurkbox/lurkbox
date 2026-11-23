@@ -252,3 +252,6 @@ body.layout-phone .wmsg { max-width: 85%; }
 body.layout-phone .update-release-body { flex-direction: column; align-items: stretch; }
 body.layout-phone .update-release-body .signin-qr { width: 12rem; margin: 0 auto; }
 body.layout-phone .update-release-body .signin-qr svg { width: 12rem; height: 12rem; }
+/* The prediction/poll card over a phone's small video: narrower, smaller text. */
+body.layout-phone .pp-card { width: 62%; font-size: 0.85rem; padding: 0.5rem 0.7rem; }
+body.layout-phone .pp-card .pp-bars, body.layout-phone .pp-card .pp-card-hint { display: none; }

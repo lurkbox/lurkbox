@@ -39,6 +39,7 @@ function coreDemo() {
     whispers: require('@lurkbox/core/src/js/demo/whispers.js'),
     images: require('@lurkbox/core/src/js/demo/images.js'),
     settings: require('@lurkbox/core/src/shared/settings.js'),
+    predictions: require('@lurkbox/core/src/js/demo/predictions.js'),
   };
 }
 
@@ -142,7 +143,7 @@ function createDemoUpdater({ dir, version, getSettings, send, log }) {
  * Returns { handlers: { channel: (...args) => value }, serveMedia(path) → { status, type, body } }.
  */
 function createDemoHost(opts = {}) {
-  const { data, helix, images, whispers: demoWhispers, settings: schema } = coreDemo();
+  const { data, helix, images, whispers: demoWhispers, settings: schema, predictions: demoPredictions } = coreDemo();
   const demoMedia = require('./demo-media');
   const media = (p) => `${MEDIA_BASE}${p}`;
   const db = data.buildDemoData({ media });
@@ -193,6 +194,15 @@ function createDemoHost(opts = {}) {
   if (accounts.length) whisperStore.save(db.accounts[0].id, demoWhispers.demoWhisperThreads(db, db.accounts[0].id, data.DEMO_NOW));
   const updater = createDemoUpdater({ dir: opts.updateDir || null, version: opts.version || '0.0.0', getSettings: () => settings, send, log });
   if (opts.updateDir) updater.start();
+  // Predictions and polls (LURKBOX_DEMO_PREDICTIONS=1; off by default so other screenshots stay as they are): the real
+  // watcher over made-up GQL answers; bets and votes go straight into them.
+  const ppShared = require('@lurkbox/core/src/shared/predictions.js');
+  const ppDemo = demoPredictions.createDemoPredictions({ now: demoNow });
+  const ppOn = process.env.LURKBOX_DEMO_PREDICTIONS === '1';
+  const ppWatcher = new ppShared.PredictionsWatcher({
+    query: async (login) => (ppOn && db.streams.some((x) => x.user_login === login) ? ppDemo.answer(login) : { data: { channel: { activePredictionEvents: [], lockedPredictionEvents: [], resolvedPredictionEvents: { edges: [] } }, user: { viewablePoll: null } } }),
+    onState: (st) => send('predictions:state', st), log, now: demoNow, fastMs: 2000,
+  });
   const noMedia = () => ({ ok: false, reason: `demo video unavailable (${(opts.media && opts.media.reason) || 'not rendered'})` });
 
   const handlers = {
@@ -264,11 +274,30 @@ function createDemoHost(opts = {}) {
     'whispers:save': (id, threads) => whisperStore.save(String(id), threads),
     'emote-index:get': () => emoteIndex.get(active),
     'emote-index:set': (index) => emoteIndex.set(active, index),
+    // With the demo's predictions on, the watched channel shows a points balance too (for the amount chooser).
     'points:watch': () => true,
     'points:openPanel': () => ({ ok: false, reason: 'not in demo mode' }),
     'points:pad': () => null,
     'points:closePanel': () => true,
     'points:mode': () => true,
+    // With the demo's predictions on, the watched channel shows a points balance too (for the amount chooser).
+    'predictions:watch': (login) => {
+      ppWatcher.watch(login);
+      if (ppOn && login) setTimeout(() => send('points:state', { login: String(login).toLowerCase(), signedIn: true, balance: 12480, prediction: null, poll: null }), 300);
+      return true;
+    },
+    'predictions:bet': (req = {}) => {
+      if (!ppWatcher.state.prediction || ppWatcher.state.login !== String(req.login || '').toLowerCase()) return { ok: false, reason: 'not open' };
+      const r = ppDemo.bet(req.login, String(req.outcomeId), Math.floor(Number(req.points)) || 0);
+      ppWatcher.kick();
+      return r;
+    },
+    'poll:vote': (req = {}) => {
+      if (!ppWatcher.state.poll || ppWatcher.state.login !== String(req.login || '').toLowerCase()) return { ok: false, reason: 'not open' };
+      const r = ppDemo.vote(req.login, String(req.choiceId), !!req.points);
+      ppWatcher.kick();
+      return r;
+    },
     'points:minute': () => ({ ok: false, reason: 'demo mode' }),
     'drops:status': () => ({ signedIn: false, lastCheckAt: null, nextCheckAt: null }),
     'drops:open': () => ({ ok: false, reason: 'not in demo mode' }),

@@ -21,6 +21,7 @@ const { fetchClipSources } = require('./clips');
 const hlsProxy = require('./hls-proxy');
 const { navSource, pressSource, backSource } = require('./frame-nav');
 const points = require('./channel-points');
+const predictions = require('@lurkbox/core/src/shared/predictions.js');
 const drops = require('./drops');
 const { createDropsFrameHost } = require('./drops-frame');
 const follow = require('./follow');
@@ -599,10 +600,46 @@ function registerIpc() {
       if (ev.type === 'signed-in') note(`[points] ${login}: chat ${ev.signedIn ? 'shows the points balance' : `shows no points (signed out in the frame, or the channel has no points; sign-in prompt ${scan.signInPrompt ? 'shown' : 'absent'}, auth-token cookie ${scan.authCookie === true ? 'visible' : scan.authCookie === false ? 'NOT visible' : 'unknown'} in the frame; frame ${chatFrameMode}, CSS viewport ${scan.vw}x${scan.vh} at zoom ${scan.zoom}, layout ${scan.lw} px wide, missing in ${tracker.misses} scans in a row${scan.diag ? `; ${points.noPointsDetail(scan)}` : ''})`}`);
       else if (ev.type === 'claim-clicked') appLog(`[points] ${login}: clicked Claim Bonus`);
       else if (ev.type === 'claimed') appLog(`[points] ${login}: claimed bonus ${ev.amount != null ? `+${ev.amount}` : '(amount not seen)'}, balance ${ev.balance}`);
-      else if (ev.type === 'prediction' || ev.type === 'poll') { appLog(`[points] ${login}: ${ev.type} shown`); send('points:event', { login, ...ev }); }
+      else if (ev.type === 'prediction' || ev.type === 'poll') { appLog(`[points] ${login}: ${ev.type} shown`); send('points:event', { login, ...ev }); ppWatcher.kick(); }
     }
     send('points:state', { login, ...state });
   };
+  // ---- predictions and polls (shared/predictions.js): read over web GQL, acted on with Twitch's buttons in the frame ----
+  const ppWatcher = new predictions.PredictionsWatcher({
+    query: async (login) => {
+      const auth = (await session.defaultSession.cookies.get({ url: 'https://www.twitch.tv', name: 'auth-token' }))[0];
+      return predictions.ppQuery({ fetch: net.fetch, login, authToken: auth ? auth.value : null });
+    },
+    onState: (st) => send('predictions:state', st),
+    log: appLog,
+  });
+  appIpc.handle('predictions:watch', (_e, login) => { ppWatcher.watch(login); return true; });
+  const ppAct = async (login, what, source) => {
+    const l = String(login || '').toLowerCase();
+    if (!(await playerStatus(session.defaultSession.cookies)).signedIn) return { ok: false, reason: 'no-session' };
+    const frame = chatFrames(l)[0];
+    if (!frame) return { ok: false, reason: 'closed' };
+    let r;
+    try { r = await frame.executeJavaScript(source, true); } catch (e) { r = { ok: false, reason: e.message }; }
+    appLog(`[predictions] ${l}: ${what} ${r && r.ok ? 'done' : `failed at ${(r && r.step) || '?'} (${(r && r.reason) || 'no answer'})`}`);
+    // Twitch's view stays as the action left it; close it so the hidden frame is ready for the rewards view.
+    frame.executeJavaScript(points.closeRewardsSource()).catch(() => {});
+    setTimeout(() => ppWatcher.kick(), 800);
+    return r && r.ok ? { ok: true } : { ok: false, reason: (r && r.reason) || 'failed' };
+  };
+  appIpc.handle('predictions:bet', async (_e, req = {}) => {
+    const p = ppWatcher.state.prediction;
+    const i = p && p.id === String(req.eventId) ? p.outcomes.findIndex((o) => o.id === String(req.outcomeId)) : -1;
+    const amount = Math.floor(Number(req.points));
+    if (i < 0 || !(amount >= 1) || ppWatcher.state.login !== String(req.login || '').toLowerCase()) return { ok: false, reason: 'not open' };
+    return ppAct(req.login, `prediction of ${amount} on outcome ${i + 1}`, predictions.predictSource({ outcomeIndex: i, outcomeTitle: p.outcomes[i].title, points: amount }));
+  });
+  appIpc.handle('poll:vote', async (_e, req = {}) => {
+    const p = ppWatcher.state.poll;
+    const i = p && p.id === String(req.pollId) ? p.choices.findIndex((c) => c.id === String(req.choiceId)) : -1;
+    if (i < 0 || ppWatcher.state.login !== String(req.login || '').toLowerCase()) return { ok: false, reason: 'not open' };
+    return ppAct(req.login, `poll vote for choice ${i + 1}${req.points ? ' with channel points' : ''}`, predictions.pollVoteSource({ choiceIndex: i, choiceTitle: p.choices[i].title, withPoints: !!req.points }));
+  });
   appIpc.handle('points:watch', (_e, login) => {
     const l = login && /^[a-z0-9_]{1,25}$/i.test(String(login)) ? String(login).toLowerCase() : null;
     if (l === pointsLogin) return true;

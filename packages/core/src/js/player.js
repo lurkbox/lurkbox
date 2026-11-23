@@ -49,6 +49,7 @@ import { DirectEngine, EVENTS as DIRECT_EVENTS } from './direct-engine.js';
 import { ClipEngine, ClipEmbed, clipSourcePlan } from './clip-engine.js';
 import { clipAuthState, buildClipCreate, clipCreateResult, clipShortLink, addMyClip } from '../shared/my-clips.js';
 import { liveBadge, catchUpDecision, backgroundCap, pickDefaultQuality } from './hls-util.js';
+import { PredictionsUI, watchPredictions } from './predictions-ui.js';
 
 const EMBED_URL = 'https://player.twitch.tv/js/embed/v1.js';
 const EMBED_PARENT = ['localhost']; // must match the host the UI is served from
@@ -226,6 +227,14 @@ export class Player {
     });
     this.lastFocusKey = null;
     this.buildOverlay();
+    // Predictions and polls of the live channel: a card in the overlay, a chip while it is hidden, and the dialog.
+    this.pp = new PredictionsUI({
+      chipHost: stage,
+      cardHost: this.overlay,
+      login: () => (this.active && this.current && this.current.kind === 'live' ? this.current.login : null),
+      balance: () => (this.points && this.points.signedIn ? this.points.balance : null),
+      fallback: () => this.openPointsPanel({ rewards: false }),
+    });
 
     // Chat layout: the chat pop-over and Settings → Chat change the same settings; apply them live.
     this.appliedStyle = state.settings.chatStyle;
@@ -294,6 +303,7 @@ export class Player {
     this.watcher.watch(null); // raids only matter for live channels
     this.closePointsPanel();
     this.tchat.close();
+    watchPredictions(null);
     this.loadFollow(cur);
     if (window.lurkbox.storyboard) window.lurkbox.storyboard(video.id).then((sb) => { if (cur === this.current) this.storyboard = sb; }).catch(() => {});
     let startAt = Math.max(0, Number(opts.startAt) || 0);
@@ -334,6 +344,7 @@ export class Player {
     this.watcher.watch(null);
     this.closePointsPanel();
     this.tchat.close();
+    watchPredictions(null);
     if (this.chatOn) this.chat.leave();
     this.destroyEngine();
     if (!cur.login && cur.userId && state.auth.signedIn) {
@@ -874,6 +885,7 @@ export class Player {
     this.chat.leave();
     this.closePointsPanel();
     this.tchat.close();
+    watchPredictions(null);
     this.destroyEngine(); // removes the iframe/video and stops playback
     this.showAd({ inAd: false });
     this.current = null;
@@ -1410,7 +1422,7 @@ export class Player {
     };
     update();
     const rewards = button([icon('gift', 'po-item-icon'), el('span', {}, 'Rewards')], () => this.openPointsPanel({ rewards: true }), { class: 'po-item', dataset: { focusKey: 'pop-rewards' } });
-    const preds = button([icon('poll', 'po-item-icon'), el('span', {}, 'Predictions & polls')], () => this.openPointsPanel({ rewards: false }), { class: 'po-item', dataset: { focusKey: 'pop-predictions' } });
+    const preds = button([icon('poll', 'po-item-icon'), el('span', {}, 'Predictions & polls')], () => this.openPredictions(), { class: 'po-item', dataset: { focusKey: 'pop-predictions' } });
     return { title: 'Channel points', body: el('div', { class: 'po-pop-body po-list' }, bal, rewards, preds), initial: () => rewards, update };
   }
 
@@ -1534,6 +1546,7 @@ export class Player {
   /** Twitch's chat frame for this channel: always in "Twitch chat" style, otherwise only with a twitch.tv session. */
   openTwitchChat(login) {
     this.points = { signedIn: false, balance: null };
+    watchPredictions(login); // read over web GQL, signed in or not (acting needs the session)
     if (state.settings.chatStyle === 'twitch') { this.tchat.open(login); return; }
     const cur = this.current;
     this.tchat.close();
@@ -1561,6 +1574,13 @@ export class Player {
     const r = await window.lurkbox.pointsOpenPanel({ rewards });
     if (r && !r.ok) toast(`Channel points: ${r.reason}`, 3000, 'warn');
     else if (rewards && r && !r.opened) toast('No channel points here (signed out, or the channel has none)', 3500);
+  }
+
+  /** The prediction/poll dialog when the host reports one for this channel; otherwise Twitch's own view (pinned in chat). */
+  openPredictions() {
+    if (!this.pp.has()) { this.openPointsPanel({ rewards: false }); return; }
+    this.hideOverlay();
+    this.pp.open();
   }
 
   /** B in the rewards view: a reward's detail/confirm step goes back first; otherwise the view closes. */
@@ -2026,7 +2046,7 @@ export class Player {
     }
     if (action === Y && this.pointsOfferUntil > performance.now() && this.tchat.login) {
       this.pointsOfferUntil = 0;
-      this.openPointsPanel({ rewards: false });
+      this.openPredictions();
       return true;
     }
     if (this.raid.active) {

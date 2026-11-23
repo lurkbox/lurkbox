@@ -372,6 +372,25 @@ export interface LurkboxPlatform {
   /** Optional. Once a minute while a live stream plays on the direct engine: report a watched minute (earns watch-time points; the host applies the gates). */
   watchMinute?(info: { login: string; channelId: string; broadcastId: string; direct: boolean; live: boolean; rewound: boolean; playing: boolean }): Promise<{ ok: boolean; [k: string]: unknown }>;
 
+  // ---- predictions and polls of the watched channel (./shared/predictions.js) ----
+
+  /**
+   * Optional (without it the player shows no prediction/poll card; the toast and Twitch's own view stay). Follow the
+   * channel's prediction and poll (null stops): the host polls web GQL (signed in: with the twitch.tv session natively,
+   * for your own bet) and reports every change through onPredictionsState.
+   */
+  predictionsWatch?(login: string | null): Promise<boolean>;
+  /** { login, prediction, poll }: parsePredictionsPolls()'s shapes (either may be null), on every change. */
+  onPredictionsState(cb: (state: { login: string | null; prediction: any | null; poll: any | null }) => void): Unsubscribe;
+  /**
+   * Bet channel points on an outcome, by pressing Twitch's own buttons in the channel's chat page (the points frame /
+   * hidden page; needs the twitch.tv session). Resolves { ok } or { ok: false, reason } ('no-session', 'closed', or
+   * what the page lacked); the state follows through onPredictionsState.
+   */
+  predictionBet(req: { login: string; eventId: string; outcomeId: string; points: number }): Promise<{ ok: boolean; reason?: string }>;
+  /** Vote in the poll the same way; points: an extra vote paid with channel points (when the poll allows it). */
+  pollVote(req: { login: string; pollId: string; choiceId: string; points?: boolean }): Promise<{ ok: boolean; reason?: string }>;
+
   // ---- Twitch Drops (Twitch's own Drops Inventory page with the twitch.tv session; the host auto-claims) ----
 
   /** Optional (without it the Drops section is hidden). Whether a twitch.tv web session exists (the Drops section shows a sign-in prompt otherwise) and when the background inventory check last ran (ms since the epoch, or null). */

@@ -27,6 +27,9 @@ const SETUP = {
   'player-chat': { settings: { chatDefault: true } },
   'player-chat-overlay': { settings: { chatDefault: true, chatOverlay: true, chatOverlayOpacity: 45, chatHeight: 65, chatVPos: 'bottom' } },
   'player-rewind': {},
+  // A prediction and a poll on the channel (the demo's, LURKBOX_DEMO_PREDICTIONS): the card in the overlay, then the
+  // prediction's dialog with its live totals.
+  'player-prediction': { env: { LURKBOX_DEMO_PREDICTIONS: '1' } },
   // Chat sending: the composer, the emote picker and quick chat (with phrases saved for the demo channel).
   'chat-composer': { settings: { chatDefault: true } },
   'chat-emotes': { settings: { chatDefault: true } },
@@ -281,6 +284,17 @@ app.on('browser-window-created', (_e, win) => {
       await focusControl('quality');
       await settle();
       await shoot('player');
+    },
+    async 'player-prediction'() {
+      await openFirstLive();
+      await overlay();
+      await waitFor('the prediction card', "(() => { const c = document.querySelector('#player-overlay .pp-card'); return c && !c.hidden && /Which level next/.test(c.textContent); })()", 20000);
+      await js("document.querySelector('#player-overlay .pp-card').focus(); true");
+      await press('A');
+      await waitFor('the prediction dialog', "document.querySelectorAll('.modal.pp-modal .pp-outcome').length === 2 && /Your balance/.test(document.querySelector('.pp-modal .pp-balance').textContent)");
+      await press('DOWN'); // the second outcome
+      await settle();
+      await shoot('player-prediction');
     },
     async 'player-popover'() {
       await openFirstLive();

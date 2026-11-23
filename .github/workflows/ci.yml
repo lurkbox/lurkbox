@@ -83,6 +83,10 @@ jobs:
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
         run: xvfb-run -a npm run test:updates
+      - name: Predictions and polls in demo mode (offline)
+        env:
+          ELECTRON_DISABLE_SANDBOX: "1"
+        run: xvfb-run -a npm run test:predictions
       - name: Multi-view in demo mode (offline)
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
