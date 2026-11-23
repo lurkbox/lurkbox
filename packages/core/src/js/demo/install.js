@@ -3,7 +3,7 @@
 // APIs (7TV, FrankerFaceZ; BetterTTV answers "no emotes"), Twitch chat (IRC), EventSub and the 7TV EventAPI from
 // the demo data. Anything else is refused: demo mode never touches the network. Same-origin requests (the page's
 // own files) still go to the host.
-import { DEMO_NOW, EMOTES, buildDemoData } from './data.js';
+import { DEMO_NOW, EMOTES, EMOTE_AUTHORS, buildDemoData } from './data.js';
 import { joinLines, chatLine, ownLine, PAINTED } from './chat-feed.js';
 import { onChatSent } from '../chat-send.js';
 
@@ -26,11 +26,14 @@ const json = (body) => new Response(JSON.stringify(body), { status: 200, headers
 /** The emote sets, in each provider's own response format. */
 export function emoteResponses(media) {
   const of = (provider, zw = null) => EMOTES.filter(([, p, z]) => p === provider && (zw === null || z === zw));
-  const stv = (list) => list.map(([name, , zw]) => ({
+  const stv = (list) => list.map(([name, , zw], i) => ({
     id: `demo-${name}`, name, flags: zw ? 1 : 0,
-    data: { id: `demo-${name}`, name, animated: false, flags: zw ? 256 : 0, host: { url: media('img/emote'), files: [{ name: `${name}.svg`, format: 'WEBP', width: 32, height: 32 }] } },
+    data: {
+      id: `demo-${name}`, name, animated: false, flags: zw ? 256 : 0, owner: { username: EMOTE_AUTHORS[i % EMOTE_AUTHORS.length].toLowerCase(), display_name: EMOTE_AUTHORS[i % EMOTE_AUTHORS.length] },
+      host: { url: media('img/emote'), files: [{ name: `${name}.svg`, format: 'WEBP', width: 32, height: 32 }] },
+    },
   }));
-  const ffz = (list) => list.map(([name], i) => ({ id: 900 + i, name, width: 32, height: 32, urls: { 1: media(`img/emote/${name}.svg`), 2: media(`img/emote/${name}.svg`) } }));
+  const ffz = (list) => list.map(([name], i) => ({ id: 900 + i, name, width: 32, height: 32, owner: { name: 'teaclub', display_name: 'TeaClub' }, urls: { 1: media(`img/emote/${name}.svg`), 2: media(`img/emote/${name}.svg`) } }));
   const seven = of('7tv');
   return {
     '7tv:global': { id: 'demo-global', name: 'Demo global', emotes: stv(seven.slice(0, 3)) },

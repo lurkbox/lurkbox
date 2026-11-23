@@ -7,6 +7,7 @@ export const CHANNEL_TABS = [
   { value: 'videos', label: 'Videos' },
   { value: 'clips', label: 'Clips' },
   { value: 'schedule', label: 'Schedule' },
+  { value: 'emotes', label: 'Emotes' },
   { value: 'about', label: 'About' },
 ];
 

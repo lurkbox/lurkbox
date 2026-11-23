@@ -235,3 +235,11 @@ body.touch-ui #pull-refresh.pulling { opacity: calc(0.3 + var(--pull) * 0.7); }
 body.touch-ui #pull-refresh.ready { color: var(--accent); border-color: var(--accent); }
 body.layout-phone #pull-refresh { top: calc(var(--sa-top) + 3.8rem + var(--pull) * 4rem); }
 body.touch-ui .search-recent-title::after { content: "Long-press to delete"; margin-left: auto; font-size: 0.85rem; font-weight: 600; color: var(--fg-dim); }
+
+/* The channel page's Emotes tab: the detail panel goes under the grid on a phone, the search box takes the row. */
+body.layout-phone .eb-main { grid-template-columns: minmax(0, 1fr); }
+body.layout-phone .eb-detail { position: static; order: -1; }
+body.layout-phone .eb-toolbar .eb-search { min-width: 0; flex: 1 1 100%; margin-left: 0; }
+body.layout-phone .eb-grid { grid-template-columns: repeat(auto-fill, minmax(5.6rem, 1fr)); }
+body.layout-phone .eb-pic { width: 3.4rem; height: 3.4rem; }
+body.touch-ui .eb-detail-actions .btn { min-height: var(--touch-min); }

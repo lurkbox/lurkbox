@@ -344,6 +344,31 @@ body.input-mouse .cw-chip .cw-chip-touch { display: inline; }
 .about-tags { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .tag { padding: 0.1rem 0.6rem; border-radius: 999px; background: var(--raised); border: 1px solid var(--border); font-size: 0.9rem; }
 .about-more { margin-top: 1.6rem; }
+
+/* The channel page's Emotes tab (views/channel-emotes.js): sub-tab pills and search, a grid of large previews with
+   names, and the focused emote's detail panel on the right. */
+.eb-toolbar .eb-search { margin-left: auto; min-width: 16rem; font-size: 1.05rem; }
+.eb-main { display: grid; grid-template-columns: minmax(0, 1fr) 17rem; gap: 1.4rem; align-items: start; }
+.eb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(7.4rem, 1fr)); gap: 0.6rem; }
+.eb-grid > .empty, .eb-grid > .loading { grid-column: 1 / -1; }
+.eb-sentinel { height: 1px; }
+.eb-emote { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.4rem; min-width: 0; padding: 0.7rem 0.4rem 0.55rem; border: 1px solid transparent; border-radius: var(--radius); background: var(--surface); color: var(--fg); cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 8.2rem; touch-action: manipulation; }
+.eb-emote:focus, .eb-emote.is-focused { background: var(--raised); border-color: var(--accent); transform: scale(var(--focus-scale)); }
+.eb-pic { display: grid; place-items: center; width: 4.4rem; height: 4.4rem; }
+.eb-pic .emote { max-width: 100%; max-height: 100%; width: auto; height: auto; min-height: 2.4rem; object-fit: contain; }
+.eb-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.92rem; font-weight: 600; }
+.eb-badge { position: absolute; top: 0.35rem; right: 0.35rem; padding: 0.05rem 0.35rem; border-radius: 0.4rem; background: var(--accent); color: var(--on-accent); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; }
+.eb-detail { position: sticky; top: 0.5rem; padding: 1.1rem; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); }
+.eb-big-pic { display: grid; place-items: center; height: 9rem; margin-bottom: 0.7rem; border-radius: var(--radius); background: var(--raised); }
+.eb-big-pic.overlay { background-image: repeating-linear-gradient(45deg, var(--raised) 0 0.6rem, var(--surface) 0.6rem 1.2rem); }
+.eb-big { max-width: 8rem; max-height: 8rem; object-fit: contain; }
+.eb-detail-name { margin: 0 0 0.6rem; font-size: 1.35rem; overflow-wrap: anywhere; }
+.eb-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 0.9rem; margin: 0 0 1rem; font-size: 0.98rem; }
+.eb-facts dt { color: var(--fg-dim); }
+.eb-facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.eb-detail-actions { display: flex; flex-direction: column; gap: 0.5rem; }
+.eb-hint { margin-top: 1.2rem; }
+.eb-draft { margin-top: 0.3rem; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .channel-home-top { grid-template-columns: minmax(0, 1fr); }
   .channel-hint { display: none; }

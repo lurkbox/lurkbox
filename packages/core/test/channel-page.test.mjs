@@ -23,7 +23,7 @@ const NOW = Date.UTC(2026, 2, 14, 20, 0, 5); // Sat 14 Mar 2026, 20:00:05 UTC
 const H = 3600 * 1000;
 
 test('tabs and filters', () => {
-  assert.deepEqual(CHANNEL_TABS.map((t) => t.value), ['home', 'videos', 'clips', 'schedule', 'about']);
+  assert.deepEqual(CHANNEL_TABS.map((t) => t.value), ['home', 'videos', 'clips', 'schedule', 'emotes', 'about']);
   assert.deepEqual(VIDEO_FILTERS.map((t) => t.value), ['archive', 'highlight', 'upload'], 'Helix /videos types');
   assert.deepEqual(CLIP_PERIODS.map((t) => t.value), ['24h', '7d', '30d', 'all']);
   assert.equal(validChoice(VIDEO_FILTERS, 'upload'), 'upload');

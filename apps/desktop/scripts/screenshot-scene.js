@@ -35,6 +35,8 @@ const SETUP = {
   channel: {},
   'channel-clips': { settings: { clipPeriod: '30d' } },
   'channel-schedule': {},
+  // The channel page's Emotes tab: the 7TV set with the zero-width partyHat focused in the detail panel.
+  'channel-emotes': {},
   'player-clip': { settings: { clipPeriod: 'all' } },
   'clip-created': {},
   categories: {},
@@ -380,6 +382,16 @@ app.on('browser-window-created', (_e, win) => {
       await js("document.querySelector('.channel-body .schedule-row').focus(); true");
       await settle();
       await shoot('channel-schedule');
+    },
+    async 'channel-emotes'() {
+      await openChannelPage();
+      await press('RB', 'RB', 'RB', 'RB');
+      await waitFor('the emotes tab', "document.querySelector('.channel-body').dataset.tab === 'emotes' && document.querySelectorAll('.channel-body .eb-emote').length >= 15 && /^FFZ \\d+$/.test(document.querySelector('[data-focus-key=eb-ffz]').textContent) && /^Twitch \\d+$/.test(document.querySelector('[data-focus-key=eb-twitch]').textContent)");
+      await js("document.querySelector('[data-focus-key=eb-7tv-blobSleepy]').focus(); true");
+      await press('DOWN');
+      await waitFor('the detail panel', "document.querySelector('.eb-detail-name') && document.querySelector('.eb-detail-name').textContent === 'partyHat'");
+      await settle();
+      await shoot('channel-emotes');
     },
     async 'player-clip'() {
       // A clip from the Clips tab in the player: the CLIP line, the seek bar, "Watch from here" focused.

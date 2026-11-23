@@ -1,6 +1,7 @@
 // Your own Twitch emotes (official Helix GET /chat/emotes/user, scope user:read:emotes, paginated): the emote
 // picker's Twitch tab, and how your own messages show those emotes before (and besides) the IRC emotes tag.
-// Cached per account and channel (the channel adds its follower emotes) for 30 minutes.
+// Cached per account and channel (the channel adds its follower emotes) for 30 minutes. Also a channel's own emotes
+// (GET /chat/emotes?broadcaster_id), for the channel page's Emotes tab.
 
 const TTL_MS = 30 * 60 * 1000;
 const MAX_PAGES = 30;
@@ -54,6 +55,46 @@ export class UserEmoteCache {
     if (hit && this.now() - hit.at < (hit.failed ? 60000 : TTL_MS)) return hit.promise;
     const entry = { at: this.now(), failed: false, promise: null };
     entry.promise = fetchUserEmotes(this.helix, userId, broadcasterId, opts).catch((e) => { entry.failed = true; throw e; });
+    this.entries.set(key, entry);
+    return entry.promise;
+  }
+}
+
+/**
+ * A channel's own Twitch emotes (official Helix GET /chat/emotes?broadcaster_id: subscriber tiers, follower and Bits
+ * emotes; one page, any token), for the channel page's Emotes tab. Each emote also gets `tier` ('1000'…) and
+ * `animated`.
+ */
+export async function fetchChannelEmotes(helixFn, broadcasterId, opts = {}) {
+  const r = await helixFn('/chat/emotes', { broadcaster_id: broadcasterId });
+  const out = [];
+  const seen = new Set();
+  for (const e of (r && r.data) || []) {
+    const x = fromHelixEmote(e, r.template, opts);
+    if (!x || seen.has(x.name)) continue;
+    seen.add(x.name);
+    x.owner = String(broadcasterId);
+    x.tier = e.tier ? String(e.tier) : '';
+    x.animated = Array.isArray(e.format) && e.format.includes('animated');
+    out.push(x);
+  }
+  return out;
+}
+
+/** The session cache in front of fetchChannelEmotes (per channel and animation setting, 30 minutes). */
+export class ChannelEmoteCache {
+  constructor(helixFn, { now = () => Date.now() } = {}) {
+    this.helix = helixFn;
+    this.now = now;
+    this.entries = new Map();
+  }
+
+  get(broadcasterId, opts = {}) {
+    const key = `${broadcasterId}:${opts.animated === false ? 's' : 'a'}`;
+    const hit = this.entries.get(key);
+    if (hit && this.now() - hit.at < (hit.failed ? 60000 : TTL_MS)) return hit.promise;
+    const entry = { at: this.now(), failed: false, promise: null };
+    entry.promise = fetchChannelEmotes(this.helix, broadcasterId, opts).catch((e) => { entry.failed = true; throw e; });
     this.entries.set(key, entry);
     return entry.promise;
   }

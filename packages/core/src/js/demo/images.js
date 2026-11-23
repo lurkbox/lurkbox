@@ -189,6 +189,39 @@ const EMOTE_ART = {
   lurkerZzz: () => `<rect x="14" y="18" width="84" height="62" rx="12" fill="#6a5acd" stroke="#041012" stroke-width="5"/><rect x="25" y="29" width="62" height="40" rx="6" fill="#c9d6df"/><path d="M36 50 q8 6 16 0 M60 50 q8 6 16 0" stroke="#041012" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M86 6 h14 l-14 14 h14" stroke="#ffe3cc" stroke-width="4" fill="none" stroke-linejoin="round"/><rect x="30" y="82" width="14" height="22" rx="5" fill="#041012"/><rect x="68" y="82" width="14" height="22" rx="5" fill="#041012"/>`,
   clapclap: () => '<path d="M30 92 L22 44 a6 6 0 0 1 12 -2 L40 70 L38 28 a6 6 0 0 1 12 0 L52 68 L56 30 a6 6 0 0 1 12 1 L66 74 L76 52 a6 6 0 0 1 11 5 L74 96 Z" fill="#ffd3a8" stroke="#041012" stroke-width="5" stroke-linejoin="round"/><path d="M14 30 l8 6 M10 50 h10 M92 24 l-6 8" stroke="#ff8a66" stroke-width="5" stroke-linecap="round"/>',
 };
+// The Emotes tab's extra faces: a colour, eyes and a mouth each.
+const wideEyes = '<circle cx="40" cy="52" r="9" fill="#fff" stroke="#041012" stroke-width="4"/><circle cx="72" cy="52" r="9" fill="#fff" stroke="#041012" stroke-width="4"/><circle cx="40" cy="53" r="4" fill="#041012"/><circle cx="72" cy="53" r="4" fill="#041012"/>';
+const sleepyEyes = '<path d="M32 54 q8 6 16 0 M64 54 q8 6 16 0" stroke="#041012" stroke-width="5" fill="none" stroke-linecap="round"/>';
+const smugEyes = '<path d="M32 52 h16 M64 52 h16" stroke="#041012" stroke-width="5" stroke-linecap="round"/><circle cx="44" cy="56" r="3" fill="#041012"/><circle cx="76" cy="56" r="3" fill="#041012"/>';
+const winkEyes = '<circle cx="40" cy="54" r="6" fill="#041012"/><path d="M64 56 q8 -10 16 0" stroke="#041012" stroke-width="5" fill="none" stroke-linecap="round"/>';
+const MOUTHS = {
+  smile,
+  open: '<ellipse cx="56" cy="80" rx="9" ry="11" fill="#041012"/>',
+  flat: '<path d="M42 78 h28" stroke="#041012" stroke-width="5" stroke-linecap="round"/>',
+  smirk: '<path d="M44 78 q14 6 26 -4" stroke="#041012" stroke-width="5" fill="none" stroke-linecap="round"/>',
+  blep: `${smile}<path d="M50 80 v8 a6 6 0 0 0 12 0 v-8 Z" fill="#ff6f8a" stroke="#041012" stroke-width="3"/>`,
+  laugh: '<path d="M34 70 q22 30 44 0 Z" fill="#041012"/><path d="M40 72 q16 10 32 0" stroke="#ff6f8a" stroke-width="4" fill="none"/>',
+  wobble: '<path d="M40 80 q5 -6 10 0 t10 0 t10 0" stroke="#041012" stroke-width="5" fill="none" stroke-linecap="round"/>',
+};
+const FACES = {
+  blobNod: ['#8fd3ff', dotEyes, 'smile', '<path d="M20 22 l6 8 M92 22 l-6 8" stroke="#ffe3cc" stroke-width="5" stroke-linecap="round"/>'],
+  blobSleepy: ['#b9a8ff', sleepyEyes, 'flat', '<path d="M86 10 h14 l-14 14 h14" stroke="#ffe3cc" stroke-width="4" fill="none" stroke-linejoin="round"/>'],
+  blobShock: ['#8fd3ff', wideEyes, 'open', ''],
+  blobSmug: ['#8fd3ff', smugEyes, 'smirk', ''],
+  blobBlep: ['#8fd3ff', happyEyes, 'blep', ''],
+  blobHmm: ['#8fd3ff', smugEyes, 'wobble', '<circle cx="94" cy="88" r="9" fill="#ffd3a8" stroke="#041012" stroke-width="4"/>'],
+  mintJoy: ['#7fe0b8', happyEyes, 'laugh', ''],
+  mintMeh: ['#7fe0b8', dotEyes, 'flat', ''],
+  plumYay: ['#e48bd6', happyEyes, 'open', '<path d="M14 30 l10 6 M98 30 l-10 6" stroke="#ffd34d" stroke-width="5" stroke-linecap="round"/>'],
+  plumOof: ['#e48bd6', sleepyEyes, 'wobble', ''],
+  skyGrin: ['#ffd34d', dotEyes, 'laugh', ''],
+  skyWink: ['#ffd34d', winkEyes, 'smirk', ''],
+  sunnyLaugh: ['#ffb547', happyEyes, 'laugh', '<circle cx="28" cy="72" r="7" fill="#ff6f61" opacity="0.6"/><circle cx="84" cy="72" r="7" fill="#ff6f61" opacity="0.6"/>'],
+};
+for (const [name, [fill, eyes, mouth, extra]] of Object.entries(FACES)) EMOTE_ART[name] = () => face(fill, `${eyes}${MOUTHS[mouth]}${extra}`);
+// A zero-width overlay: sparkles around whatever emote it sits on.
+EMOTE_ART.sparkles = () => '<path d="M18 14 l4 10 l10 4 l-10 4 l-4 10 l-4 -10 l-10 -4 l10 -4 Z M92 62 l3 8 l8 3 l-8 3 l-3 8 l-3 -8 l-8 -3 l8 -3 Z M88 8 l2 6 l6 2 l-6 2 l-2 6 l-2 -6 l-6 -2 l6 -2 Z" fill="#ffd34d" stroke="#041012" stroke-width="2.5" stroke-linejoin="round"/>';
+
 export const EMOTE_NAMES = Object.keys(EMOTE_ART);
 
 export function emoteSvg(name) {

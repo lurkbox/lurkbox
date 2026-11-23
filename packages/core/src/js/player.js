@@ -44,6 +44,7 @@ import { sendAuthState } from './chat-send.js';
 import { EmotePicker, pickerTabs, insertEmote } from './emote-picker.js';
 import { QuickChatPicker, setQuickChatChannel } from './quick-chat.js';
 import { UserEmoteCache } from './user-emotes.js';
+import { takeDraft } from './emote-browser.js';
 import { pushRecent } from '../shared/quick-chat.js';
 import { RaidCountdown } from './raid.js';
 import { DirectEngine, EVENTS as DIRECT_EVENTS } from './direct-engine.js';
@@ -266,6 +267,9 @@ export class Player {
     if (this.embedOnly && this.embedOnly !== login) this.embedOnly = null;
     if (Array.isArray(playlist) && playlist.length) this.playlist = playlist;
     if (!this.current || this.current.login !== login) { this.composer.clear(); this.chat.setOwnEmotes([]); } // a draft belongs to its channel
+    // Emotes added on the channel page's Emotes tab wait for the player: they start (or extend) this channel's draft.
+    const waiting = takeDraft(login);
+    if (waiting) { const cur = this.composer.input.value.trim(); this.composer.setDraft(cur ? `${cur} ${waiting}` : waiting); }
     this.current = { kind: 'live', login, name: name || login, userId: userId || (stream && stream.user_id) || null, stream: stream || null };
     this.resetSeek();
     this.show();

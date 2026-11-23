@@ -1,6 +1,7 @@
 // The channel page: a header (banner, avatar, name, followers, Follow, a LIVE card with Watch) and tabs: Home, Videos,
-// Clips, Schedule and About. LB/RB (or the tabs themselves) switch tabs; Y sorts the Videos and Clips grids. Everything
-// comes from the official Helix API (users, streams, videos, clips, schedule, channels, followers).
+// Clips, Schedule, Emotes and About. LB/RB (or the tabs themselves) switch tabs; Y sorts the Videos and Clips grids.
+// Everything comes from the official Helix API (users, streams, videos, clips, schedule, channels, followers, chat
+// emotes), plus the chat's 7TV, BetterTTV and FrankerFaceZ sets on the Emotes tab (channel-emotes.js).
 import { el, button, toast, fmtViewers, fmtUptime, fmtDate, thumb } from '../ui.js';
 import { hint } from '../input.js';
 import { tw, usersByIds } from '../api.js';
@@ -12,6 +13,7 @@ import { myClipsFor, clipShortLink } from '../../shared/my-clips.js';
 import { state, saveSettings } from '../state.js';
 import { focusEl } from '../focus.js';
 import { shortCount } from '../player-ui.js';
+import { renderEmotes } from './channel-emotes.js';
 
 /** @param {{ login: string, id?: string, name?: string, tab?: string }} c */
 export function channelView({ login, id, name, tab }) {
@@ -23,6 +25,7 @@ export function channelView({ login, id, name, tab }) {
     initialFocus: '[data-focus-key=channel-watch]', // when live; else the first control
     onAction(action) {
       if ((action === 'LB' || action === 'RB') && this.showTab) { this.stepTab(action === 'RB' ? 1 : -1); return true; }
+      if (this.tabAction && this.tabAction(action)) return true; // the Emotes tab: A on its search box, Y
       if (action === 'Y' && this.sort) { this.sort.cycle(); return true; }
       return false;
     },
@@ -94,13 +97,14 @@ export function channelView({ login, id, name, tab }) {
       view.showTab = (value, { focusTab = false } = {}) => {
         view.tab = validChoice(CHANNEL_TABS, value, 'home');
         view.sort = null;
+        view.tabAction = null;
         for (const [k, b] of tabButtons) {
           b.classList.toggle('selected', k === view.tab);
           b.setAttribute('aria-selected', k === view.tab ? 'true' : 'false');
         }
         body.dataset.tab = view.tab;
         body.replaceChildren();
-        ({ home: renderHome, videos: renderVideos, clips: renderClips, schedule: renderSchedule, about: renderAbout })[view.tab]();
+        ({ home: renderHome, videos: renderVideos, clips: renderClips, schedule: renderSchedule, emotes: () => renderEmotes(body, { ch, nav, view }), about: renderAbout })[view.tab]();
         if (focusTab) focusEl(tabButtons.get(view.tab), { instant: true });
       };
 
