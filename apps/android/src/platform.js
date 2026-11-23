@@ -17,6 +17,7 @@ import { storeWhispers, loadWhispers } from '@lurkbox/core/src/shared/whispers.j
 import { accountsWithIndex, accountIndexKey } from '@lurkbox/core/src/shared/emote-index.js';
 import { removeAccountData } from '@lurkbox/core/src/shared/account-data.js';
 import { ProxyHosts, rewriteMaster } from '@lurkbox/core/src/shared/hls-rewrite.js';
+import { WatchMinutes } from '@lurkbox/core/src/shared/watch-minutes.js';
 import { createWebSession, mismatchWarning, SESSION_TOKEN } from './web-session.js';
 import { createHiddenPages } from './hidden-pages.js';
 import { createPoints } from './points.js';
@@ -151,6 +152,22 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
   const points = hidden ? createPoints({ pages: hidden, web, getSettings, emit, log, ...(features.points || {}) }) : null;
   const follow = hidden ? createFollow({ pages: hidden, web, log, ...(features.follow || {}) }) : null;
   const drops = hidden ? createDrops({ pages: hidden, web, getSettings, emit, log, ...(features.drops || {}) }) : null;
+  // Watch-time points for the stream on screen: the desktop's rules and requests (shared/watch-minutes.js). The
+  // signed-in master comes through native webGql (web.gqlFetch), so the auth-token never reaches this page's JS.
+  const minuteMasters = new Map();
+  const watchMinutes = web && native.webGql ? new WatchMinutes({
+    fetch, log,
+    // A signed-in master per channel, reused for 5 minutes (the variant playlist URLs stay valid).
+    master: async (login) => {
+      const c = minuteMasters.get(login);
+      if (c && Date.now() - c.at < 300000) return c.r;
+      const r = await fetchMaster({ fetch: web.gqlFetch(fetch), login, codecs: ['h264'], authToken: SESSION_TOKEN, log });
+      if (r.ok && r.authed) { minuteMasters.clear(); minuteMasters.set(login, { r, at: Date.now() }); }
+      return r;
+    },
+    ...(features.watchMinutes || {}),
+  }) : null;
+  let hiddenSince = null; // the app in the background since (ms), for the 5-minute limit
 
   const ready = (async () => {
     if (secure) await migrateToSecure(prefs, secure, 'tokens', log);
@@ -202,7 +219,11 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
 
   if (app && app.addListener) {
     // The core's "window focus": the app in front (resumed) or not (paused, home screen, another app).
-    app.addListener('appStateChange', (st) => bus.emit('focus', !!(st && st.isActive)));
+    app.addListener('appStateChange', (st) => {
+      const active = !!(st && st.isActive);
+      hiddenSince = active ? null : (hiddenSince || Date.now());
+      bus.emit('focus', active);
+    });
   }
 
   const signedOutPlayer = () => ({ signedIn: false, login: null, mismatch: null });
@@ -228,10 +249,28 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
     onDropsEvent: on('drops:event'),
   } : {};
 
+  // Only with the web session and native webGql: without it the core never reports (the setting stays harmless).
+  const watchMembers = watchMinutes ? {
+    watchMinute: after(async (m = {}) => {
+      const login = m && LOGIN.test(String(m.login)) ? String(m.login).toLowerCase() : null;
+      if (!login || !/^\d+$/.test(String(m.channelId)) || !/^\d+$/.test(String(m.broadcastId))) return { ok: false, reason: 'bad request' };
+      const st = await web.status();
+      const me = twitch.user && twitch.user.login;
+      const active = twitch.store().active;
+      return watchMinutes.report({
+        enabled: getSettings().earnWatchPoints !== false,
+        direct: !!m.direct, live: !!m.live, rewound: !!m.rewound, playing: !!m.playing,
+        webSignedIn: !!st.signedIn, sameUser: !!(st.login && me && st.login.toLowerCase() === me.toLowerCase()),
+        hiddenMs: hiddenSince ? Date.now() - hiddenSince : null,
+      }, { login, channelId: String(m.channelId), broadcastId: String(m.broadcastId), userId: String(active) });
+    }),
+  } : {};
+
   const pipMembers = hasPip ? { onMediaAction: on('media') } : {};
 
   return {
     ...pipMembers,
+    ...watchMembers,
     // ---- app and window ----
     // hostPages: the chat page (points) and the Drops inventory are shown in the native windows, not the app's iframes.
     // pip: picture-in-picture on this device (a phone or tablet; Settings shows its switch).

@@ -139,12 +139,12 @@ test('platform: with the hidden pages, the points, follow and Drops members are 
   const { platform } = setup();
   const dts = fs.readFileSync(require.resolve('@lurkbox/core/src/platform.d.ts'), 'utf8');
   const documented = documentedMembers(dts);
-  for (const k of ['pointsWatch', 'onPointsState', 'onPointsEvent', 'pointsOpenPanel', 'pointsPad', 'pointsClosePanel', 'followChannel', 'openChannelPage', 'dropsStatus', 'dropsProgress', 'onDropsEvent', 'dropsOpen', 'dropsPad', 'dropsClose']) {
+  for (const k of ['watchMinute', 'pointsWatch', 'onPointsState', 'onPointsEvent', 'pointsOpenPanel', 'pointsPad', 'pointsClosePanel', 'followChannel', 'openChannelPage', 'dropsStatus', 'dropsProgress', 'onDropsEvent', 'dropsOpen', 'dropsPad', 'dropsClose']) {
     assert.equal(typeof platform[k], 'function', k);
     assert.ok(documented.has(k), `${k} documented`);
   }
   for (const k of Object.keys(platform)) assert.ok(documented.has(k), `${k} is undocumented`);
-  assert.ok(!('watchMinute' in platform), 'watch-time points are left out');
+  assert.equal(typeof platform.watchMinute, 'function', 'watch-time points with the web session');
   assert.ok(!('pointsMode' in platform), 'the hidden page keeps zoom 1: no pointsMode');
   assert.equal((await platform.appInfo()).hostPages, true);
 });
@@ -343,4 +343,73 @@ test('Drops: auto-claim runs the shared scan in the hidden inventory page on the
   assert.match(r.error, /load failed/);
   assert.equal(timers.at(-1), 30 * 60000);
   assert.ok(lines.every((l) => !/auth-token|OAuth/i.test(l)));
+});
+
+// ---- watch-time points (shared/watch-minutes.js over native HTTP) ----
+
+test('watch minutes: the desktop gate, the minute-watched requests, and no auth-token in page requests', async () => {
+  const native = mockNative();
+  const reqs = [];
+  const http = {
+    request: async (r) => {
+      reqs.push(r);
+      if (r.url === 'https://x.ttvnw.net/low.m3u8') return { status: 200, data: '#EXTM3U\n#EXTINF:2,\nseg9.ts\n', headers: {} };
+      if (r.url === 'https://x.ttvnw.net/seg9.ts') return { status: 200, data: '', headers: {} };
+      if (r.url === 'https://www.twitch.tv/somechannel') return { status: 200, data: '<script src="https://static.twitchcdn.net/config/settings.abc.js"></script>', headers: {} };
+      if (r.url === 'https://static.twitchcdn.net/config/settings.abc.js') return { status: 200, data: '{"spade_url":"https://spade.twitch.tv/track"}', headers: {} };
+      if (r.url === 'https://spade.twitch.tv/track') return { status: 204, data: '', headers: {} };
+      return { status: 404, data: '', headers: {} };
+    },
+  };
+  const masters = [];
+  let settings = {};
+  const make = () => createPlatform({
+    fetch: makeNativeFetch(http), app: null, native, qrSvg: () => '', setInterval: () => 0,
+    prefs: mockPrefs({ settings, tokens: { accounts: { 42: { login: 'viewer', access_token: 't', refresh_token: 'r' } }, active: '42' } }),
+    features: { pages: { sleep: fast }, points: { every: () => 0, stopEvery: () => {} }, drops: { claimer: { setTimer: () => 0, clearTimer: () => {} } },
+      watchMinutes: { master: async (login) => { masters.push(login); return { ok: true, authed: true, master: '#EXTM3U\nhttps://x.ttvnw.net/high.m3u8\nhttps://x.ttvnw.net/low.m3u8\n' }; } } },
+  });
+  let platform = make();
+  const minute = { login: 'SomeChannel', channelId: '12', broadcastId: '34', direct: true, live: true, rewound: false, playing: true };
+  const r = await platform.watchMinute(minute);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(masters, ['somechannel']);
+  const spade = reqs.find((x) => x.url === 'https://spade.twitch.tv/track');
+  assert.equal(spade.method, 'POST');
+  const events = JSON.parse(Buffer.from(decodeURIComponent(String(spade.data).slice(5)), 'base64').toString('utf8'));
+  assert.deepEqual(events[0].properties, { channel_id: '12', broadcast_id: '34', player: 'site', user_id: '42', live: true, channel: 'somechannel' });
+  assert.equal(reqs.find((x) => x.url.endsWith('seg9.ts')).method, 'HEAD');
+  for (const x of reqs.filter((q) => !/^https:\/\/(id\.twitch\.tv|api\.twitch\.tv)\//.test(q.url))) assert.ok(!Object.keys(x.headers).some((k) => /authorization|cookie/i.test(k)), `no session sent to ${x.url}`);
+  // The gate: rewound, paused, another account's session, the setting off, a bad request.
+  assert.equal((await platform.watchMinute({ ...minute, rewound: true })).reason, 'rewound');
+  assert.equal((await platform.watchMinute({ ...minute, playing: false })).reason, 'not playing');
+  assert.equal((await platform.watchMinute({ ...minute, channelId: 'x' })).reason, 'bad request');
+  native.session = { login: 'someoneelse' };
+  assert.equal((await platform.watchMinute(minute)).reason, 'twitch.tv session is another account');
+  native.session = null;
+  assert.equal((await platform.watchMinute(minute)).reason, 'no twitch.tv session');
+  native.session = { login: 'viewer' };
+  settings = { earnWatchPoints: false };
+  platform = make();
+  assert.equal((await platform.watchMinute(minute)).reason, 'setting off');
+});
+
+test('watch minutes: in the background for more than 5 minutes, no reports', async () => {
+  const native = mockNative();
+  let stateCb = null;
+  const app = { addListener: (name, fn) => { if (name === 'appStateChange') stateCb = fn; return Promise.resolve({ remove() {} }); } };
+  const platform = createPlatform({
+    fetch: makeNativeFetch({ request: async () => ({ status: 404, data: '', headers: {} }) }), app, native, qrSvg: () => '', setInterval: () => 0,
+    prefs: mockPrefs({ tokens: { accounts: { 42: { login: 'viewer', access_token: 't', refresh_token: 'r' } }, active: '42' } }),
+    features: { pages: { sleep: fast }, points: { every: () => 0, stopEvery: () => {} }, drops: { claimer: { setTimer: () => 0, clearTimer: () => {} } } },
+  });
+  const realNow = Date.now;
+  try {
+    let now = 1_000_000;
+    Date.now = () => now;
+    stateCb({ isActive: false });
+    now += 6 * 60 * 1000;
+    const r = await platform.watchMinute({ login: 'somechannel', channelId: '12', broadcastId: '34', direct: true, live: true, rewound: false, playing: true });
+    assert.equal(r.reason, 'hidden for more than 5 min');
+  } finally { Date.now = realNow; }
 });
