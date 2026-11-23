@@ -141,8 +141,9 @@ jobs:
           persist-credentials: false
       - name: gitleaks
         # The release file is checked against the SHA-256 from gitleaks' published checksums for v8.30.1.
+        # Only the checked-out history (HEAD): with fetch-depth 0 a plain scan also reads every other fetched branch.
         run: |
           curl -sSfL -o gitleaks_8.30.1_linux_x64.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks_8.30.1_linux_x64.tar.gz" | sha256sum -c -
           tar -xzf gitleaks_8.30.1_linux_x64.tar.gz gitleaks
-          ./gitleaks git . --no-banner --redact
+          ./gitleaks git . --no-banner --redact --log-opts="HEAD"

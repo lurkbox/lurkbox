@@ -81,7 +81,7 @@ The electron-builder config is `apps/desktop/electron-builder.config.js` (app id
 | Unit tests | `npm ci --ignore-scripts`; `node --check` on every tracked `.js` in `packages/*/src`, `apps/*/src`, `apps/*/test` and `apps/*/*.config.js`; `npm test` |
 | Launch smoke test | `npm ci --ignore-scripts && npm rebuild electron`; `xvfb-run -a npm run test:smoke`; `xvfb-run -a npm run test:drops`; `xvfb-run -a npm run test:follow`; `xvfb-run -a npm run test:points-cookies`; `xvfb-run -a npm run test:chat-send`; `xvfb-run -a npm run test:channel`; `xvfb-run -a npm run test:continue` |
 | AppImage builds | the same install; `npm run dist -- --publish never`; uploads `dist/*.AppImage` |
-| Secret scan | gitleaks over the full history |
+| Secret scan | gitleaks over the full history of the checked-out commit (`--log-opts=HEAD`, not other fetched branches), with `.gitleaks.toml` |
 
 `.github/workflows/flatpak.yml` ("Flatpak") builds the Flatpak on every pull request, and on `v*` tags and manual runs also signs it and publishes it to GitHub Pages. See [flatpak.md](flatpak.md).
 
