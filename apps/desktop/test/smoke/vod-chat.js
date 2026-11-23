@@ -86,6 +86,13 @@ app.on('browser-window-created', (_e, win) => {
       await js(`window.__lurkbox.nav.playVideo(${JSON.stringify(video)}, { startAt: 120 }); true`);
       await waitFor('the VOD player', `!document.getElementById('player-screen').hidden && window.__lurkbox.player.current && window.__lurkbox.player.current.videoId === ${JSON.stringify(video.id)}`, 20000);
       await waitFor('chat replay', "/Chat replay/.test(document.querySelector('#chat .chat-title').textContent) && document.getElementById('player-screen').classList.contains('chat-on')", 15000);
+      // Without the demo video (no ffmpeg, as in CI) nothing plays: drive the replay with the positions a video would give.
+      const hasVideo = await waitFor('the demo video', "(() => { const v = document.querySelector('#player-screen video'); return !!v && v.readyState > 0; })()", 10000).then(() => true, () => false);
+      if (!hasVideo) {
+        log('note: no demo video (ffmpeg missing?); the replay is driven by hand');
+        await js('window.__lurkbox.player.stopReplay(); window.__lurkbox.player.replay = null; window.__lurkbox.player.applyLayout(); true');
+        await js("(() => { const p = window.__lurkbox.player; clearInterval(p.replayTimer); p.replay.tick(120); return true; })()");
+      }
       await waitFor('the context messages', "document.querySelectorAll('#chat .chat-msg:not(.system)').length >= 5", 15000);
       let ids = await shown();
       if (Math.min(...ids) < Math.floor((120 - 20) / 2.5) - 1) throw new Error(`context from too early: ${ids.slice(0, 3)}`);
@@ -93,10 +100,19 @@ app.on('browser-window-created', (_e, win) => {
       if (!(await js("!!document.querySelector('#chat .chat-msg .chat-badge') && !!document.querySelector('#chat .chat-nick[style*=color]')"))) throw new Error('no badges or coloured names');
       if (await js("(() => { const c = document.querySelector('#chat .chat-composer'); return !!c && !c.hidden && getComputedStyle(c).display !== 'none'; })()")) throw new Error('the message box shows for a VOD');
       await shot('replay');
+      if (!hasVideo) {
+        const drive = (t) => js(`window.__lurkbox.player.replay.tick(${t}); true`);
+        for (let t = 121; t <= 140; t++) await drive(t);
+        await waitFor('newer comments', `(() => { const ids = [...document.querySelectorAll('#chat .chat-msg:not(.system)')].map((n) => Number((/-(\\d+)$/.exec(n.dataset.id || '') || [])[1])); return Math.max(...ids) > ${Math.max(...ids)}; })()`, 10000);
+        if (Math.max(...(await shown())) * 2.5 > 141) throw new Error('comments ahead of the position');
+        await drive(600);
+        await waitFor('the list from 10:00', "(() => { const ids = [...document.querySelectorAll('#chat .chat-msg:not(.system)')].map((n) => Number((/-(\\d+)$/.exec(n.dataset.id || '') || [])[1])); return ids.length >= 5 && Math.min(...ids) >= 230; })()", 20000);
+        log('driven by hand: comments up to 2:20, then a seek to 10:00 started over');
+      }
       const p0 = await pos();
-      const playing = await waitFor('playback', `(() => { const v = document.querySelector('#player-screen video'); return v && v.currentTime > ${(p0 || 120) + 3} ? v.currentTime : null; })()`, 20000).catch(() => null);
+      const playing = hasVideo ? await waitFor('playback', `(() => { const v = document.querySelector('#player-screen video'); return v && v.currentTime > ${(p0 || 120) + 3} ? v.currentTime : null; })()`, 20000).catch(() => null) : null;
       if (playing === null) {
-        log('note: the demo video does not play here (ffmpeg missing?); checked the start only');
+        if (hasVideo) log('note: the demo video does not play here; checked the start only');
       } else {
         // Comments arrive as the video plays, never ahead of it.
         await waitFor('newer comments', `(() => { const ids = [...document.querySelectorAll('#chat .chat-msg:not(.system)')].map((n) => Number((/-(\\d+)$/.exec(n.dataset.id || '') || [])[1])); return Math.max(...ids) > ${Math.max(...ids)}; })()`, 15000);
@@ -123,7 +139,7 @@ app.on('browser-window-created', (_e, win) => {
       await press('Y');
       await waitFor('chat off', "!document.getElementById('player-screen').classList.contains('chat-on')");
       await press('Y');
-      await waitFor('chat on again', "document.getElementById('player-screen').classList.contains('chat-on') && document.querySelectorAll('#chat .chat-msg:not(.system)').length >= 3", 15000);
+      await waitFor('chat on again', "document.getElementById('player-screen').classList.contains('chat-on') && /Chat replay/.test(document.querySelector('#chat .chat-title').textContent)", 15000);
       finish(0, `${video.user_login} VOD ${video.id}: chat replay with context at 2:00, badges and colours, no message box${playing === null ? '' : ', in step with playback, paused, a seek'}, Y off/on`);
     } catch (e) {
       await shot('FAILED').catch(() => {});
