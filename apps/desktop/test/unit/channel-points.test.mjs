@@ -63,6 +63,35 @@ test('tracker: claim amount from the balance change, predictions announced once'
   assert.deepEqual(r.events, [{ type: 'poll', title: 'Best map?' }]);
 });
 
+test('tracker: "no points" only after several scans in a row without the summary', () => {
+  const t = new P.PointsTracker();
+  const miss = { signedIn: false, signInPrompt: false, balanceText: null };
+  let r = t.update({ signedIn: true, balanceText: '1,000' });
+  assert.deepEqual(r.events, [{ type: 'signed-in', signedIn: true }, { type: 'balance', balance: 1000, previous: null }]);
+  // Twitch re-renders the summary (the claim animation): one or two misses keep the balance shown.
+  for (let i = 1; i < P.NO_POINTS_AFTER; i++) {
+    r = t.update(miss);
+    assert.deepEqual(r.events, [], `miss ${i}`);
+    assert.equal(r.state.signedIn, true);
+  }
+  r = t.update({ signedIn: true, balanceText: '1,000' });
+  assert.deepEqual(r.events, [], 'back before the limit: no event');
+  for (let i = 1; i < P.NO_POINTS_AFTER; i++) t.update(miss);
+  r = t.update(miss);
+  assert.deepEqual(r.events, [{ type: 'signed-in', signedIn: false }]);
+  assert.equal(t.misses, P.NO_POINTS_AFTER);
+  // Twitch's sign-in prompt: at once.
+  const t2 = new P.PointsTracker();
+  t2.update({ signedIn: true, balanceText: '5' });
+  assert.deepEqual(t2.update({ ...miss, signInPrompt: true }).events, [{ type: 'signed-in', signedIn: false }]);
+});
+
+test('no-points log detail: selector names and sizes only', () => {
+  assert.equal(P.noPointsDetail({}), '');
+  assert.equal(P.noPointsDetail({ diag: { chatInput: '340x96', editor: null, tagged: 2, names: ['a', 'b'], visibility: 'visible' } }),
+    'chat input 340x96, editor missing, 2 data-test-selector elements in the input area: a, b; page visible');
+});
+
 const gate = (o = {}) => W.reportGate({ enabled: true, direct: true, live: true, rewound: false, playing: true, webSignedIn: true, sameUser: true, hiddenMs: null, ...o });
 
 test('watch-minute reporting gate', () => {

@@ -593,7 +593,7 @@ function registerIpc() {
     if (login !== pointsLogin) return;
     const { events, state } = tracker.update(scan);
     for (const ev of events) {
-      if (ev.type === 'signed-in') note(`[points] ${login}: chat ${ev.signedIn ? 'shows the points balance' : `shows no points (signed out in the frame, or the channel has no points; sign-in prompt ${scan.signInPrompt ? 'shown' : 'absent'}, auth-token cookie ${scan.authCookie === true ? 'visible' : scan.authCookie === false ? 'NOT visible' : 'unknown'} in the frame; frame ${chatFrameMode}, CSS viewport ${scan.vw}x${scan.vh} at zoom ${scan.zoom}, layout ${scan.lw} px wide)`}`);
+      if (ev.type === 'signed-in') note(`[points] ${login}: chat ${ev.signedIn ? 'shows the points balance' : `shows no points (signed out in the frame, or the channel has no points; sign-in prompt ${scan.signInPrompt ? 'shown' : 'absent'}, auth-token cookie ${scan.authCookie === true ? 'visible' : scan.authCookie === false ? 'NOT visible' : 'unknown'} in the frame; frame ${chatFrameMode}, CSS viewport ${scan.vw}x${scan.vh} at zoom ${scan.zoom}, layout ${scan.lw} px wide, missing in ${tracker.misses} scans in a row${scan.diag ? `; ${points.noPointsDetail(scan)}` : ''})`}`);
       else if (ev.type === 'claim-clicked') appLog(`[points] ${login}: clicked Claim Bonus`);
       else if (ev.type === 'claimed') appLog(`[points] ${login}: claimed bonus ${ev.amount != null ? `+${ev.amount}` : '(amount not seen)'}, balance ${ev.balance}`);
       else if (ev.type === 'prediction' || ev.type === 'poll') { appLog(`[points] ${login}: ${ev.type} shown`); send('points:event', { login, ...ev }); }

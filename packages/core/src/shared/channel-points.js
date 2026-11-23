@@ -12,6 +12,14 @@ const LOGIN = /^[a-z0-9_]{1,25}$/i;
 
 export const SELECTORS = Object.freeze({
   summary: ['[data-test-selector="community-points-summary"]', '.community-points-summary'],
+  // Also "points are shown" when the summary itself isn't matched (Twitch re-renders it, e.g. during the claim animation):
+  // the balance string or the balance button anywhere in the page.
+  present: [
+    '[data-test-selector="copo-balance-string"]',
+    '[data-test-selector*="balance"]',
+    'button[aria-label*="Bits and Points" i]',
+    '.chat-input button[aria-label*="Points" i]',
+  ],
   claim: [
     '[data-test-selector="community-points-summary"] button[aria-label="Claim Bonus"]',
     'button[aria-label="Claim Bonus"]',
@@ -74,13 +82,26 @@ export function scanSource({ autoClaim }) {
     const S = ${JSON.stringify(SELECTORS)};
     const q = (list) => { for (const s of list) { try { const n = document.querySelector(s); if (n) return n; } catch (e) {} } return null; };
     const text = (n) => (n ? (n.innerText || n.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200) : null);
-    const summary = q(S.summary);
+    const summary = q(S.summary) || q(S.present);
     // authCookie: whether the frame's scripts see an auth-token cookie at all (its name only; never the value). False with
     // a signed-in session means the cookie isn't SameSite=None, so the third-party frame doesn't get it.
     let authCookie = null;
     try { authCookie = /(^|;\\s*)auth-token=/.test(document.cookie); } catch (e) { /* no access */ }
     const zoom = Number(getComputedStyle(document.documentElement).zoom) || 1;
     const out = { signedIn: !!summary && !q(S.signedOut), signInPrompt: !!q(S.signedOut), authCookie, vw: innerWidth, vh: innerHeight, zoom, lw: Math.round(innerWidth / zoom), balanceText: text(q(S.balance)), claimed: false, prediction: null, poll: null };
+    // No points: what Twitch rendered in the chat input area, for the log (selector names and sizes only, no text).
+    if (!summary) {
+      const box = (n) => { if (!n) return null; const r = n.getBoundingClientRect(); return Math.round(r.width) + 'x' + Math.round(r.height); };
+      const input = document.querySelector('.chat-input');
+      const editor = document.querySelector('[data-a-target="chat-input"]');
+      const area = input || (editor && editor.closest('form, [class*="chat-input"]')) || null;
+      const tagged = area ? [...area.querySelectorAll('[data-test-selector]')] : [];
+      out.diag = {
+        chatInput: box(input), editor: box(editor), tagged: tagged.length,
+        names: [...new Set(tagged.map((n) => n.getAttribute('data-test-selector')))].slice(0, 20),
+        visibility: document.visibilityState,
+      };
+    }
     if (${autoClaim ? 'true' : 'false'}) {
       // Only ever a real button (the wrapper around the chest stays in the page after a claim).
       let b = null;
@@ -261,6 +282,17 @@ export function isChatFrameUrl(url, login = null) {
   return !!m && (!login || m[1].toLowerCase() === String(login).toLowerCase());
 }
 
+/** The scan's diag (no points found) as text for the log: what Twitch rendered in the chat input area. */
+export function noPointsDetail(scan) {
+  const d = scan && scan.diag;
+  if (!d) return '';
+  const names = Array.isArray(d.names) && d.names.length ? `: ${d.names.join(', ')}` : '';
+  return `chat input ${d.chatInput || 'missing'}, editor ${d.editor || 'missing'}, ${d.tagged} data-test-selector elements in the input area${names}; page ${d.visibility}`;
+}
+
+/** Scans in a row without the points summary before "no points" is reported (Twitch re-renders it now and then). */
+export const NO_POINTS_AFTER = 3;
+
 /**
  * Turns successive scans into events: claims (with the amount once the balance moves), balance changes, and a
  * prediction/poll that just appeared. Pure; feed it one scan at a time.
@@ -278,13 +310,17 @@ export class PointsTracker {
     this.prediction = null;
     this.poll = null;
     this.signedIn = null;
+    this.misses = 0;
   }
 
   /** @returns {{ events: object[], state: { signedIn, balance, prediction, poll } }} */
   update(scan) {
     const events = [];
     if (!scan) return { events, state: this.state() };
-    if (scan.signedIn !== this.signedIn) { this.signedIn = scan.signedIn; events.push({ type: 'signed-in', signedIn: scan.signedIn }); }
+    // Points shown: at once. Not shown: only after NO_POINTS_AFTER scans in a row (or with Twitch's sign-in prompt).
+    this.misses = scan.signedIn ? 0 : this.misses + 1;
+    const signedIn = scan.signedIn ? true : scan.signInPrompt || this.misses >= NO_POINTS_AFTER ? false : this.signedIn;
+    if (signedIn !== this.signedIn) { this.signedIn = signedIn; events.push({ type: 'signed-in', signedIn }); }
     const bal = parseBalance(scan.balanceText);
     if (scan.claimed) { this.pendingClaim = { before: Number.isFinite(bal) ? bal : this.balance, at: this.now() }; events.push({ type: 'claim-clicked' }); }
     if (Number.isFinite(bal) && bal !== this.balance) {
