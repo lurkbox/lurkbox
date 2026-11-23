@@ -68,9 +68,12 @@ async function setup() {
   emoteIndex.set(B, index('chanB'));
   fs.writeFileSync(path.join(dir, 'notify-channels.json'), JSON.stringify({ user_id: A, login: 'alice', channels: [] }));
   fs.writeFileSync(path.join(dir, 'open-request.json'), JSON.stringify({ channel: 'x', at: Date.now() }));
-  const events = { settings: [], activeRemoved: 0, siteData: 0 };
+  fs.writeFileSync(path.join(dir, 'lurkbox.log'), `t [auth] signed in as alice (${A})\nt [player] playing x\nt [auth] signed in as bob (${B})\n`);
+  fs.writeFileSync(path.join(dir, 'lurkbox.log.1'), `t [points] alice: balance 5\nt [app] start\n`);
+  const events = { settings: [], activeRemoved: 0, siteData: 0, logRewritten: 0 };
   const remove = createAccountRemover({
-    twitch, settings, playerJar: jar, resume, whispers, emoteIndex, dir,
+    twitch, settings, playerJar: jar, resume, whispers, emoteIndex, dir, logFile: path.join(dir, 'lurkbox.log'),
+    onLogRewritten: () => { events.logRewritten++; },
     onSettings: (s) => events.settings.push(s),
     clearSiteData: async () => { events.siteData++; },
     onActiveRemoved: () => { events.activeRemoved++; },
@@ -88,6 +91,7 @@ function assertBIntact(t) {
   assert.equal(new WhisperStore(path.join(t.dir, 'whispers.json')).load(B).length, 1);
   assert.ok(new EmoteIndexStore(path.join(t.dir, 'emote-index.json')).get(B));
   for (const k of PER_ACCOUNT_SETTINGS) assert.ok(s[k][B], `${k} of the other account stays`);
+  assert.match(fs.readFileSync(path.join(t.dir, 'lurkbox.log'), 'utf8'), /signed in as bob/);
 }
 
 function assertAGone(t) {
@@ -101,6 +105,11 @@ function assertAGone(t) {
   assert.equal(new EmoteIndexStore(path.join(t.dir, 'emote-index.json')).get(A), null);
   assert.equal(fs.existsSync(path.join(t.dir, 'notify-channels.json')), false, 'the Decky export for this user');
   for (const k of PER_ACCOUNT_SETTINGS) assert.equal(A in s[k], false, `${k} still has the account`);
+  const log = fs.readFileSync(path.join(t.dir, 'lurkbox.log'), 'utf8') + fs.readFileSync(path.join(t.dir, 'lurkbox.log.1'), 'utf8');
+  assert.equal(/alice|111/.test(log), false, 'the log still mentions the account');
+  assert.match(log, /playing x/);
+  assert.match(log, /log lines of a signed-out account removed/);
+  assert.ok(t.events.logRewritten >= 1);
   // Global settings stay.
   assert.equal(s.clientId, 'abc');
   assert.equal(s.theme, 'oled');
@@ -129,7 +138,7 @@ test('signing out the active account deletes all of its data and keeps the other
   assert.equal(last.user.login, 'bob');
   assert.deepEqual(last.accounts.map((a) => a.id), [B], 'the profile is gone from the list');
   for (const st of [...r.cleared]) assert.equal(typeof st, 'string');
-  assert.deepEqual(r.cleared, ['web-session', 'cookie-jar', 'resume', 'whispers', 'emote-index', 'notify-channels', 'open-request', 'session-state', 'settings', 'account', 'next-session']);
+  assert.deepEqual(r.cleared, ['web-session', 'cookie-jar', 'resume', 'whispers', 'emote-index', 'notify-channels', 'open-request', 'log', 'session-state', 'settings', 'account', 'next-session']);
 });
 
 test('the last account signing out leaves nothing and no twitch.tv session', async () => {

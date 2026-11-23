@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { removeAccountData } = require('@lurkbox/core/src/shared/account-data.js');
+const { stripLogLines } = require('./app-log');
 
 /** The Decky plugin's follow-notification export (notify-export.js), when it was written for this user. */
 function removeNotifyExport(file, id) {
@@ -23,6 +24,8 @@ function removeNotifyExport(file, id) {
  * @param {object} d.whispers   WhisperStore
  * @param {object} d.emoteIndex EmoteIndexStore
  * @param {string} d.dir        userData (notify-channels.json, open-request.json)
+ * @param {string} [d.logFile]  lurkbox.log: the account's lines (its user id or login) go, here and in lurkbox.log.1
+ * @param {() => void} [d.onLogRewritten]  the log writer re-reads the file's size
  * @param {() => void} [d.onActiveRemoved]  in-memory state of the active web session (Drops progress, a pending open request)
  * @param {(line: string) => void} [d.log]
  */
@@ -44,6 +47,11 @@ function createAccountRemover(d) {
       'emote-index': (acct) => d.emoteIndex.removeAccount(acct),
       'notify-channels': (acct) => removeNotifyExport(path.join(d.dir, 'notify-channels.json'), acct),
       'open-request': () => fs.rmSync(path.join(d.dir, 'open-request.json'), { force: true }),
+      log: (acct) => {
+        if (!d.logFile) return;
+        const a = d.twitch.account(acct);
+        if (stripLogLines(d.logFile, [acct, a && a.login]) && d.onLogRewritten) d.onLogRewritten();
+      },
       'session-state': (_acct, { wasActive }) => { if (wasActive && d.onActiveRemoved) d.onActiveRemoved(); },
     },
   });
