@@ -236,7 +236,42 @@ export class Chat {
     this.connect();
   }
 
+  /**
+   * Chat replay for a video (vod-chat.js): the channel's badges and emotes, no IRC connection; the player hands the
+   * comments to replayMessage() as the video reaches them. key: the video it is for (the same key keeps the list).
+   */
+  joinReplay({ login, roomId, key }) {
+    if (this.replayKey === key && this.channel === String(login || '').toLowerCase()) return false;
+    this.leave();
+    this.replayKey = key;
+    this.channel = String(login || '').toLowerCase();
+    this.title.textContent = `Chat replay · ${this.channel || 'video'}`;
+    this.list.replaceChildren();
+    this.log.clear();
+    this.queue = [];
+    this.pending.clear();
+    this.setModes({ ...NO_MODES });
+    refreshBlocks();
+    if (roomId) this.loadRoom(String(roomId));
+    return true;
+  }
+
+  /** A comment whose time has come (the live chat's message event). */
+  replayMessage(ev) {
+    if (!this.replayKey || !ev) return;
+    if (ev.roomId && !this.roomId) this.loadRoom(ev.roomId);
+    this.onMessage(ev);
+  }
+
+  /** A seek: the list starts over. */
+  clearReplay() {
+    this.list.replaceChildren();
+    this.log.clear();
+    this.queue = [];
+  }
+
   leave() {
+    this.replayKey = null;
     this.channel = null;
     this.roomId = null;
     this.badges = null;

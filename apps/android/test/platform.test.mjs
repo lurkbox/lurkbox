@@ -421,3 +421,19 @@ test('sign-out (and Remove) deletes everything kept for that account, and nothin
   for (const k of ['searchHistory', 'emoteRecents', 'multiSets', 'myClips']) assert.deepEqual(prefs.json('settings')[k], {});
   assert.equal((await platform.authState()).user, null);
 });
+
+test('VOD chat replay: a page of comments over native HTTP (web GQL, anonymous), parsed into chat events', async () => {
+  const { demoComments } = await import('@lurkbox/core/src/js/demo/vod-chat.js');
+  const { platform, http } = setup({ routes: [[/^POST https:\/\/gql\.twitch\.tv\/gql$/, (req) => { const v = JSON.parse(req.data).variables; return { status: 200, data: JSON.stringify(demoComments({ videoId: '77', ...(v.cursor ? { cursor: v.cursor } : { offset: v.contentOffsetSeconds }) })) }; }]] });
+  const r = await platform.vodComments({ videoId: '77', offset: 30 });
+  assert.equal(r.ok, true);
+  assert.equal(r.comments[0].offset, 30);
+  assert.ok(r.comments.every((c) => c.text && c.nick && typeof c.badges === 'string'));
+  assert.ok(r.cursor && r.hasNext);
+  const call = http.calls.at(-1);
+  assert.equal(JSON.parse(call.data).operationName, 'VideoCommentsByOffsetOrCursor');
+  assert.ok(!Object.keys(call.headers).some((k) => k.toLowerCase() === 'authorization'), 'anonymous');
+  const next = await platform.vodComments({ videoId: '77', cursor: r.cursor });
+  assert.ok(next.comments[0].offset > r.comments.at(-1).offset - 1);
+  assert.deepEqual(await platform.vodComments({ videoId: 'nope' }), { ok: false, reason: 'bad request' });
+});

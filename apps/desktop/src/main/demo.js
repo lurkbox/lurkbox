@@ -40,6 +40,7 @@ function coreDemo() {
     images: require('@lurkbox/core/src/js/demo/images.js'),
     settings: require('@lurkbox/core/src/shared/settings.js'),
     predictions: require('@lurkbox/core/src/js/demo/predictions.js'),
+    vodChat: require('@lurkbox/core/src/js/demo/vod-chat.js'),
   };
 }
 
@@ -143,7 +144,7 @@ function createDemoUpdater({ dir, version, getSettings, send, log }) {
  * Returns { handlers: { channel: (...args) => value }, serveMedia(path) → { status, type, body } }.
  */
 function createDemoHost(opts = {}) {
-  const { data, helix, images, whispers: demoWhispers, settings: schema, predictions: demoPredictions } = coreDemo();
+  const { data, helix, images, whispers: demoWhispers, settings: schema, predictions: demoPredictions, vodChat: demoVodChat } = coreDemo();
   const demoMedia = require('./demo-media');
   const media = (p) => `${MEDIA_BASE}${p}`;
   const db = data.buildDemoData({ media });
@@ -260,6 +261,13 @@ function createDemoHost(opts = {}) {
       if (!opts.media || !opts.media.ok) return noMedia();
       const len = demoMedia.clipLength(c.duration);
       return { ok: true, qualities: [['1080', 60], ['720', 60], ['480', 30], ['360', 30]].map(([q, fps]) => ({ quality: q, frameRate: fps, url: media(`hls/clip${len}.mp4?q=${q}&sig=demo&token=demo`) })) };
+    },
+    // VOD chat replay: made-up comments every 2.5 s of the video, through the real parser.
+    'direct:vodComments': (req = {}) => {
+      const v = db.videos.find((x) => x.id === String(req.videoId));
+      if (!v) return { ok: false, reason: 'not-found' };
+      const json = demoVodChat.demoComments({ videoId: v.id, offset: req.offset, cursor: req.cursor || null, durationSec: durationOf(v) || 3600, roomId: v.user_id });
+      return require('@lurkbox/core/src/shared/vod-chat.js').parseComments(json);
     },
     'direct:storyboard': (vodId) => {
       const v = db.videos.find((x) => x.id === String(vodId));

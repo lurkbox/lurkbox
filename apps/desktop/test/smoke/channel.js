@@ -151,7 +151,8 @@ app.on('browser-window-created', (_e, win) => {
       await waitFor('the overlay with the clip line', "(() => { const c = document.querySelector('#player-overlay .po-clip'); return !document.getElementById('player-overlay').hidden && c && !c.hidden && /CLIP/.test(c.textContent) && /Clipped by .* views/.test(c.textContent); })()");
       const controls = await js("[...document.querySelectorAll('#player-overlay .po-icon')].filter((b) => !b.hidden).map((b) => b.dataset.key).join(',')");
       log(`clip controls: ${controls}`);
-      if (!/^play,volume,quality,next,vod,/.test(controls)) throw new Error(`clip controls: ${controls}`);
+      if (!/^play,volume,quality,chat,next,vod,/.test(controls)) // chat: the clip's moment of its broadcast's chat replay
+        throw new Error(`clip controls: ${controls}`);
       if (direct) {
         for (let i = 0; i < 6 && !(await js("document.activeElement && document.activeElement.dataset.key === 'quality'")); i++) await press('RIGHT');
         await press('A');

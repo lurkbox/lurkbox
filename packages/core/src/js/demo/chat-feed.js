@@ -20,7 +20,7 @@ export const CHATTERS = [
 /** Chatters whose names get a 7TV paint from the fake EventAPI. */
 export const PAINTED = ['8000003', '8000006'];
 
-const LINES = [
+export const LINES = [
   'hi everyone lurkWave',
   'that jump was so clean boxHype boxHype',
   'just got here, what did I miss?',

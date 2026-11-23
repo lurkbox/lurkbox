@@ -305,6 +305,15 @@ export interface LurkboxPlatform {
   liveInfo?(login: string): Promise<{ stream: { id: string; started_at: string; user_id: string } | null; archive: unknown } | null>;
   /** Optional. VOD scrubbing thumbnails (seekPreviewsURL sprite sheets). Null when unavailable. */
   storyboard?(vodId: string): Promise<{ count: number; width: number; height: number; rows: number; cols: number; interval: number; images: string[] } | null>;
+  /**
+   * Optional (without it VODs and clips have no chat replay). One page of a VOD's chat (web GQL
+   * VideoCommentsByOffsetOrCursor, anonymous; ./shared/vod-chat.js fetchComments): from an offset in seconds or after a
+   * cursor. comments are the live chat's message events plus offset (seconds), oldest first; roomId is the channel's id.
+   */
+  vodComments?(req: { videoId: string; offset?: number; cursor?: string }): Promise<
+    | { ok: true; comments: Array<{ id: string; offset: number; [k: string]: unknown }>; cursor: string | null; hasNext: boolean; roomId: string }
+    | { ok: false; reason: string }
+  >;
 
   /**
    * Optional. A clip's MP4 qualities with a signed playback token (web GQL VideoAccessToken_Clip, anonymous), best

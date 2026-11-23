@@ -28,7 +28,8 @@
     "test:continue": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/continue-watching.js",
     "test:multiview": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/multiview.js",
     "test:updates": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/updates.js",
-    "test:predictions": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/predictions.js"
+    "test:predictions": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/predictions.js",
+    "test:vod-chat": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/vod-chat.js"
   },
   "dependencies": {
     "@lurkbox/core": "0.1.0",

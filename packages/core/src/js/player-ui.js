@@ -7,17 +7,18 @@
  * follow/unfollow is available), compose: bool (signed in, Lurkbox chat style: "Send a message"), quick: bool (signed in:
  * quick chat, in either chat style), fullscreen: bool, vod: bool (a clip whose broadcast Twitch still has), prev/next:
  * bool (a clip with a clip before/after it in its list), clip: bool (signed in: make a clip of the live stream),
- * volume: bool (default true; false on a phone, which has volume buttons) }
+ * volume: bool (default true; false on a phone, which has volume buttons), replay: bool (a VOD or clip with a chat
+ * replay: the chat control shows for it) }
  */
 export function overlayControls(ctx) {
   const live = ctx.kind === 'live';
   const volume = ctx.volume !== false ? 'volume' : null;
   if (ctx.kind === 'clip') {
-    return ['play', volume, 'quality', ctx.prev ? 'prev' : null, ctx.next ? 'next' : null, ctx.vod ? 'vod' : null, ctx.follow ? 'follow' : null, 'channel', 'more', 'back'].filter(Boolean);
+    return ['play', volume, 'quality', ctx.replay ? 'chat' : null, ctx.prev ? 'prev' : null, ctx.next ? 'next' : null, ctx.vod ? 'vod' : null, ctx.follow ? 'follow' : null, 'channel', 'more', 'back'].filter(Boolean);
   }
   return [
     'play', volume, 'quality',
-    live ? 'chat' : null,
+    live || ctx.replay ? 'chat' : null, // a VOD's chat replay (read-only: no compose)
     live && ctx.compose ? 'compose' : null,
     live && ctx.quick ? 'quick' : null,
     live ? 'live' : null,

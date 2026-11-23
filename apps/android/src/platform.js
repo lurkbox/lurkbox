@@ -24,6 +24,7 @@ import { createPoints } from './points.js';
 import { createFollow } from './follow.js';
 import { createDrops } from './drops.js';
 import { createUpdates } from './updates.js';
+import { fetchComments } from '@lurkbox/core/src/shared/vod-chat.js';
 import { PredictionsWatcher, ppQuery, predictSource, pollVoteSource } from '@lurkbox/core/src/shared/predictions.js';
 
 /** Same-origin prefix the WebView answers natively (MainActivity's HLS proxy): <prefix><host>/<path>?<query>. */
@@ -391,6 +392,13 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
     },
     storyboard: async (vodId) => {
       try { return await fetchStoryboard({ fetch, vodId }); } catch (e) { log(`[direct] storyboard failed: ${e.message}`); return null; }
+    },
+    vodComments: async (req = {}) => {
+      try {
+        const r = await fetchComments({ fetch, videoId: String(req.videoId || ''), offset: req.cursor ? null : Number(req.offset) || 0, cursor: req.cursor ? String(req.cursor).slice(0, 2000) : null, log });
+        if (!r.ok) log(`[vod-chat] ${req.videoId}: ${r.reason}`);
+        return r;
+      } catch (e) { return { ok: false, reason: e.message }; }
     },
     clipSources: async (slug) => {
       try {

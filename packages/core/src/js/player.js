@@ -50,6 +50,7 @@ import { ClipEngine, ClipEmbed, clipSourcePlan } from './clip-engine.js';
 import { clipAuthState, buildClipCreate, clipCreateResult, clipShortLink, addMyClip } from '../shared/my-clips.js';
 import { liveBadge, catchUpDecision, backgroundCap, pickDefaultQuality } from './hls-util.js';
 import { PredictionsUI, watchPredictions } from './predictions-ui.js';
+import { VodChatReplay } from '../shared/vod-chat.js';
 
 const EMBED_URL = 'https://player.twitch.tv/js/embed/v1.js';
 const EMBED_PARENT = ['localhost']; // must match the host the UI is served from
@@ -323,7 +324,7 @@ export class Player {
       return;
     }
     this.startGateLoop();
-    if (this.chatOn) this.chat.leave(); // live chat doesn't match a VOD
+    this.applyLayout(); // live chat doesn't match a VOD: its chat replay instead, when chat is on
   }
 
   /**
@@ -345,7 +346,7 @@ export class Player {
     this.closePointsPanel();
     this.tchat.close();
     watchPredictions(null);
-    if (this.chatOn) this.chat.leave();
+    this.applyLayout(); // the clip's moment of its broadcast's chat replay, when chat is on
     this.destroyEngine();
     if (!cur.login && cur.userId && state.auth.signedIn) {
       usersByIds([cur.userId]).then((m) => { const u = m.get(cur.userId); if (u && cur === this.current) { cur.login = u.login; if (this.overlayVisible()) this.renderOverlay(true); } }).catch(() => {});
@@ -882,6 +883,7 @@ export class Player {
     this.cpop.close({ returnFocus: false });
     this.composer.clear();
     this.composer.setVisible(false);
+    this.stopReplay();
     this.chat.leave();
     this.closePointsPanel();
     this.tchat.close();
@@ -936,6 +938,18 @@ export class Player {
 
   applyLayout() {
     this.applyChatLayout();
+    const replay = this.replayInfo();
+    if (this.current && this.current.kind !== 'live') {
+      // A VOD or clip: its chat replay in the Lurkbox chat panel (in either chat style), read-only.
+      const on = !!(this.chatOn && replay);
+      this.screen.classList.toggle('chat-on', on);
+      this.screen.classList.toggle('twitch-chat', false);
+      if (!this.pointsPanel) this.tchat.setMode('hidden');
+      this.composer.setVisible(false);
+      if (on) this.startReplay(replay); else { this.stopReplay(); this.chat.leave(); }
+      return;
+    }
+    this.stopReplay();
     const chatVisible = this.chatOn && this.current && this.current.kind === 'live';
     this.screen.classList.toggle('chat-on', !!chatVisible);
     const twitchStyle = state.settings.chatStyle === 'twitch';
@@ -953,9 +967,50 @@ export class Player {
     }
   }
 
+  /** The chat replay for what plays: a VOD, or a clip's moment of its broadcast; null for live or without one. */
+  replayInfo() {
+    const cur = this.current;
+    if (!cur || !window.lurkbox.vodComments) return null;
+    if (cur.kind === 'video' && cur.videoId) return { key: `v${cur.videoId}`, videoId: String(cur.videoId), base: 0, login: cur.login, roomId: cur.userId || '' };
+    if (cur.kind === 'clip' && cur.clip && cur.clip.video_id && cur.clip.vod_offset != null) {
+      return { key: `c${cur.clip.id}`, videoId: String(cur.clip.video_id), base: Number(cur.clip.vod_offset) || 0, login: cur.login, roomId: cur.userId || '' };
+    }
+    return null;
+  }
+
+  /** Starts (or keeps) the chat replay: comments fetched ahead and shown as the video reaches them (vod-chat.js). */
+  startReplay(info) {
+    if (this.replay && this.replay.key === info.key) return;
+    this.stopReplay();
+    this.chat.joinReplay({ login: info.login, roomId: info.roomId, key: info.key });
+    const replay = new VodChatReplay({
+      load: (req) => window.lurkbox.vodComments({ videoId: info.videoId, ...req }),
+      onMessage: (ev) => { if (this.replay === replay) this.chat.replayMessage(ev); },
+      onReset: () => { if (this.replay === replay) this.chat.clearReplay(); },
+      onNote: (text) => { if (this.replay === replay) this.chat.system(text); },
+    });
+    replay.key = info.key;
+    this.replay = replay;
+    plog(`chat replay: ${info.key} (video ${info.videoId}${info.base ? ` from ${fmtTime(info.base)}` : ''})`);
+    const tick = () => {
+      if (this.replay !== replay || !this.embed) return;
+      const t = this.safe(() => this.embed.getCurrentTime());
+      if (typeof t !== 'number' || !Number.isFinite(t)) return;
+      replay.tick(info.base + t, this.safe(() => this.embed.isPaused()) === true);
+    };
+    this.replayTimer = setInterval(tick, 250);
+    tick();
+  }
+
+  stopReplay() {
+    clearInterval(this.replayTimer);
+    this.replayTimer = null;
+    this.replay = null;
+  }
+
   toggleChat() {
-    if (this.current && this.current.kind !== 'live') {
-      toast('Chat is only available for live channels', 2500);
+    if (this.current && this.current.kind !== 'live' && !this.replayInfo()) {
+      toast('No chat replay for this video', 2500);
       return;
     }
     this.chatOn = !this.chatOn;
@@ -1217,7 +1272,7 @@ export class Player {
     const snap = snapshotFocus(this.overlay, focusables(this.overlay));
     const ctx = this.labelCtx();
     const shown = new Set(overlayControls({
-      kind: cur.kind, points: !!this.tchat.login, follow: !!(cur.login && window.lurkbox.followChannel && state.auth.signedIn),
+      kind: cur.kind, replay: !!this.replayInfo(), points: !!this.tchat.login, follow: !!(cur.login && window.lurkbox.followChannel && state.auth.signedIn),
       vod: cur.kind === 'clip' && !!cur.clip.video_id, clip: state.auth.signedIn, prev: !!this.clipNeighbour(-1), next: !!this.clipNeighbour(1),
       compose: state.auth.signedIn && state.settings.chatStyle !== 'twitch',
       quick: state.auth.signedIn,

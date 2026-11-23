@@ -30,6 +30,7 @@
     "test:multiview": "npm run test:multiview -w apps/desktop --",
     "test:updates": "npm run test:updates -w apps/desktop --",
     "test:predictions": "npm run test:predictions -w apps/desktop --",
+    "test:vod-chat": "npm run test:vod-chat -w apps/desktop --",
     "screenshots": "npm run screenshots -w apps/desktop --",
     "android:sync": "npm run sync -w apps/android --",
     "android:build": "npm run build -w apps/android --",

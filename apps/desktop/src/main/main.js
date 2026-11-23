@@ -22,6 +22,7 @@ const hlsProxy = require('./hls-proxy');
 const { navSource, pressSource, backSource } = require('./frame-nav');
 const points = require('./channel-points');
 const predictions = require('@lurkbox/core/src/shared/predictions.js');
+const vodChat = require('@lurkbox/core/src/shared/vod-chat.js');
 const drops = require('./drops');
 const { createDropsFrameHost } = require('./drops-frame');
 const follow = require('./follow');
@@ -471,6 +472,14 @@ function registerIpc() {
   // Storyboard thumbnails for scrubbing a VOD (Twitch's seekPreviewsURL JSON; the sprite sheets load as images).
   appIpc.handle('direct:storyboard', async (_e, vodId) => {
     try { return await require('./direct').fetchStoryboard({ fetch: net.fetch, vodId }); } catch (e) { appLog(`[direct] storyboard failed: ${e.message}`); return null; }
+  });
+  // VOD chat replay: a page of the video's comments (web GQL, anonymous; shared/vod-chat.js).
+  appIpc.handle('direct:vodComments', async (_e, req = {}) => {
+    try {
+      const r = await vodChat.fetchComments({ fetch: net.fetch, videoId: String(req.videoId || ''), offset: req.cursor ? null : Number(req.offset) || 0, cursor: req.cursor ? String(req.cursor).slice(0, 2000) : null, log: appLog });
+      if (!r.ok) appLog(`[vod-chat] ${req.videoId}: ${r.reason}`);
+      return r;
+    } catch (e) { return { ok: false, reason: e.message }; }
   });
   // Clip playback: the clip's MP4 qualities with a signed token (web GQL VideoAccessToken_Clip; anonymous).
   appIpc.handle('direct:clip', async (_e, slug) => {
