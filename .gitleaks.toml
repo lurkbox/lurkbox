@@ -1,0 +1,11 @@
+# gitleaks: default rules, plus one exception. The Flatpak .flatpakref/.flatpakrepo carry the repository's PUBLIC
+# signing key as base64 (GPGKey=...), which generic-api-key mistakes for a secret. Only those lines in those files.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public GPG key of the Flatpak repository (docs/flatpak/lurkbox-flatpak.gpg)"
+condition = "AND"
+paths = ['''^apps/desktop/flatpak/site/[^/]+\.flatpak(ref|repo)$''']
+regexTarget = "match"
+regexes = ['''^GPGKey=[A-Za-z0-9+/=]+''']

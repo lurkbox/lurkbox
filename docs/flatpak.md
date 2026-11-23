@@ -45,6 +45,7 @@ With `org.flatpak.Builder`, run it as `flatpak run --env=FLATPAK_USER_DIR=$HOME/
 
 - A dedicated ed25519 key, "Lurkbox Flatpak repository", fingerprint `5A11 8BD9 DB64 1F63 0D2B 277C E5F9 F45D 5EB9 FC46`, with no passphrase.
 - The public key is in [docs/flatpak/lurkbox-flatpak.gpg](flatpak/lurkbox-flatpak.gpg) and, base64-encoded, in the `GPGKey=` lines of the `.flatpakref` and `.flatpakrepo`.
+- gitleaks reads the public key's base64 as a generic API key. `.gitleaks.toml` exempts only the `GPGKey=` lines of the files in `apps/desktop/flatpak/site/`.
 - The private key is the repository Actions secret `FLATPAK_GPG_KEY` (ASCII-armoured). The maintainer's copy is outside the repo, in `~/.config/lurkbox-flatpak/` (mode 0600). The workflow refuses to publish if the secret's fingerprint doesn't match the committed public key.
 - Rotating it: generate a new key, update the secret, the `.gpg` file and both `GPGKey=` lines in one PR. Existing installs keep the old key, so they need `flatpak remote-modify --user --gpg-import=<new.gpg> lurkbox` (or a reinstall from the new `.flatpakref`).
 
