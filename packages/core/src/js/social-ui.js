@@ -3,7 +3,7 @@
 // screens "Subscriptions" and "Blocked users".
 import { el, button, toast } from './ui.js';
 import { helix, followedChannels } from './api.js';
-import { state, onState } from './state.js';
+import { state, onState, onAccountRemoved } from './state.js';
 import { confirmDialog, openModal } from './modal.js';
 import { SubChecker, BlockList, confirmBlock, confirmUnblock, subDetail, tierBadge } from './social.js';
 import { errorState } from './grid.js';
@@ -20,6 +20,8 @@ export function refreshBlocks(opts) {
   return blocks.load(me(), opts).catch((e) => { console.warn('[blocks] load failed', e.message); return blocks.items; });
 }
 onState((what) => { if (what === 'account' || what === 'signin') refreshBlocks(); });
+// A signed-out account's subscriptions and block list leave memory with it.
+onAccountRemoved(() => { subs.clear(); blocks.load(null); });
 
 /** Checks the subscriptions of these followed channels (cached 1 h); onResult(id, sub|null) as answers come in. */
 export function checkSubs(broadcasterIds, opts) {

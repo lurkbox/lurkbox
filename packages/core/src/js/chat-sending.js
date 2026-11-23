@@ -1,7 +1,7 @@
 // Sending in a Lurkbox chat panel: the composer at its bottom plus its two pop-overs (the emote picker and quick
 // chat), anchored above the composer's buttons. Shared by the single player and multi-view's active tile.
 import { el, toast } from './ui.js';
-import { state, saveSettings } from './state.js';
+import { state, saveSettings, onAccountRemoved } from './state.js';
 import { helix } from './api.js';
 import { moveFocus, focusEl } from './focus.js';
 import { anchorPopover } from './player-ui.js';
@@ -33,6 +33,7 @@ export class ChatSending {
       onQuick: (b) => this.openPicker('quick', b),
     });
     panel.append(this.composer.node);
+    onAccountRemoved(() => this.composer.clear()); // a half-written message is the signed-out account's
     this.userEmotes = new UserEmoteCache((path, query) => helix(path, query));
     this.cpop = new Popover({
       scope: panel,

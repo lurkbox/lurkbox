@@ -1,5 +1,5 @@
 // Following's Continue watching row: its items, from the host's resume positions (no DOM; unit-tested).
-import { state } from './state.js';
+import { state, onAccountRemoved } from './state.js';
 import { continueWatching, checkVideos, videoOfEntry } from '../shared/continue-watching.js';
 
 // Continue watching: the Helix check of each VOD in the row (fresh details, or gone), once per account and session.
@@ -36,6 +36,8 @@ export function resetContinueWatchingChecks() { checked.account = null; checked.
 // forgotten when the time is up (or at exit, flushRemovals), so Undo puts the card back exactly as it was.
 export const UNDO_MS = 6000;
 const pending = new Map();
+// A signed-out account: its positions are gone, so are the removals waiting for Undo and the checks made for it.
+onAccountRemoved(() => { for (const t of pending.values()) clearTimeout(t); pending.clear(); resetContinueWatchingChecks(); });
 
 /** Remove with Undo: hidden at once, forgotten after `ms` unless undoRemoval(id) comes first. */
 export function scheduleRemoval(id, ms = UNDO_MS) {

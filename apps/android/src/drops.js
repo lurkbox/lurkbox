@@ -58,5 +58,7 @@ export function createDrops({ pages, web, getSettings, emit, log, claimer: claim
     pad: async () => 'close',
     close: async () => { const win = view; view = null; if (win) win.close(); return true; },
     progress: async () => progress,
+    /** The active account signed out: forget its campaigns and close its inventory window. */
+    reset: () => { progress = { checkedAt: null, campaigns: [] }; const win = view; view = null; if (win) win.close(); },
   };
 }

@@ -89,8 +89,8 @@ export function settingsView() {
             x.id !== a.active ? button('Switch', () => switchTo(x.id).then(rerender), { dataset: { key: `switch-${x.id}` } }) : null,
             x.needsSignin
               ? button('Sign in again', () => tvSignIn({ accountId: x.id, onSuccess: rerender }), { class: 'primary' })
-              : button('Sign out', () => confirmDialog({ title: `Sign out ${x.login}?`, message: 'Signs out Lurkbox and the video player for this account. It stays in the list; sign in again any time.', yes: 'Sign out', onYes: async () => { await window.lurkbox.signOut(x.id); toast('Signed out'); rerender(); } }), { class: 'sign-out' }),
-            button('Remove', () => confirmDialog({ title: `Remove ${x.login}?`, message: 'Forgets this account and its player sign-in on this device.', yes: 'Remove', onYes: async () => { await window.lurkbox.removeAccount(x.id); toast('Account removed'); rerender(); } }))),
+              : button('Sign out', () => confirmDialog({ title: `Sign out ${x.login}?`, message: `This removes ${name}'s data from this device: the sign-in, the video player's twitch.tv session, watch history, searches, whispers and the emote index. Sign in again any time.`, yes: 'Sign out', onYes: async () => { await window.lurkbox.signOut(x.id); toast('Signed out'); rerender(); } }), { class: 'sign-out' }),
+            x.needsSignin ? button('Remove', () => confirmDialog({ title: `Remove ${x.login}?`, message: `This removes ${name}'s data from this device.`, yes: 'Remove', onYes: async () => { await window.lurkbox.removeAccount(x.id); toast('Account removed'); rerender(); } })) : null),
           detail);
         // Only one half broken? Say which, with a Fix button.
         statusP.then((list) => {

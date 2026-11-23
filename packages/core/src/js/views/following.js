@@ -1,7 +1,7 @@
 import { el, button, toast } from '../ui.js';
 import { mascotEl } from '../mascot.js';
 import { hint } from '../input.js';
-import { state, saveSettings } from '../state.js';
+import { state, saveSettings, onAccountRemoved } from '../state.js';
 import { tw, setFollowedCache, followedChannels, followsAge, usersByIds, lastLive, lastLiveKnown, ApiError } from '../api.js';
 import { KeyedGrid, streamCard, continueCard, errorState, listSort, sortChip, withGameHeaders, gameHeader } from '../grid.js';
 import { pickFromList } from '../modal.js';
@@ -15,6 +15,7 @@ import { checkSubs, paintSubBadge, paintSubBadges } from '../social-ui.js';
 // Last data shown, per account, so coming back to Following paints instantly instead of flashing "Loading…".
 let lastShown = null;
 let lastCw = null;
+onAccountRemoved(() => { lastShown = null; lastCw = null; });
 
 export function welcome(nav) {
   return el('div', { class: 'welcome' },
