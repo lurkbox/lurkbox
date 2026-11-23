@@ -2,7 +2,7 @@
 // from the host once, records the channel sets the chat and the channel page load, and saves a few seconds after the
 // last change. Hosts without the members (none today) just keep it for the session.
 import { emptyIndex, indexChannel, sanitizeEmoteIndex, searchSeen, indexSize } from '../shared/emote-index.js';
-import { state } from './state.js';
+import { state, onAccountRemoved } from './state.js';
 
 export class EmoteIndexStore {
   /** host: window.lurkbox-like ({ emoteIndexGet?, emoteIndexSet? }); account: () => the active account id or null. */
@@ -61,6 +61,15 @@ export class EmoteIndexStore {
 
   async size() { return indexSize(await this.load()); }
 
+  /** The account signed out (its stored index is deleted by the host): drop the copy here and any pending save. */
+  forget() {
+    this.timers.clearTimeout(this.timer);
+    this.timer = null;
+    this.index = emptyIndex();
+    this.loadedFor = undefined;
+    this.loading = null;
+  }
+
   /** Settings → Chat → Clear emote index (the active account's). */
   async clear() {
     await this.load();
@@ -73,6 +82,7 @@ export class EmoteIndexStore {
 }
 
 let shared = null;
+onAccountRemoved(() => { if (shared) shared.forget(); });
 /** The app's store, for the signed-in account. */
 export function emoteIndex() {
   if (!shared) shared = new EmoteIndexStore({

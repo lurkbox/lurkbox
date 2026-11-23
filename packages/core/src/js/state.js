@@ -16,6 +16,24 @@ export function onState(fn) {
   return () => listeners.delete(fn);
 }
 
+// An account left the list (signed out or removed: the host deleted its data). Each module that keeps something for
+// an account in memory (caches, drafts, pending saves) forgets it here, before the views redraw.
+const removedListeners = new Set();
+export function onAccountRemoved(fn) {
+  removedListeners.add(fn);
+  return () => removedListeners.delete(fn);
+}
+/** The ids in `before` that are missing from `after` (lists of { id }). Pure. */
+export function removedAccounts(before, after) {
+  const now = new Set((after || []).map((a) => String(a.id)));
+  return (before || []).map((a) => String(a.id)).filter((id) => !now.has(id));
+}
+export function forgetAccount(id) {
+  for (const fn of removedListeners) {
+    try { fn(String(id)); } catch (e) { console.error(e); }
+  }
+}
+
 function emit(what) {
   for (const fn of listeners) {
     try { fn(what); } catch (e) { console.error(e); }
@@ -29,7 +47,9 @@ export async function initState() {
   api.onAuthState((a) => {
     const was = state.auth.signedIn;
     const wasActive = state.auth.active;
+    const gone = removedAccounts(state.auth.accounts, a.accounts);
     state.auth = a;
+    for (const id of gone) forgetAccount(id);
     if (a.signedIn && was && wasActive !== a.active) emit('account');
     else emit(was !== a.signedIn ? 'signin' : 'auth');
   });

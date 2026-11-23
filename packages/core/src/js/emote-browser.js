@@ -2,6 +2,7 @@
 // grid (A–Z, one per name, overlay marking), the search filter, the detail panel's facts, the bigger preview's URL, and
 // the A (add to the chat draft for this channel) and Y (add to this channel's quick-chat phrases) actions.
 import { insertEmote } from './emote-picker.js';
+import { onAccountRemoved } from './state.js';
 import { editPhrases, phraseList, listOps, sanitizeQuickChat, MAX_PHRASES } from '../shared/quick-chat.js';
 
 /** The sub-tabs, in order. */
@@ -104,6 +105,7 @@ export function draftAvailability(auth, settings) {
 
 /** Drafts waiting for the player, by channel login. The player takes a channel's draft when it opens that channel. */
 const pending = new Map();
+onAccountRemoved(() => pending.clear()); // drafts belong to the account that wrote them
 
 /** Adds an emote name to the channel's draft. Returns the new draft text, or null when it would go over 500 characters. */
 export function addToDraft(login, name, drafts = pending) {

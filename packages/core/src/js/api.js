@@ -1,5 +1,5 @@
 // Helix helpers. Requests go through the main process, which holds the tokens.
-import { state } from './state.js';
+import { state, onAccountRemoved } from './state.js';
 import { fetchAllPages, chunk, lastLiveFromVod } from './follows.js';
 import { clipRange, scheduleSegments, vacation } from '../shared/channel-page.js';
 
@@ -64,6 +64,7 @@ export const tw = {
 // ---- follows (offline + live) ----
 
 const followCache = new Map(); // userId → { at, items }
+onAccountRemoved(() => invalidateFollows());
 /** Every followed channel (all pages), cached per account for 10 min. */
 export async function followedChannels({ maxAgeMs = 10 * 60 * 1000 } = {}) {
   const me = state.auth.user && state.auth.user.id;

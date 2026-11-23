@@ -15,6 +15,7 @@ import { fetchClipSources } from '@lurkbox/core/src/shared/clips.js';
 import { resumeUpdate, resumeEntries, RESUME_MAX_PER_ACCOUNT } from '@lurkbox/core/src/shared/continue-watching.js';
 import { storeWhispers, loadWhispers } from '@lurkbox/core/src/shared/whispers.js';
 import { accountsWithIndex, accountIndexKey } from '@lurkbox/core/src/shared/emote-index.js';
+import { removeAccountData } from '@lurkbox/core/src/shared/account-data.js';
 import { ProxyHosts, rewriteMaster } from '@lurkbox/core/src/shared/hls-rewrite.js';
 import { createWebSession, mismatchWarning, SESSION_TOKEN } from './web-session.js';
 import { createHiddenPages } from './hidden-pages.js';
@@ -163,6 +164,28 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
   })();
   const after = (fn) => async (...args) => { await ready; return fn(...args); };
 
+  // The one place an account's data is deleted (sign-out and Remove): tokens and profile, the twitch.tv session and
+  // its jar, and every per-account store (shared/account-data.js). Global settings stay.
+  const removeAccount = (id) => removeAccountData(id, {
+    twitch,
+    settings,
+    onSettings: (next) => bus.emit('settings', next),
+    log,
+    clearLiveSession: async () => { if (web) await web.jar.clear(); },
+    removeJar: async (acct) => { if (web) await web.jar.remove(acct); },
+    restoreSession: web ? (next) => web.jar.restore(next) : undefined,
+    stores: {
+      resume: (acct) => resume.clear(acct),
+      whispers: (acct) => whispersValue.replace(storeWhispers(whispersValue.get(), acct, [])),
+      'emote-index': (acct) => emoteIndexValue.replace({ accounts: accountsWithIndex(emoteIndexValue.get().accounts, acct, null) }),
+      'session-state': async (_acct, { wasActive }) => {
+        if (!wasActive) return;
+        if (points) await points.watch(null);
+        if (drops && drops.reset) drops.reset();
+      },
+    },
+  });
+
   // Picture-in-picture (pip.js, MainActivity): its play/pause button and its closing, for the open player.
   const hasPip = !!(native.pip && native.addListener);
   if (hasPip) {
@@ -239,15 +262,8 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
       try { return { ok: true, flow: await twitch.startDeviceFlow() }; } catch (e) { return { ok: false, error: e.message }; }
     }),
     authCancel: after(() => { twitch.cancelDeviceFlow(); }),
-    // One sign-in covers the API and the player, so signing out does both.
-    signOut: after(async (id) => {
-      const target = id || twitch.store().active;
-      if (web) {
-        if (target === twitch.store().active) await web.jar.clear().catch((e) => log(`[web] clear failed: ${e.message}`));
-        await web.jar.remove(target);
-      }
-      return twitch.signOut(target || undefined);
-    }),
+    // Signing out and removing an account are the same: the account and everything kept for it go (removeAccount below).
+    signOut: after(async (id) => (await removeAccount(id || undefined)).active),
     // Per account: the API token, and whether the twitch.tv session (live for the active one, else its jar) is them.
     accountsStatus: after(async () => {
       const st = twitch.state();
@@ -258,11 +274,7 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
       }));
     }),
     switchAccount: after((id) => twitch.switchAccount(String(id))),
-    removeAccount: after(async (id) => {
-      whispersValue.replace(storeWhispers(whispersValue.get(), String(id), [])); // its whisper history goes too
-      if (web) await web.jar.remove(String(id));
-      return twitch.removeAccount(String(id));
-    }),
+    removeAccount: after(async (id) => (await removeAccount(String(id))).active),
     ...webMembers,
     onAuthState: on('auth:state'),
     onAuthEvent: on('auth:event'),

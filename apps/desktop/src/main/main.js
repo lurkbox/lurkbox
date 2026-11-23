@@ -28,6 +28,7 @@ const { WatchMinutes } = require('./watch-minutes');
 const { ResumeStore } = require('./resume');
 const { WhisperStore } = require('./whispers');
 const { EmoteIndexStore } = require('./emote-index');
+const { createAccountRemover } = require('./account-data');
 const { WEB_CLIENT_ID, GQL_URL } = require('./direct');
 const { SteamArt } = require('./steam-art');
 const { ScopeKeeper } = require('./keep-scope');
@@ -397,22 +398,24 @@ function registerIpc() {
     }
   });
   appIpc.handle('auth:cancel', () => twitch.cancelDeviceFlow());
-  // One sign-in covers the API and the player, so signing out does both.
-  appIpc.handle('auth:signOut', async (_e, id) => {
-    const target = id || twitch.store().active;
-    if (target === twitch.store().active) await playerJar.clear();
-    if (/^\d+$/.test(String(target))) playerJar.remove(String(target));
-    return twitch.signOut(target || undefined);
-  });
   appIpc.handle('auth:switch', (_e, id) => twitch.switchAccount(String(id)));
   const whisperStore = new WhisperStore(path.join(app.getPath('userData'), 'whispers.json'));
   appIpc.handle('whispers:load', (_e, accountId) => whisperStore.load(String(accountId)));
   appIpc.handle('whispers:save', (_e, accountId, threads) => whisperStore.save(String(accountId), threads));
-  appIpc.handle('auth:remove', async (_e, id) => {
-    const next = await twitch.removeAccount(String(id));
-    if (/^\d+$/.test(String(id))) { playerJar.remove(String(id)); whisperStore.removeAccount(String(id)); } // its whisper history goes too
-    return next;
+  const resume = new ResumeStore(path.join(app.getPath('userData'), 'resume.json'));
+  const emoteIndex = new EmoteIndexStore(path.join(app.getPath('userData'), 'emote-index.json'));
+  // Signing out and removing an account are the same: the account and everything kept for it go (account-data.js).
+  const removeAccount = createAccountRemover({
+    twitch, settings, playerJar, resume, whispers: whisperStore, emoteIndex, dir: app.getPath('userData'), log: appLog,
+    onSettings: (next) => send('settings:changed', next),
+    clearSiteData: async () => {
+      await session.defaultSession.clearStorageData({ origin: 'https://www.twitch.tv', storages: ['localstorage', 'indexdb', 'cachestorage', 'serviceworkers'] }).catch(() => {});
+      await session.defaultSession.cookies.flushStore().catch(() => {});
+    },
+    onActiveRemoved: () => { dropsProgress = { checkedAt: null, campaigns: [] }; openPending = null; },
   });
+  appIpc.handle('auth:signOut', async (_e, id) => (await removeAccount(id || undefined)).active);
+  appIpc.handle('auth:remove', async (_e, id) => (await removeAccount(String(id))).active);
 
   appIpc.handle('helix', async (_e, req) => {
     try {
@@ -481,12 +484,10 @@ function registerIpc() {
       return await require('./direct').fetchLiveInfo({ fetch: net.fetch, login });
     } catch (e) { appLog(`[direct] live info failed: ${e.message}`); return null; }
   });
-  const resume = new ResumeStore(path.join(app.getPath('userData'), 'resume.json'));
   appIpc.handle('resume:get', (_e, videoId) => resume.get(twitch.store().active, String(videoId)));
   appIpc.handle('resume:set', (_e, videoId, position, duration, meta) => resume.set(twitch.store().active, String(videoId), position, duration, meta));
   appIpc.handle('resume:list', () => resume.list(twitch.store().active));
   appIpc.handle('resume:clear', () => resume.clear(twitch.store().active));
-  const emoteIndex = new EmoteIndexStore(path.join(app.getPath('userData'), 'emote-index.json'));
   appIpc.handle('emote-index:get', () => emoteIndex.get(twitch.store().active));
   appIpc.handle('emote-index:set', (_e, index) => emoteIndex.set(twitch.store().active, index));
   appIpc.handle('log:write', (_e, line) => appLog(String(line).slice(0, 2000)));

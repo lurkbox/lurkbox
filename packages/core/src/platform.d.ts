@@ -215,7 +215,13 @@ export interface LurkboxPlatform {
   authStart(): Promise<{ ok: true; flow: unknown } | { ok: false; error: string }>;
   /** Cancel a running device-code flow. */
   authCancel(): Promise<void>;
-  /** Sign out an account (default: the active one): its API token and, for the active one, its player session. */
+  /**
+   * Sign out an account (default: the active one). It leaves the list and everything kept for it on the device goes
+   * (shared/account-data.js removeAccountData): its tokens (revoked) and profile, its twitch.tv session (the live
+   * cookies when it is the active one, and its saved jar), resume positions, whispers, the emote index, its entries in
+   * the per-account settings (search history, emote recents, multi-view set, my clips) and host files written for it.
+   * Global settings stay. The active account falls back to another usable one, or none. Resolves the new active id.
+   */
   signOut(id?: string): Promise<unknown>;
   /** Optional. The TV sign-in: twitch.tv login, then Authorize for Lurkbox, in one in-app window. `add` starts signed out for a new account; `accountId` re-signs one. Without it the core uses the phone (device-code) sign-in everywhere and never offers the player sign-in. */
   tvSignIn?(opts?: { add?: boolean; accountId?: string | null }): Promise<
@@ -226,7 +232,7 @@ export interface LurkboxPlatform {
   accountsStatus(): Promise<Array<{ id: string; api: boolean; player: boolean; playerLogin: string | null }>>;
   /** Make another account active (swaps its player session in); the new state arrives via onAuthState. */
   switchAccount(id: string): Promise<unknown>;
-  /** Forget an account and its stored player session. */
+  /** Forget an account: the same as signOut(id), everything kept for it goes. */
   removeAccount(id: string): Promise<unknown>;
   /** API sign-in state changed. */
   onAuthState(cb: (state: AuthState) => void): Unsubscribe;

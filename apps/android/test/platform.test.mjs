@@ -325,3 +325,95 @@ test('log never throws and goes to the native log', async () => {
   const broken = createPlatform({ fetch: async () => { throw new Error('x'); }, prefs: mockPrefs(), app: mockApp(), native: { log: () => { throw new Error('boom'); } }, qrSvg: () => '', setInterval: () => 0 });
   assert.doesNotThrow(() => broken.log('x'));
 });
+
+// ---- sign-out deletes the account's data ----
+
+test('sign-out (and Remove) deletes everything kept for that account, and nothing of the other one', async () => {
+  const A = '42';
+  const B = '7';
+  const acct = (login) => ({ access_token: `at-${login}`, refresh_token: `rt-${login}`, scopes: [], login, display_name: login.toUpperCase(), profile_image_url: `https://img/${login}.png` });
+  const thread = (id) => ({ id, login: `u${id}`, name: `U${id}`, unread: 0, at: 1, messages: [{ id: 'm', me: false, text: 'hi', at: 1 }] });
+  const index = (login) => ({ v: 1, channels: [{ id: '9', login, name: login, at: 1, emotes: [['twitch', '1', 'Kappa']] }] });
+  const perAccount = (a, b) => ({ [A]: a, [B]: b });
+  const prefs = mockPrefs({
+    settings: {
+      clientId: 'abc', theme: 'oled', navSounds: false, uiScale: 125, layoutMode: 'phone', chatWidth: 30,
+      searchHistory: perAccount([{ q: 'alpha', at: 1 }], [{ q: 'beta', at: 1 }]),
+      emoteRecents: perAccount(['Kappa'], ['LUL']),
+      multiSets: perAccount([{ login: 'x', name: 'X', userId: '5' }], [{ login: 'y', name: 'Y', userId: '6' }]),
+      myClips: perAccount([{ id: 'c1', broadcasterId: '5', login: 'x', name: 'X', at: 1, editUrl: '' }], [{ id: 'c2', broadcasterId: '6', login: 'y', name: 'Y', at: 1, editUrl: '' }]),
+    },
+    resume: { accounts: perAccount({ 100: { pos: 50, dur: 600, at: 1 } }, { 200: { pos: 60, dur: 600, at: 1 } }) },
+    whispers: { accounts: perAccount([thread('8')], [thread('9')]) },
+    emoteIndex: { accounts: perAccount(index('chanA'), index('chanB')) },
+  });
+  // The encrypted token store (SecureStorePlugin) and the native twitch.tv session with its encrypted jars (webjars/<id>).
+  const secure = mockPrefs({ tokens: { accounts: { [A]: acct('viewer'), [B]: acct('alice') }, active: A } });
+  const native = {
+    ...mockNative(),
+    session: { login: 'viewer' },
+    jars: new Map([[A, { login: 'viewer' }], [B, { login: 'alice' }]]),
+    addListener: () => Promise.resolve({ remove() {} }),
+    async webOpen() {}, async webLoad() {}, async webClose() {},
+    async webStatus() { return this.session ? { signedIn: true, login: this.session.login } : { signedIn: false, login: null }; },
+    async webClear() { this.session = null; },
+    async webJarSave({ id }) { if (this.session) this.jars.set(id, { ...this.session }); return { saved: !!this.session }; },
+    async webJarRestore({ id }) { this.session = this.jars.has(id) ? { ...this.jars.get(id) } : null; return { count: this.session ? 2 : 0 }; },
+    async webJarPeek({ id }) { const j = this.jars.get(id); return { has: !!j, login: j ? j.login : null }; },
+    async webJarRemove({ id }) { this.jars.delete(id); },
+  };
+  const http = mockHttp([
+    [/oauth2\/validate/, (req) => {
+      const tok = String(req.headers.Authorization || req.headers.authorization || '').replace('OAuth ', '');
+      const who = tok === 'at-alice' ? { login: 'alice', user_id: B } : { login: 'viewer', user_id: A };
+      return { status: 200, data: { client_id: 'abc', scopes: [], ...who } };
+    }],
+    [/oauth2\/revoke/, () => ({ status: 200, data: '' })],
+  ]);
+  const platform = createPlatform({ fetch: makeNativeFetch(http), prefs, secure, app: mockApp(), native, qrSvg: () => '', setInterval: () => 0 });
+  const seen = { settings: [], auth: [] };
+  platform.onSettingsChanged((s) => seen.settings.push(s));
+  platform.onAuthState((s) => seen.auth.push(s));
+  await flush();
+
+  assert.equal(await platform.signOut(), B, 'the other account becomes active');
+  await flush();
+
+  const tokens = JSON.stringify(secure.json('tokens'));
+  for (const v of ['at-viewer', 'rt-viewer', 'viewer', 'VIEWER', 'img/viewer']) assert.equal(tokens.includes(v), false, `tokens still have ${v}`);
+  assert.deepEqual(Object.keys(secure.json('tokens').accounts), [B]);
+  assert.equal(native.jars.has(A), false, 'the account\'s encrypted jar');
+  assert.deepEqual(native.session, { login: 'alice' }, 'the live twitch.tv session is the other account\'s, never the signed-out one\'s');
+  assert.deepEqual(native.jars.get(B), { login: 'alice' });
+  const s = prefs.json('settings');
+  for (const k of ['searchHistory', 'emoteRecents', 'multiSets', 'myClips']) {
+    assert.equal(A in s[k], false, `${k} still has the account`);
+    assert.ok(s[k][B], `${k} of the other account stays`);
+  }
+  assert.equal(s.theme, 'oled');
+  assert.equal(s.navSounds, false);
+  assert.equal(s.uiScale, 125);
+  assert.equal(s.layoutMode, 'phone');
+  assert.equal(s.chatWidth, 30);
+  assert.equal(s.clientId, 'abc');
+  assert.deepEqual(Object.keys(prefs.json('resume').accounts), [B]);
+  assert.deepEqual(Object.keys(prefs.json('whispers').accounts), [B]);
+  assert.deepEqual(Object.keys(prefs.json('emoteIndex').accounts), [B]);
+  assert.equal((await platform.resumeList()).length, 1, 'Continue watching now shows the other account\'s');
+  assert.equal(seen.settings.length, 1, 'the page gets the new settings');
+  const last = seen.auth.at(-1);
+  assert.equal(last.user.login, 'alice');
+  assert.deepEqual(last.accounts.map((a) => a.id), [B], 'the profile left the list');
+  assert.ok(http.calls.some((c) => /revoke/.test(c.url) && JSON.stringify(c.data || '').includes('at-viewer')), 'the token is revoked');
+
+  // Remove is the same function: the last account goes too, and nothing is left.
+  assert.equal(await platform.removeAccount(B), null);
+  assert.deepEqual(secure.json('tokens').accounts, {});
+  assert.equal(native.session, null);
+  assert.equal(native.jars.size, 0);
+  assert.deepEqual(prefs.json('resume').accounts, {});
+  assert.deepEqual(prefs.json('whispers').accounts, {});
+  assert.deepEqual(prefs.json('emoteIndex').accounts, {});
+  for (const k of ['searchHistory', 'emoteRecents', 'multiSets', 'myClips']) assert.deepEqual(prefs.json('settings')[k], {});
+  assert.equal((await platform.authState()).user, null);
+});

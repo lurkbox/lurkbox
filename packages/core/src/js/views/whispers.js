@@ -2,7 +2,7 @@
 // Helix /users), and a thread view with the chat's composer (Steam's keyboard, the built-in one, or the system one on
 // touch). The data and sending live in ../whispers.js.
 import { el, button, toast } from '../ui.js';
-import { state } from '../state.js';
+import { state, onAccountRemoved } from '../state.js';
 import { whispers } from '../whispers.js';
 import { usersByIds } from '../api.js';
 import { avatar } from '../accounts.js';
@@ -16,6 +16,7 @@ import { hint, UP, DOWN } from '../input.js';
 
 const LOGIN_RE = /^[a-z0-9_]{1,25}$/;
 const pics = new Map(); // user id → profile_image_url (this session)
+onAccountRemoved(() => pics.clear());
 
 /** "now", "5m", "3h", "2d", else the date. */
 export function whisperTime(at, now = Date.now()) {
