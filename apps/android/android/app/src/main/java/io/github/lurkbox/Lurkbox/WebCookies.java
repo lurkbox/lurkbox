@@ -63,6 +63,27 @@ final class WebCookies {
         return v != null && !v.isEmpty();
     }
 
+    /**
+     * Twitch's chat frame (the "Twitch chat" style panel) is a third-party frame of the app's https://localhost page,
+     * so it only gets the cookies marked SameSite=None + Secure (as the desktop's keepTwitchCookiesThirdParty). Sets
+     * the web-session cookies there now (SESSION, the ones the chat frame needs) that way, with their current values;
+     * every other twitch.tv cookie keeps what it was written with. Called at start and when a twitch.tv window or a
+     * hidden page closes (twitch.tv's own scripts there may have written them again). Never logs values.
+     */
+    static int keepThirdParty() {
+        CookieManager cm = CookieManager.getInstance();
+        int n = 0;
+        for (Map.Entry<String, String> e : current().entrySet()) {
+            if (!SESSION.contains(e.getKey())) continue;
+            String value = e.getValue();
+            if (value.isEmpty() || !value.matches("[^;\\s]*")) continue;
+            cm.setCookie(SITE, e.getKey() + "=" + value + "; Domain=.twitch.tv; Path=/; Max-Age=31536000; Secure; SameSite=None");
+            n++;
+        }
+        if (n > 0) cm.flush();
+        return n;
+    }
+
     /** Removes every twitch.tv cookie (host-only and domain cookies on the hosts we know; path /). */
     static void clear() {
         CookieManager cm = CookieManager.getInstance();

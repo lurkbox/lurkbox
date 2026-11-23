@@ -113,6 +113,7 @@ public class LurkboxNativePlugin extends Plugin {
             webDialog.open(url, session, zoom, script, textScript, (s) -> {
                 JSObject ev = new JSObject();
                 ev.put("session", s);
+                WebCookies.keepThirdParty(); // a sign-in there may have written the session cookies Lax
                 notifyListeners("webClosed", ev);
             });
             call.resolve();
@@ -169,7 +170,7 @@ public class LurkboxNativePlugin extends Plugin {
     @PluginMethod
     public void pageClose(PluginCall call) {
         String kind = call.getString("kind", "");
-        getActivity().runOnUiThread(() -> { pages().close(kind); call.resolve(); });
+        getActivity().runOnUiThread(() -> { pages().close(kind); WebCookies.keepThirdParty(); call.resolve(); });
     }
 
     /** { signedIn, login }: whether twitch.tv's auth-token cookie is there, and the public login name. */

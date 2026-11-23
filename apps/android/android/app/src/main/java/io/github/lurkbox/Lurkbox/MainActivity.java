@@ -19,6 +19,7 @@ import android.util.Rational;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.webkit.WebSettings;
+import android.webkit.CookieManager;
 import android.webkit.WebView;
 import androidx.annotation.RequiresApi;
 import androidx.core.content.ContextCompat;
@@ -48,6 +49,10 @@ public class MainActivity extends BridgeActivity {
         WebSettings settings = webView.getSettings();
         // Streams start with sound when opened from the remote or a controller (no tap on the page).
         settings.setMediaPlaybackRequiresUserGesture(false);
+        // Twitch's chat frame ("Twitch chat" style) is a third-party frame of the app's page: let it have the twitch.tv
+        // session (only this WebView; the cookies it needs are SameSite=None, WebCookies.keepThirdParty).
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+        WebCookies.keepThirdParty();
         // The HLS proxy (https://localhost/_lbhls/...) next to Capacitor's own asset server.
         bridge.setWebViewClient(new LurkboxWebViewClient(bridge));
         // D-pad focus works from the first screen: the page has the key focus, not the activity's frame.
