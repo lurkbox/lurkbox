@@ -97,8 +97,8 @@ function setup(opts = {}) {
 
 test('hidden pages: async sources are awaited through the page (as evaluateJavascript would see them)', async () => {
   // A real JS context stands in for the page: evaluateJavascript returns the expression's JSON (a Promise is "{}").
-  const ctx = vm.createContext({ setTimeout });
-  ctx.window = ctx;
+  const fresh = () => { const c = vm.createContext({ setTimeout }); vm.runInContext('var window = globalThis;', c); return c; };
+  let ctx = fresh();
   const native = {
     pageOpen: async () => {}, pageClose: async () => {},
     pageEval: async ({ source }) => { const v = vm.runInContext(source, ctx); return { json: JSON.stringify(v instanceof Promise || (v && typeof v.then === 'function') ? {} : v === undefined ? null : v) }; },
@@ -110,7 +110,7 @@ test('hidden pages: async sources are awaited through the page (as evaluateJavas
   assert.equal(await p.evalSync('1 + 2'), 3);
   // The page reloaded (the box is gone) while a source ran: the caller hears about it instead of waiting forever.
   const slow = p.eval('(async () => { await new Promise((r) => setTimeout(r, 50)); return 1; })()');
-  delete ctx.__lbAsync;
+  ctx = fresh(); // a new document
   await assert.rejects(slow, /page gone/);
   await assert.rejects(p.eval('new Promise(() => {})', { timeoutMs: 20, pollMs: 5 }), /timed out/);
 });
