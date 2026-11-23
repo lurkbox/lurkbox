@@ -51,7 +51,7 @@ import { RaidCountdown } from './raid.js';
 import { DirectEngine, EVENTS as DIRECT_EVENTS } from './direct-engine.js';
 import { ClipEngine, ClipEmbed, clipSourcePlan } from './clip-engine.js';
 import { clipAuthState, buildClipCreate, clipCreateResult, clipShortLink, addMyClip } from '../shared/my-clips.js';
-import { liveBadge, catchUpDecision, backgroundCap } from './hls-util.js';
+import { liveBadge, catchUpDecision, backgroundCap, pickDefaultQuality } from './hls-util.js';
 
 const EMBED_URL = 'https://player.twitch.tv/js/embed/v1.js';
 const EMBED_PARENT = ['localhost']; // must match the host the UI is served from
@@ -99,11 +99,6 @@ async function promptClipSignIn(kind) {
 /** "Clipped by x · 1.2K views · Mar 3, 2026" */
 function clipMeta(c) {
   return [c.creator_name ? `Clipped by ${c.creator_name}` : null, `${fmtViewers(c.view_count)} views`, c.created_at ? fmtDate(c.created_at) : null].filter(Boolean).join(' · ');
-}
-
-function qualityHeight(q) {
-  const m = /(\d{3,4})p(\d+)?/.exec(q || '');
-  return m ? [Number(m[1]), Number(m[2] || 30)] : null;
 }
 
 export class Player {
@@ -831,17 +826,8 @@ export class Player {
   applyDefaultQuality() {
     const want = state.settings.defaultQuality || 'auto';
     if (!this.embed || want === 'auto' || this.embed.isClip) return; // a clip picks its own from the same setting
-    const qs = (this.embed.getQualities() || []).filter((q) => q.group && q.group !== 'auto');
-    if (!qs.length) return;
-    let pick = qs.find((q) => q.group === want);
-    if (!pick && want === 'chunked') pick = qs[0];
-    if (!pick) {
-      const [wh, wf] = qualityHeight(want) || [720, 30];
-      const scored = qs.map((q) => ({ q, hf: qualityHeight(q.name || q.group) }))
-        .filter((x) => x.hf && (x.hf[0] < wh || (x.hf[0] === wh && x.hf[1] <= wf)))
-        .sort((a, b) => b.hf[0] - a.hf[0] || b.hf[1] - a.hf[1]);
-      pick = scored.length ? scored[0].q : qs[qs.length - 1];
-    }
+    const pick = pickDefaultQuality(this.embed.getQualities(), want);
+    if (!pick) return;
     console.log(`[player] quality -> ${pick.name} (${pick.group})`);
     this.embed.setQuality(pick.group);
   }
@@ -1535,6 +1521,7 @@ export class Player {
     const items = [
       button([icon('reload', 'po-item-icon'), el('span', {}, 'Reload')], () => { this.pop.close({ returnFocus: false }); this.reload(); }, { class: 'po-item', dataset: { focusKey: 'pop-reload' } }),
       engine,
+      this.current && this.current.kind === 'live' && !isPhoneLayout() ? button([icon('grid', 'po-item-icon'), el('span', {}, 'Add stream to multi-view')], () => { this.pop.close({ returnFocus: false }); this.nav.watchWith(this.current); }, { class: 'po-item', dataset: { focusKey: 'pop-multi' } }) : null,
       window.lurkbox.toggleFullscreen ? button([icon('fullscreen', 'po-item-icon'), el('span', {}, 'Fullscreen')], () => window.lurkbox.toggleFullscreen(), { class: 'po-item', dataset: { focusKey: 'pop-fullscreen' } }) : null,
     ];
     const update = () => {

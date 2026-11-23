@@ -30,6 +30,7 @@ export const PLAYER_ICONS = {
   quick: '<path d="M4 5.5h16v10H10l-4.5 4v-4H4z"/><path d="M13.2 7.2l-3 4h3.6l-2.9 3.8"/>',
   emote: '<circle cx="12" cy="12" r="8.5"/><path d="M8.3 13.8a4.6 4.6 0 0 0 7.4 0"/><path d="M9.2 9.6h0M14.8 9.6h0"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  grid: '<rect x="3.5" y="5" width="7.5" height="6" rx="1"/><rect x="13" y="5" width="7.5" height="6" rx="1"/><rect x="3.5" y="13" width="7.5" height="6" rx="1"/><rect x="13" y="13" width="7.5" height="6" rx="1"/>',
   up: '<path d="M6 14.5l6-6 6 6"/>',
   down: '<path d="M6 9.5l6 6 6-6"/>',
   // A film frame with a play mark (the clip's source broadcast).

@@ -19,7 +19,7 @@ import { mascotEl, iconDataUrl } from './mascot.js';
 import { UnfocusedMode, resolveBack, quitWithCleanup } from './lifecycle.js';
 import { onPlayerLogin } from './player-login.js';
 import { accountMenu, whosWatching, avatar } from './accounts.js';
-import { openModal } from './modal.js';
+import { openModal, pickFromList } from './modal.js';
 import { button } from './ui.js';
 import { followingView } from './views/following.js';
 import { browseView } from './views/browse.js';
@@ -32,7 +32,8 @@ import { whispersView, whisperThreadView } from './views/whispers.js';
 import { whispers } from './whispers.js';
 import { hint } from './input.js';
 import { emoteSearchView } from './views/emote-search.js';
-import { installLayout, applyLayout, isTouchLayout, gamepadConnected } from './layout.js';
+import { installLayout, applyLayout, isTouchLayout, isPhoneLayout, gamepadConnected } from './layout.js';
+import { MultiView, pickLiveChannel, tileChannel } from './multiview.js';
 import { bindTouchSwipe, bindPullToRefresh } from './touch.js';
 import { tabStepForSwipe } from '../shared/gestures.js';
 
@@ -70,7 +71,7 @@ function railButton(id) { return rail.querySelector(`[data-view="${id}"]`); }
 
 /** When async content renders, put focus on it if nothing useful is focused. */
 function tryPendingFocus() {
-  if (!pendingFocus || hasModal() || player.active) return;
+  if (!pendingFocus || hasModal() || player.active || (multi && multi.isOpen)) return;
   const host = topEntry() && topEntry().host;
   if (!host) return;
   const active = document.activeElement;
@@ -123,7 +124,7 @@ const nav = {
   unregisterPoller(p) { pollers.delete(p); },
   /** Live lists poll only when visible and in use. */
   canPoll() {
-    if (player && player.active) return false;
+    if ((player && player.active) || (multi && multi.isOpen)) return false;
     if (hasModal()) return false;
     if (document.visibilityState === 'hidden') return false;
     if (blurredAt && Date.now() - blurredAt > 60000) return false;
@@ -218,6 +219,40 @@ const nav = {
     }
   },
 
+  /**
+   * Multi-view with these channels (2–4; from the player's More or "Watch with…" on a live card). Phones get a toast.
+   */
+  openMulti(channels) {
+    if (isPhoneLayout()) { toast('Multi-view needs a bigger screen', 3000); return; }
+    if (player.active) { const back = playerReturnFocus; player.close(); playerReturnFocus = back; }
+    else playerReturnFocus = document.activeElement;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    multi.open(channels);
+  },
+  /** Pick a followed live channel to watch next to c (then multi-view). */
+  watchWith(c) {
+    if (isPhoneLayout()) { toast('Multi-view needs a bigger screen', 3000); return; }
+    const first = tileChannel(c);
+    pickLiveChannel({ tiles: [first], onPick: (s) => nav.openMulti([first, s]) });
+  },
+  /** B in multi-view (or one tile left): the single player on that channel; back from it returns to the list. */
+  leaveMulti(ch) {
+    const back = playerReturnFocus;
+    multi.close();
+    playerReturnFocus = back;
+    player.openLive({ login: ch.login, name: ch.name, userId: ch.userId, stream: ch.stream || undefined }, []);
+  },
+  /** X or a long-press on a card: a live card offers "Watch with…" (TV and tablet); others open the channel page. */
+  cardAction(c) {
+    if (!c.live || isPhoneLayout()) { nav.openChannel(c); return; }
+    pickFromList({
+      title: c.name,
+      items: [{ label: 'Channel page', value: 'channel' }, { label: 'Watch with… (multi-view)', value: 'multi' }],
+      current: 'channel',
+      onPick: (v) => { if (v === 'multi') nav.watchWith({ login: c.login, name: c.name, userId: c.id }); else nav.openChannel(c); },
+    });
+  },
+
   /** A channel page (the same channel's page on top is reused). */
   openChannel(c) {
     const top = topEntry();
@@ -259,6 +294,7 @@ function dispatch(action, source) {
     return;
   }
   if (player.active) { player.handle(action, source); return; }
+  if (multi.isOpen) { multi.handle(action, source); return; }
 
   const entry = topEntry();
   if (entry && entry.view.onAction && entry.view.onAction(action, source)) return;
@@ -323,9 +359,9 @@ function dispatch(action, source) {
       return;
     }
     case X: {
-      // X on a channel's card (a live stream) opens its channel page.
+      // X on a channel's card opens its channel page (a live one asks first: channel page or multi-view).
       const c = inContent ? channelOfCard(active) : null;
-      if (c) nav.openChannel(c);
+      if (c) nav.cardAction(c);
       return;
     }
     case Y:
@@ -484,6 +520,7 @@ function onIncomingWhisper({ peer, message, open }) {
 
 let input;
 let player;
+let multi;
 
 // Window/taskbar icon follows the theme (desktop mode; Gamescope ignores it).
 let iconTimer = null;
@@ -512,7 +549,8 @@ async function start() {
   document.body.classList.toggle('windowed', !!state.info.windowed);
   const watcher = new RaidWatcher();
   player = new Player({ nav, watcher });
-  window.__lurkbox = { nav, player, watcher, state, dispatch }; // for debugging from DevTools
+  multi = new MultiView({ watcher, onExit: (ch) => nav.leaveMulti(ch) });
+  window.__lurkbox = { nav, player, multi, watcher, state, dispatch }; // for debugging from DevTools
 
   input = new Input(dispatch);
   // The touch layouts start (and switch) in touch mode: no focus ring until a key or D-pad is pressed.
@@ -529,7 +567,7 @@ async function start() {
   ws.addEventListener('change', updateWhisperBadge);
   ws.addEventListener('incoming', (e) => onIncomingWhisper(e.detail));
   ws.sync();
-  setChannelOpener((c) => nav.openChannel(c)); // a long-press on a stream card
+  setChannelOpener((c) => nav.cardAction(c)); // a long-press on a stream card
 
   // After a player sign-in, reload the embed so it picks up the twitch.tv session.
   onPlayerLogin(() => {
@@ -544,12 +582,13 @@ async function start() {
   const unfocused = new UnfocusedMode({ onChange: (on) => document.body.classList.toggle('video-only', on) });
   unfocused.setEnabled(state.settings.videoOnlyUnfocused !== false);
   // Quality while in the background: after 3 s unfocused, the direct engine drops to the chosen cap.
-  const background = new UnfocusedMode({ delay: 3000, onChange: (on) => player.setBackground(on) });
+  const background = new UnfocusedMode({ delay: 3000, onChange: (on) => { player.setBackground(on); multi.setBackground(on); } });
   window.lurkbox.onWindowFocus((f) => { unfocused.setFocus(f); background.setFocus(f); blurredAt = f ? null : Date.now(); if (f) nav.pokePollers(); });
   setInterval(() => nav.pokePollers(), 5000); // re-check pause conditions (modal, player, long blur)
   onState(() => {
     unfocused.setEnabled(state.settings.videoOnlyUnfocused !== false);
     player.applyBackground(); // the setting may have changed
+    if (multi.isOpen) multi.applyAll();
   });
 
   let hadClientId = state.auth.hasClientId;
