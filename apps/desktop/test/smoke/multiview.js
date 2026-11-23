@@ -95,18 +95,25 @@ app.on('browser-window-created', (_e, win) => {
       if (!/^0% 0% 50% 100%$/.test(t[0].r) || !/^50% 0% 50% 100%$/.test(t[1].r)) throw new Error(`not side by side: ${t.map((x) => x.r)}`);
       const two = await playing(2);
       t = await tiles();
-      if (t[0].muted !== false || t[1].muted !== true) throw new Error(`audio: ${JSON.stringify(t.map((x) => x.muted))}`);
-      let c = await caps();
-      if (c[0] !== null || c[1] !== 480) throw new Error(`quality caps ${JSON.stringify(c)} (want null, 480)`);
+      // Without the demo video (no ffmpeg, as in CI) every tile fails: each shows its error in place.
+      const failedOk = async (n) => { if (await js("document.querySelectorAll('#multi-stage .mv-tile.mv-failed .mv-error:not([hidden])').length") !== n) throw new Error('no demo video, and the tiles show no error'); };
+      if (two) {
+        if (t[0].muted !== false || t[1].muted !== true) throw new Error(`audio: ${JSON.stringify(t.map((x) => x.muted))}`);
+        const c = await caps();
+        if (c[0] !== null || c[1] !== 480) throw new Error(`quality caps ${JSON.stringify(c)} (want null, 480)`);
+      } else await failedOk(2);
       log(`2 tiles ${two ? 'playing' : '(no demo video)'}: ${t.map((x) => x.login).join(', ')}`);
       await shot('multiview-2');
 
       // RIGHT: the sound and the normal quality move to the other tile.
       await press('RIGHT');
       t = await tiles();
-      if (!t[1].active || t[1].muted !== false || t[0].muted !== true) throw new Error(`RIGHT did not move the sound: ${JSON.stringify(t)}`);
-      c = await caps();
-      if (c[0] !== 480 || c[1] !== null) throw new Error(`caps after RIGHT ${JSON.stringify(c)}`);
+      if (!t[1].active) throw new Error(`RIGHT did not move the active tile: ${JSON.stringify(t)}`);
+      if (two) {
+        if (t[1].muted !== false || t[0].muted !== true) throw new Error(`RIGHT did not move the sound: ${JSON.stringify(t)}`);
+        const c = await caps();
+        if (c[0] !== 480 || c[1] !== null) throw new Error(`caps after RIGHT ${JSON.stringify(c)}`);
+      }
 
       // A: the tile menu → Add stream… → three tiles (one big plus two small, the new one active).
       await press('A');
@@ -125,7 +132,8 @@ app.on('browser-window-created', (_e, win) => {
       await press('UP');
       t = await tiles();
       if (!t[1].active) throw new Error('UP from the bottom right is not the top right');
-      const four = await playing(4);
+      const four = two ? await playing(4) : false;
+      if (!two) await failedOk(4);
       log(`4 tiles ${four ? 'playing' : '(no demo video)'}`);
       await sleep(600);
       await shot('multiview');
