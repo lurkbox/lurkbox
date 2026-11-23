@@ -357,6 +357,8 @@ test('sign-out (and Remove) deletes everything kept for that account, and nothin
     async webOpen() {}, async webLoad() {}, async webClose() {},
     async webStatus() { return this.session ? { signedIn: true, login: this.session.login } : { signedIn: false, login: null }; },
     async webClear() { this.session = null; },
+    siteDataCleared: 0,
+    async webClearSiteData() { this.siteDataCleared++; },
     async webJarSave({ id }) { if (this.session) this.jars.set(id, { ...this.session }); return { saved: !!this.session }; },
     async webJarRestore({ id }) { this.session = this.jars.has(id) ? { ...this.jars.get(id) } : null; return { count: this.session ? 2 : 0 }; },
     async webJarPeek({ id }) { const j = this.jars.get(id); return { has: !!j, login: j ? j.login : null }; },
@@ -383,6 +385,7 @@ test('sign-out (and Remove) deletes everything kept for that account, and nothin
   for (const v of ['at-viewer', 'rt-viewer', 'viewer', 'VIEWER', 'img/viewer']) assert.equal(tokens.includes(v), false, `tokens still have ${v}`);
   assert.deepEqual(Object.keys(secure.json('tokens').accounts), [B]);
   assert.equal(native.jars.has(A), false, 'the account\'s encrypted jar');
+  assert.equal(native.siteDataCleared, 1, 'twitch.tv\'s site data in the WebView is wiped for the active account');
   assert.deepEqual(native.session, { login: 'alice' }, 'the live twitch.tv session is the other account\'s, never the signed-out one\'s');
   assert.deepEqual(native.jars.get(B), { login: 'alice' });
   const s = prefs.json('settings');
@@ -408,6 +411,7 @@ test('sign-out (and Remove) deletes everything kept for that account, and nothin
 
   // Remove is the same function: the last account goes too, and nothing is left.
   assert.equal(await platform.removeAccount(B), null);
+  assert.equal(native.siteDataCleared, 2, 'the last (active) account wipes it too');
   assert.deepEqual(secure.json('tokens').accounts, {});
   assert.equal(native.session, null);
   assert.equal(native.jars.size, 0);

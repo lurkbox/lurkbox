@@ -24,7 +24,7 @@ export function mismatchWarning(playerLogin, lurkboxLogin) {
 
 /**
  * @param {object} d
- * @param {object} d.native   LurkboxNative (webOpen, webLoad, webClose, webStatus, webClear, webJar*, webGql, addListener)
+ * @param {object} d.native   LurkboxNative (webOpen, webLoad, webClose, webStatus, webClear, webClearSiteData, webJar*, webGql, addListener)
  * @param {(line: string) => void} d.log
  * @param {() => object} d.getSettings
  * @param {() => number} [d.screenHeight]  CSS px (for the TV zoom)
@@ -54,6 +54,8 @@ export function createWebSession({ native, log, getSettings, screenHeight = () =
     save: async (id) => (ID.test(String(id)) ? native.webJarSave({ id: String(id) }) : null),
     restore: async (id) => (ID.test(String(id)) ? native.webJarRestore({ id: String(id) }) : native.webClear()),
     clear: async () => native.webClear(),
+    /** Sign-out of the active account: twitch.tv's own site data in the WebView (local storage, IndexedDB, cache). */
+    clearSiteData: async () => { if (native.webClearSiteData) await native.webClearSiteData(); },
     remove: async (id) => { if (ID.test(String(id))) await native.webJarRemove({ id: String(id) }).catch(() => {}); },
     peekLogin: async (id) => {
       if (!ID.test(String(id))) return null;
