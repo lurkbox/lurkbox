@@ -100,7 +100,7 @@ jobs:
           npm ci --ignore-scripts
           npm rebuild electron
       - run: npm run dist -- --publish never
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Lurkbox-AppImage
           path: dist/*.AppImage
@@ -129,7 +129,7 @@ jobs:
       # Signed with Android's default debug key (the stable local key never leaves the developer's machine).
       - name: Build the debug APK
         run: npm run android:build
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Lurkbox-Android-debug-APK
           path: apps/android/android/app/build/outputs/apk/debug/*.apk
