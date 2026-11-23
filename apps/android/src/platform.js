@@ -56,6 +56,31 @@ export class PrefValue {
 }
 
 /**
+ * Moves a value from Preferences (plaintext) into the encrypted store, once: copied when the store has none yet, then
+ * the plaintext copy is deleted either way (also when the copy can't be saved: the sign-in is lost rather than left
+ * unencrypted). Never throws. Resolves { migrated, reset } (reset: the store's key stopped working and it was cleared).
+ */
+export async function migrateToSecure(prefs, secure, key, log = () => {}) {
+  let plain = null;
+  try { const r = await prefs.get({ key }); plain = r && r.value ? r.value : null; } catch { plain = null; }
+  let stored = null;
+  let reset = false;
+  try {
+    const r = await secure.get({ key });
+    stored = r && r.value ? r.value : null;
+    reset = !!(r && r.reset);
+  } catch (e) { log(`[secure] could not read ${key}: ${e.message}`); }
+  if (reset) log(`[secure] the stored ${key} could not be decrypted (the device's key changed); cleared, sign in again`);
+  if (!plain) return { migrated: false, reset };
+  let migrated = false;
+  if (!stored) {
+    try { await secure.set({ key, value: plain }); migrated = true; log(`[secure] moved ${key} into encrypted storage`); } catch (e) { log(`[secure] could not encrypt ${key}: ${e.message}`); }
+  }
+  try { await prefs.remove({ key }); } catch (e) { log(`[secure] could not delete the plaintext ${key}: ${e.message}`); }
+  return { migrated, reset };
+}
+
+/**
  * VOD resume positions per account, like the desktop's resume.json: { accounts: { id|anon: { videoId: { pos, dur, at, m? } } } }
  * (m: the video's details for Continue watching). The entry maths are shared (shared/continue-watching.js).
  */
@@ -86,14 +111,16 @@ export class ResumePositions {
 /**
  * @param {object} d
  * @param {typeof fetch} d.fetch      native HTTP (http.js makeNativeFetch(CapacitorHttp))
- * @param {{get, set}} d.prefs        Capacitor Preferences
+ * @param {{get, set, remove}} d.prefs        Capacitor Preferences
+ * @param {{get, set, remove}} [d.secure]   the encrypted store for the tokens (SecureStorePlugin.java; same shape,
+ *   get may also resolve reset: true when its key stopped working). Without it the tokens stay in prefs (tests).
  * @param {{addListener, exitApp}} d.app   Capacitor App
  * @param {{log?, proxyAllow?, webOpen?, pageOpen?}} d.native   the app's own LurkboxNative plugin (web*: the twitch.tv
  *   window; page*: the hidden twitch.tv pages)
  * @param {(text: string) => string} d.qrSvg
  * @param {string} d.version
  */
-export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version = '0.0.0', setInterval: every = setInterval, features = {} }) {
+export function createPlatform({ fetch, prefs, secure = null, app, native = {}, qrSvg, version = '0.0.0', setInterval: every = setInterval, features = {} }) {
   const bus = new Emitter();
   const on = (name) => (cb) => { bus.on(name, cb); return () => bus.off(name, cb); };
   const noopUnsub = () => () => {};
@@ -105,7 +132,7 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
   };
 
   const settings = new PrefValue(prefs, 'settings', DEFAULT_SETTINGS);
-  const tokens = new PrefValue(prefs, 'tokens', {});
+  const tokens = new PrefValue(secure || prefs, 'tokens', {});
   const resumeValue = new PrefValue(prefs, 'resume', { accounts: {} });
   const resume = new ResumePositions(resumeValue);
   // Whisper history per account, like the desktop's whispers.json: { accounts: { id: threads } } (shared/whispers.js).
@@ -125,6 +152,7 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
   const drops = hidden ? createDrops({ pages: hidden, web, getSettings, emit, log, ...(features.drops || {}) }) : null;
 
   const ready = (async () => {
+    if (secure) await migrateToSecure(prefs, secure, 'tokens', log);
     await Promise.all([settings.load(), tokens.load(), resumeValue.load(), whispersValue.load(), emoteIndexValue.load()]);
     twitch = new Twitch({ getSettings: () => settings.get(), tokens, fetch, onSwitch: web ? web.onSwitch : undefined });
     twitch.on('state', (s) => bus.emit('auth:state', s));

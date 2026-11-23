@@ -10,6 +10,8 @@ import { installBackButton } from './input.js';
 import { installKeepScreenOn } from './playback.js';
 
 const Native = registerPlugin('LurkboxNative');
+// Credentials (tokens): encrypted with a key in the Android Keystore (SecureStorePlugin.java), same shape as Preferences.
+const SecureStore = registerPlugin('SecureStore');
 
 function qrSvg(text) {
   const qr = qrcode(0, 'M');
@@ -21,6 +23,7 @@ function qrSvg(text) {
 window.lurkbox = createPlatform({
   fetch: makeNativeFetch(CapacitorHttp),
   prefs: Preferences,
+  secure: SecureStore,
   app: App,
   native: Native,
   qrSvg,
