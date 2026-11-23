@@ -569,7 +569,7 @@ async function start() {
   document.body.classList.toggle('windowed', !!state.info.windowed);
   const watcher = new RaidWatcher();
   player = new Player({ nav, watcher });
-  multi = new MultiView({ watcher, onExit: (ch) => nav.leaveMulti(ch) });
+  multi = new MultiView({ watcher, onExit: (ch) => nav.leaveMulti(ch), signIn: () => nav.signIn() });
   window.__lurkbox = { nav, player, multi, watcher, state, dispatch }; // for debugging from DevTools
 
   input = new Input(dispatch);

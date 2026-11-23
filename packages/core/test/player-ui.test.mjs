@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { overlayControls, fitControls, PINNED_CONTROLS, controlLabel, controlIcon, shortCount, liveLabel, anchorPopover, POPOVER_CONTROLS, OVERLAY_HIDE_MS } from '../src/js/player-ui.js';
+import { overlayControls, multiControls, fitControls, PINNED_CONTROLS, controlLabel, controlIcon, shortCount, liveLabel, anchorPopover, POPOVER_CONTROLS, OVERLAY_HIDE_MS } from '../src/js/player-ui.js';
 import { PLAYER_ICONS } from '../src/js/icons.js';
 import { Popover } from '../src/js/popover.js';
 import { stepValue, valueAt, holdMultiplier, HoldTracker } from '../src/js/slider.js';
@@ -198,4 +198,10 @@ test('slider steps: snapped, clamped, hold accelerates', () => {
   assert.equal(valueAt(0.5, { min: 0, max: 100, step: 5 }), 50);
   assert.equal(valueAt(1.4, { min: 0, max: 100, step: 5 }), 100);
   assert.equal(valueAt(0.33, { min: 20, max: 50, step: 1 }), 30);
+});
+
+test('multi-view tile row: live, then points and follow when available, then More', () => {
+  assert.deepEqual(multiControls({ points: true, follow: true }), ['live', 'points', 'follow', 'more']);
+  assert.deepEqual(multiControls({}), ['live', 'more']);
+  for (const k of multiControls({ points: true, follow: true })) assert.notEqual(controlLabel(k, {}), k, `${k} has a label`);
 });

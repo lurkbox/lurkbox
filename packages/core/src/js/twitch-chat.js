@@ -19,13 +19,16 @@ export function chatFrameUrl(login, { points = false } = {}) {
 }
 
 export class TwitchChatFrame {
-  /** @param {HTMLElement} screen the player screen (the frames are positioned inside it, never re-parented) */
-  constructor(screen) {
+  /**
+   * @param {HTMLElement} screen the player (or multi-view) screen (the frames are positioned inside it, never re-parented)
+   * @param {{ id?: string, panelId?: string }} [ids] the hosts' element ids (multi-view has its own pair)
+   */
+  constructor(screen, { id = 'twitch-chat-host', panelId = 'twitch-chat-panel' } = {}) {
     // The points frame (balance, claims, the rewards view): 'hidden' under the video or 'modal'.
-    this.host = el('div', { id: 'twitch-chat-host', class: 'twitch-chat-host tc-hidden', 'aria-hidden': 'true' });
+    this.host = el('div', { id, class: 'twitch-chat-host tc-hidden', 'aria-hidden': 'true' });
     // Twitch chat style on a host without its own chat page: the visible panel (reading and typing) is a separate
     // frame, so the chat extensions can restyle it while the points frame keeps Twitch's own chat UI.
-    this.panelHost = el('div', { id: 'twitch-chat-panel', class: 'twitch-chat-host tc-off', 'aria-hidden': 'true' });
+    this.panelHost = el('div', { id: panelId, class: 'twitch-chat-host tc-off', 'aria-hidden': 'true' });
     screen.append(this.host, this.panelHost);
     this.login = null;
     this.frame = null;
