@@ -127,9 +127,19 @@ public class TwitchWebDialog {
     /** UI thread. */
     void close() { if (dialog != null) dialog.dismiss(); }
 
-    /** The TV zoom and the controller navigation, after each page load; Twitch renders its form late, so retry start(). */
+    /**
+     * After each page load. A TV: the TV zoom and the controller navigation (Twitch renders its form late, so retry
+     * start()). A phone or tablet: only a page with a script (the rewards view: it opens Twitch's rewards popover and
+     * fits it, as on the TV), at a touch zoom; the sign-in pages stay as the WebView shows them.
+     */
     private void prepare() {
-        if (web == null || !tv) return;
+        if (web == null) return;
+        if (!tv) {
+            if (script.isEmpty()) return;
+            web.evaluateJavascript(String.format(Locale.ROOT, "document.documentElement.style.zoom='%.2f';", touchZoom()), null);
+            web.evaluateJavascript(script, null);
+            return;
+        }
         web.evaluateJavascript(String.format(Locale.ROOT, "document.documentElement.style.zoom='%.2f';", zoom), null);
         if (script.isEmpty()) return;
         web.evaluateJavascript(script, null);
@@ -142,6 +152,16 @@ public class TwitchWebDialog {
             }
         };
         ui.postDelayed(start, 250);
+    }
+
+    /**
+     * Phones and tablets: a little larger than the page's own size for fingers (up to 1.25), but never below a
+     * 400 CSS px layout (Twitch's rewards popover needs that width; as modalZoom() in shared/tv-zoom.js).
+     */
+    private double touchZoom() {
+        float density = web.getResources().getDisplayMetrics().density;
+        double widthDp = (web.getWidth() > 0 ? web.getWidth() : web.getResources().getDisplayMetrics().widthPixels) / (density > 0 ? density : 1f);
+        return Math.min(1.25, Math.max(1.0, Math.floor(widthDp / 400.0 * 100) / 100));
     }
 
     /** D-pad, OK and BACK (and a controller's A/B) drive the page's navigation; true when handled. */
