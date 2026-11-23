@@ -131,7 +131,7 @@ One Android app for Android TV / Google TV, tablets and phones is in `apps/andro
   <img src="docs/screenshots/phone-landscape.png" width="49%" alt="Phone held sideways: the video full screen with the chat panel swiped in from the right">
   <img src="docs/screenshots/tablet-player.png" width="49%" alt="Tablet, landscape: the player with touch-sized controls and the chat as a side panel">
 </p>
- Anything that needs the twitch.tv web session (TV sign-in, subs/Turbo in the player, channel points, Drops, follow) and the Steam features aren't there yet. `npm run android:build` makes a debug APK (JDK 21 and the Android SDK needed); install it with `adb install -r apps/android/android/app/build/outputs/apk/debug/app-debug.apk`. Details in [docs/android.md](docs/android.md).
+ The TV sign-in (twitch.tv login, then Authorize, in an in-app window) and subs/Turbo in the player work; channel points, Drops, follow and the Steam features aren't there yet. `npm run android:build` makes a debug APK (JDK 21 and the Android SDK needed); install it with `adb install -r apps/android/android/app/build/outputs/apk/debug/app-debug.apk`. Details in [docs/android.md](docs/android.md).
 
 ## Setup (development)
 
