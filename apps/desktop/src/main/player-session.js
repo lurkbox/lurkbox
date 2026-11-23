@@ -148,7 +148,7 @@ function keepTwitchCookiesThirdParty(cookies, log = () => {}) {
 }
 
 /** Pages the in-app twitch.tv window may show: twitch.tv's own sign-in, activation and site pages. */
-const TWITCH_WINDOW_URL = /^https:\/\/((www|id|passport|m)\.)?twitch\.tv(\/|$)/;
+const TWITCH_WINDOW_URL = /^https:\/\/((www|id|passport|auth|m)\.)?twitch\.tv(\/|$)/; // auth.: the Authorize (consent) step
 /** Pages the hidden twitch.tv windows (Drops auto-claim, follow) may show. */
 const TWITCH_SITE_URL = /^https:\/\/(www\.)?twitch\.tv\//;
 
