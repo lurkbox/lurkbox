@@ -82,6 +82,9 @@
     <content_attribute id="social-info">mild</content_attribute>
   </content_rating>
   <releases>
+    <release version="0.2.0" date="2026-11-23">
+      <description><p>Update notifications, predictions and polls in the player, and VOD chat replay.</p></description>
+    </release>
     <release version="0.1.0" date="2026-11-22">
       <description>
         <p>First release published as a Flatpak from the Lurkbox repository.</p>

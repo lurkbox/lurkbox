@@ -1,7 +1,7 @@
 {
   "name": "lurkbox",
   "productName": "Lurkbox",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A couch/controller client for Twitch, made for SteamOS Game Mode",
   "main": "src/main/main.js",
   "private": true,
@@ -32,7 +32,7 @@
     "test:vod-chat": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/vod-chat.js"
   },
   "dependencies": {
-    "@lurkbox/core": "0.1.0",
+    "@lurkbox/core": "0.2.0",
     "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {

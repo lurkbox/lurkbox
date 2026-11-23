@@ -163,7 +163,7 @@ npm start -- --windowed --channel=somechannel   # open a channel directly
 ## Build
 
 ```sh
-npm run dist        # dist/Lurkbox-0.1.0-x86_64.AppImage (electron-builder, config in apps/desktop/electron-builder.config.js)
+npm run dist        # dist/Lurkbox-0.2.0-x86_64.AppImage (electron-builder, config in apps/desktop/electron-builder.config.js)
 ```
 
 The Flatpak manifest is `apps/desktop/flatpak/io.github.lurkbox.Lurkbox.yml`. It packages the electron-builder `--dir` output on top of `org.electronjs.Electron2.BaseApp`. CI builds it and publishes it to https://lurkbox.github.io/lurkbox/ ([docs/flatpak.md](docs/flatpak.md)).
