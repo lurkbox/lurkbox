@@ -32,11 +32,14 @@ export function mismatchWarning(playerLogin, lurkboxLogin) {
 export function createWebSession({ native, log, getSettings, screenHeight = () => (globalThis.screen && globalThis.screen.height) || 720 }) {
   let seq = 0;
   const closedWaiters = new Map();
+  let current = 0; // the session shown in the (one) native window, 0 when it is closed
+  const ended = (session) => {
+    if (current === session) current = 0;
+    const done = closedWaiters.get(session);
+    if (done) { closedWaiters.delete(session); done(); }
+  };
   if (native.addListener) {
-    const p = native.addListener('webClosed', (ev) => {
-      const done = closedWaiters.get(ev && ev.session);
-      if (done) { closedWaiters.delete(ev.session); done(); }
-    });
+    const p = native.addListener('webClosed', (ev) => ended(ev && ev.session));
     if (p && p.catch) p.catch(() => {});
   }
 
@@ -58,20 +61,28 @@ export function createWebSession({ native, log, getSettings, screenHeight = () =
     },
   };
 
-  /** The in-app twitch.tv window, as the shared TvSignIn wants it: load(url), close(), closed. */
-  const openWindow = () => {
+  /**
+   * The in-app twitch.tv window, as the shared TvSignIn wants it: load(url), close(), closed. The sign-in's by default;
+   * other views pass their own zoom, script (fixed sources, run after each page load) and textScript (run when BACK
+   * leaves a text box). close() only closes this window, not a later one.
+   */
+  const openWindow = ({ zoom = tvZoom(screenHeight(), (getSettings() || {}).uiScale), script = navSource({ hint: NAV_HINT, preferText: true }), textScript = '' } = {}) => {
     const session = ++seq;
     const closed = new Promise((resolve) => closedWaiters.set(session, resolve));
     let opened = null;
-    const zoom = tvZoom(screenHeight(), (getSettings() || {}).uiScale);
-    const script = navSource({ hint: NAV_HINT, preferText: true });
     const fail = (what) => (e) => { log(`[web] ${what} failed: ${e.message}`); native.webClose().catch(() => {}); };
     return {
+      session,
       load: (url) => {
-        if (!opened) opened = native.webOpen({ url, session, zoom, script }).catch(fail('open'));
+        if (!opened) {
+          // The native window is reused: a window still open is replaced by this one, so it counts as closed.
+          if (current && current !== session) ended(current);
+          current = session;
+          opened = native.webOpen({ url, session, zoom, script, textScript }).catch(fail('open'));
+        }
         else opened = opened.then(() => native.webLoad({ url })).catch(fail('load'));
       },
-      close: () => { native.webClose().catch(() => {}); },
+      close: () => { if (current === session) native.webClose().catch(() => {}); },
       closed,
     };
   };
@@ -81,6 +92,8 @@ export function createWebSession({ native, log, getSettings, screenHeight = () =
   return {
     status,
     jar,
+    openWindow,
+    screenHeight,
     /** Twitch's onSwitch: keep the old account's web session in its jar, put the new one's in. */
     onSwitch: async (fromId, toId) => {
       try {

@@ -45,6 +45,8 @@ public class TwitchWebDialog {
     private int session;
     private double zoom = 1;
     private String script = "";
+    /** Run when BACK leaves a text box in the page (frame-nav's back() answered "text"); "" for none. */
+    private String textScript = "";
 
     TwitchWebDialog(Activity activity) {
         this.activity = activity;
@@ -61,9 +63,10 @@ public class TwitchWebDialog {
 
     /** Opens the window at url (or loads url in the open one). UI thread. */
     @SuppressLint("SetJavaScriptEnabled")
-    void open(String url, int session, double zoom, String script, Listener listener) {
+    void open(String url, int session, double zoom, String script, String textScript, Listener listener) {
         this.zoom = zoom > 0 && zoom <= 4 ? zoom : 1;
         this.script = script == null ? "" : script;
+        this.textScript = textScript == null ? "" : textScript;
         if (dialog != null) { this.session = session; load(url); return; }
         this.session = session;
         web = new WebView(activity);
@@ -147,7 +150,10 @@ public class TwitchWebDialog {
         if (key == null || web == null) return false;
         if (e.getAction() != KeyEvent.ACTION_DOWN) return true;
         if ("b".equals(key)) {
-            web.evaluateJavascript("(window.__lbNav ? window.__lbNav.back() : 'close')", (r) -> { if ("\"close\"".equals(r)) close(); });
+            web.evaluateJavascript("(window.__lbNav ? window.__lbNav.back() : 'close')", (r) -> {
+                if ("\"close\"".equals(r)) close();
+                else if ("\"text\"".equals(r) && web != null && !textScript.isEmpty()) web.evaluateJavascript(textScript, null);
+            });
             return true;
         }
         web.evaluateJavascript("(window.__lbNav ? window.__lbNav.press('" + key + "') : 'no-nav')", (r) -> {
