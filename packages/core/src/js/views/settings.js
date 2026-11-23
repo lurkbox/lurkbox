@@ -14,6 +14,7 @@ import { clearSearches, searchesFor } from '../../shared/search-history.js';
 import { chatSettingsRows } from './settings-chat.js';
 import { LAYOUT_MODES, LAYOUT_LABELS } from '../../shared/layout-mode.js';
 import { subscriptionsView, blockedView } from '../social-ui.js';
+import { hasUpdates, updateRow } from '../updates.js';
 
 function row(label, control, help) {
   return el('div', { class: 'setting-row' },
@@ -231,8 +232,11 @@ export function settingsView() {
           row('Raid cancel delay', delayBtn, 'Time to press B before Lurkbox follows a raid.'),
           row('Skip content warnings', toggle('skipContentGate'), 'Click through the player\'s "Start watching" gate.'),
           row('Controller input when unfocused', toggle('inputWhenUnfocused'), 'Leave off so a game under Floater does not also drive Lurkbox.'),
-          row('Quit Lurkbox', button('Quit', () => confirmDialog({ title: 'Quit Lurkbox?', message: '', yes: 'Quit', onYes: () => window.lurkbox.quit() })))),
-        el('p', { class: 'hint version' }, `Lurkbox ${state.info.version}`));
+          row('Quit Lurkbox', button('Quit', () => confirmDialog({ title: 'Quit Lurkbox?', message: '', yes: 'Quit', onYes: () => window.lurkbox.quit() }))),
+          el('h2', { class: 'section-title settings-section', id: 'settings-about' }, 'About'),
+          row('Version', el('div', { class: 'setting-value version' }, `Lurkbox ${state.info.version}`)),
+          hasUpdates() ? row('Check for updates', toggle('checkUpdates'), 'Looks for a newer Lurkbox on GitHub when it starts and once a day. No account or device details are sent.') : null,
+          hasUpdates() ? row('Updates', updateRow()) : null));
     },
   };
 }

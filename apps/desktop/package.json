@@ -26,7 +26,8 @@
     "screenshots": "node scripts/screenshots.mjs",
     "test:channel": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/channel.js",
     "test:continue": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/continue-watching.js",
-    "test:multiview": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/multiview.js"
+    "test:multiview": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/multiview.js",
+    "test:updates": "env -u ELECTRON_RUN_AS_NODE electron test/smoke/updates.js"
   },
   "dependencies": {
     "@lurkbox/core": "0.1.0",

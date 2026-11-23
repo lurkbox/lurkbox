@@ -30,6 +30,7 @@ import { settingsView } from './views/settings.js';
 import { channelView } from './views/channel.js';
 import { whispersView, whisperThreadView } from './views/whispers.js';
 import { whispers } from './whispers.js';
+import { startUpdates } from './updates.js';
 import { hint } from './input.js';
 import { emoteSearchView } from './views/emote-search.js';
 import { installLayout, applyLayout, isTouchLayout, isPhoneLayout, gamepadConnected } from './layout.js';
@@ -672,6 +673,7 @@ async function start() {
   // Drops auto-claim (the host checks Twitch's inventory page in the background).
   if (window.lurkbox.onDropsEvent) window.lurkbox.onDropsEvent((ev) => { if (ev && ev.type === 'claimed') toast(`Drop claimed: ${ev.name}`, 5000); });
   window.lurkbox.openReady().then(openRequested).catch(() => {});
+  startUpdates(); // a newer Lurkbox on GitHub: a toast once per version, and Settings → About
   console.log(`[lurkbox] ready (signedIn=${state.auth.signedIn}, clientId=${state.auth.hasClientId})`);
 }
 

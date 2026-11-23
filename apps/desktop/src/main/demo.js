@@ -81,6 +81,62 @@ function allowedUrl(url, serverUrl) {
 }
 
 /**
+ * GitHub's release API and downloads for the demo's update check (updater.js), in memory: the latest release is
+ * `version` with an AppImage (`appImage` bytes, behind a redirect to the asset host as on GitHub), an APK and
+ * SHA256SUMS.txt. Answers like the real hop: one request, redirects returned with their Location.
+ */
+function demoUpdateHop({ version, appImage }) {
+  const crypto = require('crypto');
+  const updates = require('@lurkbox/core/src/shared/updates.js');
+  const tag = `v${version}`;
+  const base = `https://github.com/lurkbox/lurkbox/releases/download/${tag}/`;
+  const files = { [`Lurkbox-${version}-x86_64.AppImage`]: appImage, [`Lurkbox-${version}-android.apk`]: Buffer.from('demo apk') };
+  const sums = Object.entries(files).map(([n, b]) => `${crypto.createHash('sha256').update(b).digest('hex')}  ${n}`).join('\n') + '\n';
+  files['SHA256SUMS.txt'] = Buffer.from(sums);
+  const release = {
+    tag_name: tag, name: `Lurkbox ${tag}`, html_url: `https://github.com/lurkbox/lurkbox/releases/tag/${tag}`, draft: false, prerelease: false,
+    published_at: '2026-11-20T12:00:00Z',
+    assets: Object.entries(files).map(([name, b]) => ({ name, size: b.length, browser_download_url: base + name })),
+  };
+  return async (url) => {
+    const u = new URL(url);
+    if (url === updates.RELEASES_API) return new Response(JSON.stringify(release), { status: 200, headers: { 'content-type': 'application/json', etag: `"demo-${version}"` } });
+    if (u.hostname === 'github.com' && u.pathname.startsWith(new URL(base).pathname)) {
+      const name = decodeURIComponent(u.pathname.slice(new URL(base).pathname.length));
+      if (files[name]) return new Response(null, { status: 302, headers: { location: `https://release-assets.githubusercontent.com/demo/${encodeURIComponent(name)}?sig=demo` } });
+    }
+    if (u.hostname === 'release-assets.githubusercontent.com') {
+      const name = decodeURIComponent(u.pathname.replace(/^\/demo\//, ''));
+      if (files[name]) return new Response(files[name], { status: 200, headers: { 'content-length': String(files[name].length), 'content-type': 'application/octet-stream' } });
+    }
+    return new Response('not found', { status: 404 });
+  };
+}
+
+/**
+ * The demo's updater: the real one (updater.js) over demoUpdateHop. LURKBOX_DEMO_UPDATE=1 makes the latest release a
+ * minor version newer, so the toast, Settings → About and the AppImage download show (off by default, so screenshots
+ * and other tests aren't interrupted); the "running AppImage" is <dir>/Lurkbox-demo.AppImage, and the restart only logs.
+ */
+function createDemoUpdater({ dir, version, getSettings, send, log }) {
+  const { createUpdater } = require('./updater');
+  const v = /^(\d+)\.(\d+)\.\d+/.exec(version);
+  const newer = process.env.LURKBOX_DEMO_UPDATE === '1';
+  const latest = newer ? `${v[1]}.${Number(v[2]) + 1}.0` : version;
+  const target = dir ? path.join(dir, 'Lurkbox-demo.AppImage') : null;
+  if (target && !fs.existsSync(target)) fs.writeFileSync(target, 'the running demo AppImage', { mode: 0o755 });
+  return createUpdater({
+    hop: demoUpdateHop({ version: latest, appImage: Buffer.from(`#!/bin/sh\n# Lurkbox ${latest} (demo)\n`) }),
+    current: version,
+    cacheFile: dir ? path.join(dir, 'update-check.json') : path.join(os.tmpdir(), `lurkbox-demo-update-${process.pid}.json`),
+    getSettings, onState: (st) => send('update:state', st), log,
+    env: target ? { APPIMAGE: target } : {},
+    relaunch: () => log('[demo] the update would restart Lurkbox now'),
+    startDelay: 1500,
+  });
+}
+
+/**
  * The fake host behind the IPC channels the preload uses. Pure apart from the settings file; no network.
  * opts: { settingsFile, signedIn, media: { ok, dir }, now(), send(channel, payload), log(line), version }.
  * Returns { handlers: { channel: (...args) => value }, serveMedia(path) → { status, type, body } }.
@@ -135,6 +191,8 @@ function createDemoHost(opts = {}) {
   // Whisper history: the real store, in memory, seeded for the first account.
   const whisperStore = new (require('./whispers').WhisperStore)(null);
   if (accounts.length) whisperStore.save(db.accounts[0].id, demoWhispers.demoWhisperThreads(db, db.accounts[0].id, data.DEMO_NOW));
+  const updater = createDemoUpdater({ dir: opts.updateDir || null, version: opts.version || '0.0.0', getSettings: () => settings, send, log });
+  if (opts.updateDir) updater.start();
   const noMedia = () => ({ ok: false, reason: `demo video unavailable (${(opts.media && opts.media.reason) || 'not rendered'})` });
 
   const handlers = {
@@ -224,6 +282,10 @@ function createDemoHost(opts = {}) {
     'open:ready': () => null,
     'chatext:status': () => [],
     'chatext:update': () => [],
+    'update:state': () => updater.state(),
+    'update:check': () => updater.check(),
+    'update:download': () => updater.download(),
+    'update:install': () => updater.install(),
   };
 
   /** lbhls://demo/<path> → { status, type, body, headers? }. range: the request's Range header (MP4 clips seek with it). */
@@ -304,7 +366,8 @@ function runDemo({ argv = process.argv.slice(1) } = {}) {
     const host = createDemoHost({
       settingsFile: path.join(userData, 'settings.json'),
       signedIn: process.env.LURKBOX_DEMO_SIGNED_OUT !== '1',
-      media, send, log, version: app.getVersion(),
+      // Electron reports "0.0" when started on a test script rather than the app folder: the package's version then.
+      media, send, log, version: /^\d+\.\d+\.\d+/.test(app.getVersion()) ? app.getVersion() : require('../../package.json').version, updateDir: userData,
       startChannel: (argValue('channel') || '').toLowerCase() || null,
       quit: () => app.quit(),
     });
@@ -353,4 +416,4 @@ function runDemo({ argv = process.argv.slice(1) } = {}) {
   });
 }
 
-module.exports = { isDemo, runDemo, createDemoHost, allowedUrl, MEDIA_BASE };
+module.exports = { demoUpdateHop, isDemo, runDemo, createDemoHost, allowedUrl, MEDIA_BASE };
