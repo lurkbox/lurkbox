@@ -95,6 +95,50 @@ public class LurkboxNativePlugin extends Plugin {
         call.resolve();
     }
 
+    // ---- update notifications (apps/android/src/updates.js, UpdateInstaller) ----
+
+    /**
+     * { url, sumsUrl, name }: downloads the release APK (GitHub's hosts only), checks it against SHA256SUMS.txt and
+     * resolves { sha256: "ok", signature: "match" | "mismatch" | "unknown" }; "updateProgress" { received, total } meanwhile.
+     */
+    @PluginMethod
+    public void updateDownload(PluginCall call) {
+        String url = call.getString("url", "");
+        String sumsUrl = call.getString("sumsUrl", "");
+        String name = call.getString("name", "");
+        new Thread(() -> {
+            try {
+                File apk = UpdateInstaller.download(getContext(), url, sumsUrl, name, (received, total) -> {
+                    JSObject p = new JSObject();
+                    p.put("received", received);
+                    p.put("total", total);
+                    notifyListeners("updateProgress", p);
+                });
+                JSObject r = new JSObject();
+                r.put("sha256", "ok");
+                r.put("signature", UpdateInstaller.signature(getContext(), apk));
+                call.resolve(r);
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "download failed");
+            }
+        }).start();
+    }
+
+    /** { name }: opens the system installer for the downloaded APK; { permission: false } when Android's "install unknown apps" setting opened instead. */
+    @PluginMethod
+    public void updateInstall(PluginCall call) {
+        String name = call.getString("name", "");
+        getActivity().runOnUiThread(() -> {
+            try {
+                JSObject r = new JSObject();
+                r.put("permission", UpdateInstaller.install(getActivity(), name));
+                call.resolve(r);
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "install failed");
+            }
+        });
+    }
+
     // ---- the twitch.tv web session (apps/android/src/web-session.js). Cookie values never go back to the page. ----
 
     private TwitchWebDialog webDialog;

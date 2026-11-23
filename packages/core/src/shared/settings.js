@@ -73,6 +73,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // (Twitch chat style: zoom inside Twitch's chat frame, 'auto' = the TV rule, or 75..250 percent), chatWidth,
   // chatSide, chatHeight (30..100 percent of the player), chatVPos (top/bottom), chatBgOpacity, chatOverlay, chatOverlayOpacity.
   ...CHAT_LAYOUT_DEFAULTS,
+  checkUpdates: true, // Settings → About: look for a newer Lurkbox release on GitHub at start and once a day (shared/updates.js)
+  updateNotified: '', // the newest version the "is available" toast was shown for (once per version)
   steamArtSync: false, // recolour the Steam library art on theme changes (Settings → Appearance)
   customTheme: null, // { base, colors: { bg, surface, accent, fg, muted } }
 });
@@ -80,8 +82,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
 export function sanitizeSettings(patch) {
   const out = {};
   if ('clientId' in patch) out.clientId = String(patch.clientId || '').trim().replace(/[^A-Za-z0-9]/g, '');
+  if ('updateNotified' in patch) out.updateNotified = /^\d{1,6}\.\d{1,6}\.\d{1,6}(-[0-9A-Za-z.-]{1,64})?$/.test(String(patch.updateNotified || '')) ? String(patch.updateNotified) : '';
   if ('defaultQuality' in patch) out.defaultQuality = String(patch.defaultQuality || 'auto');
-  for (const k of ['chatDefault', 'raidFollow', 'skipContentGate', 'inputWhenUnfocused', 'confirmExit', 'videoOnlyUnfocused', 'pipOnLeave', 'hwDecode', 'lowLatency', 'autoCatchUp', 'steamArtSync', 'autoClaimPoints', 'autoClaimDrops', 'earnWatchPoints', 'chatEmotes7tv', 'chatEmotesBttv', 'chatEmotesFfz', 'chatAnimatedEmotes', 'chat7tvCosmetics', 'chatExtensions', 'navSounds', 'searchHistoryOn', 'continueWatchingOn', 'clipAutoplay', 'hideBlockedChat']) {
+  for (const k of ['chatDefault', 'raidFollow', 'skipContentGate', 'inputWhenUnfocused', 'confirmExit', 'videoOnlyUnfocused', 'pipOnLeave', 'hwDecode', 'lowLatency', 'autoCatchUp', 'steamArtSync', 'autoClaimPoints', 'autoClaimDrops', 'earnWatchPoints', 'chatEmotes7tv', 'chatEmotesBttv', 'chatEmotesFfz', 'chatAnimatedEmotes', 'chat7tvCosmetics', 'chatExtensions', 'navSounds', 'searchHistoryOn', 'continueWatchingOn', 'clipAutoplay', 'hideBlockedChat', 'checkUpdates']) {
     if (k in patch) out[k] = !!patch[k];
   }
   if ('screenMargin' in patch) out.screenMargin = [0, 2.5, 5].includes(Number(patch.screenMargin)) && patch.screenMargin !== 'auto' ? Number(patch.screenMargin) : 0;

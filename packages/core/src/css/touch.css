@@ -248,3 +248,7 @@ body.touch-ui .eb-detail-actions .btn { min-height: var(--touch-min); }
 body.layout-phone #rail .rail-item[data-view="whispers"] { display: none; }
 body.layout-phone .view.whisper-thread { height: 100%; min-height: 0; }
 body.layout-phone .wmsg { max-width: 85%; }
+/* Settings → About: the release page's QR code above its address on a phone. */
+body.layout-phone .update-release-body { flex-direction: column; align-items: stretch; }
+body.layout-phone .update-release-body .signin-qr { width: 12rem; margin: 0 auto; }
+body.layout-phone .update-release-body .signin-qr svg { width: 12rem; height: 12rem; }

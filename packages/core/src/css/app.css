@@ -403,7 +403,14 @@ body.input-mouse .cw-chip .cw-chip-touch { display: inline; }
 .toggle { min-width: 6rem; }
 .toggle.on { background: var(--ok); color: var(--on-ok); border-color: var(--on-ok); }
 .toggle.on:focus, .toggle.on.is-focused { background: var(--focus-bg); color: var(--focus-fg); }
-.version { margin-top: 1.5rem; }
+.setting-value.version { margin-top: 0; }
+/* Settings → About: the update row (js/updates.js) and the release page's QR code. */
+.update-row { display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start; max-width: 38rem; }
+.update-status { white-space: normal; }
+.update-actions:empty { display: none; }
+.update-release-body { display: flex; gap: 1.5rem; align-items: center; }
+.update-release-text { display: flex; flex-direction: column; gap: 0.8rem; align-items: flex-start; max-width: 24rem; }
+.update-url { font-size: 0.9rem; color: var(--fg-dim); word-break: break-all; }
 
 /* ---------- modals ---------- */
 #modal-root { position: fixed; inset: 0; pointer-events: none; z-index: 50; }

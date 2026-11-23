@@ -170,6 +170,35 @@ export interface HostPad {
   [k: string]: unknown;
 }
 
+/**
+ * Update notifications (./shared/updates.js updateState()): the host checks GitHub's latest Lurkbox release at start and
+ * at most once a day (Settings → About → "Check for updates", setting checkUpdates) and caches the answer.
+ */
+export interface UpdateState {
+  /** The running version (x.y.z). */
+  current: string;
+  /** Settings → "Check for updates" (the scheduled checks; "Check now" works either way). */
+  enabled: boolean;
+  /** How this copy updates: 'appimage' (download replaces the AppImage, then restart), 'apk' (download, then the system
+   *  installer), 'flatpak' (Discover / `flatpak update`), 'manual' (show the release page). */
+  install: 'appimage' | 'apk' | 'flatpak' | 'manual';
+  checking: boolean;
+  /** When the last check succeeded (ms), or null. */
+  checkedAt: number | null;
+  /** Why the last check failed, or null. */
+  error: string | null;
+  /** latest is newer than current. */
+  available: boolean;
+  /** The latest release (url: its GitHub page), or null when none is known. */
+  latest: { version: string; url: string; name: string; publishedAt: string | null } | null;
+  /** The download of the update: idle → downloading (bytes) → ready (verified against SHA256SUMS.txt) or failed. */
+  download: { status: 'idle' | 'downloading' | 'ready' | 'failed'; version?: string; received?: number; total?: number; error?: string };
+  /** Something the page should explain: 'flatpak'; 'signature-mismatch' (Android: the APK is signed with another key
+   *  than this install, so the installer can't upgrade it: uninstall first); 'install-permission' (Android: allow
+   *  installing apps from Lurkbox first). */
+  note: string | null;
+}
+
 export interface LurkboxPlatform {
   // ---- app and window ----
 
@@ -375,6 +404,20 @@ export interface LurkboxPlatform {
   openReady(): Promise<{ channel: string; name: string } | null>;
   /** Open this channel now. */
   onOpenChannel(cb: (req: { channel: string; name: string }) => void): Unsubscribe;
+
+  // ---- update notifications (GitHub releases; see UpdateState) ----
+
+  /** Optional (without it Settings → About shows only the version). The current update state. */
+  updateState?(): Promise<UpdateState>;
+  /** Check now (the user's "Check now": ignores the schedule and the setting). Resolves the new state. */
+  updateCheck(): Promise<UpdateState>;
+  /** Download the newer release (install 'appimage' or 'apk'; checked against SHA256SUMS.txt; progress via onUpdateState). Resolves the state after it. */
+  updateDownload(): Promise<UpdateState>;
+  /** Use the downloaded update: 'appimage' restarts into it, 'apk' opens the system installer (or the "install unknown
+   *  apps" settings first: reason 'permission'). reason 'not-ready' without a verified download. */
+  updateInstall(): Promise<{ ok: boolean; reason?: string }>;
+  /** The update state changed (a check, download progress). */
+  onUpdateState(cb: (state: UpdateState) => void): Unsubscribe;
 
   // ---- Steam library art (Desktop) ----
 

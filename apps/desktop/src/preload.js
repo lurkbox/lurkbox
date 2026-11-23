@@ -75,4 +75,9 @@ contextBridge.exposeInMainWorld('lurkbox', {
   chatExtensionsStatus: () => ipcRenderer.invoke('chatext:status'),
   chatExtensionsUpdate: () => ipcRenderer.invoke('chatext:update'),
   onOpenChannel: on('open:channel'),
+  updateState: () => ipcRenderer.invoke('update:state'),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateDownload: () => ipcRenderer.invoke('update:download'),
+  updateInstall: () => ipcRenderer.invoke('update:install'),
+  onUpdateState: on('update:state'),
 });

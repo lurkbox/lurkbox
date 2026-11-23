@@ -58,6 +58,8 @@ const SETUP = {
   // Whispers: the demo account's seeded conversations; the scene replies to one and a whisper comes in.
   whispers: {},
   settings: {},
+  // Settings → About with a newer release (the demo's GitHub, LURKBOX_DEMO_UPDATE): the toast and the Download button.
+  'settings-about': { env: { LURKBOX_DEMO_UPDATE: '1' } },
   subscriptions: {},
   'blocked-users': { settings: { chatDefault: true } },
   theme: { settings: { theme: THEME, customTheme: CUSTOM } },
@@ -548,6 +550,15 @@ app.on('browser-window-created', (_e, win) => {
       await waitFor('settings', "!!document.querySelector('[data-view=settings] .focusable')");
       await settle();
       await shoot('settings');
+    },
+    async 'settings-about'() {
+      await following();
+      await waitFor('the update toast', "!!document.querySelector('#toasts .update-toast')", 20000);
+      await press('RB', 'RB', 'RB', 'RB', 'RB', 'RB'); // Settings, past Whispers and Drops
+      await waitFor('the update row', "!!document.querySelector('[data-setting=\"update-download\"]')");
+      await js("document.querySelector('[data-setting=\"update-download\"]').focus(); true");
+      await settle();
+      await shoot('settings-about');
     },
     async subscriptions() {
       // Settings → Account → Subscriptions: the demo account's subs among its follows (one Helix check per channel).

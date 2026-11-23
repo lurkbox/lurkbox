@@ -23,6 +23,7 @@ import { createHiddenPages } from './hidden-pages.js';
 import { createPoints } from './points.js';
 import { createFollow } from './follow.js';
 import { createDrops } from './drops.js';
+import { createUpdates } from './updates.js';
 
 /** Same-origin prefix the WebView answers natively (MainActivity's HLS proxy): <prefix><host>/<path>?<query>. */
 export const PROXY_PREFIX = 'https://localhost/_lbhls/';
@@ -140,6 +141,8 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
   // Whisper history per account, like the desktop's whispers.json: { accounts: { id: threads } } (shared/whispers.js).
   const whispersValue = new PrefValue(prefs, 'whispers', { accounts: {} });
   const emoteIndexValue = new PrefValue(prefs, 'emoteIndex', { accounts: {} }); // Emote search → Seen channels
+  const updateValue = new PrefValue(prefs, 'updateCheck', {}); // the last GitHub release check (updates.js)
+  let updates = null;
   const hosts = new ProxyHosts();
   let twitch = null;
   // The twitch.tv web session (TV sign-in, player session) when the native twitch.tv window is there.
@@ -171,7 +174,9 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
 
   const ready = (async () => {
     if (secure) await migrateToSecure(prefs, secure, 'tokens', log);
-    await Promise.all([settings.load(), tokens.load(), resumeValue.load(), whispersValue.load(), emoteIndexValue.load()]);
+    await Promise.all([settings.load(), tokens.load(), resumeValue.load(), whispersValue.load(), emoteIndexValue.load(), updateValue.load()]);
+    updates = createUpdates({ fetch, cacheValue: updateValue, native, version, getSettings: () => settings.get(), emit: (n, d) => bus.emit(n, d), log, setInterval: every, ...(features.updates || {}) });
+    updates.start();
     twitch = new Twitch({ getSettings: () => settings.get(), tokens, fetch, onSwitch: web ? web.onSwitch : undefined });
     twitch.on('state', (s) => bus.emit('auth:state', s));
     twitch.on('auth', (ev) => bus.emit('auth:event', ev));
@@ -401,6 +406,13 @@ export function createPlatform({ fetch, prefs, secure = null, app, native = {}, 
     // ---- open requests (Android intents / deep links, later) ----
     openReady: async () => null,
     onOpenChannel: on('open'),
+
+    // ---- update notifications (updates.js) ----
+    updateState: after(() => updates.state()),
+    updateCheck: after(() => updates.check()),
+    updateDownload: after(() => updates.download()),
+    updateInstall: after(() => updates.install()),
+    onUpdateState: on('update:state'),
 
     // ---- desktop-only, required by the interface ----
     chatExtensionsUpdate: async () => [],

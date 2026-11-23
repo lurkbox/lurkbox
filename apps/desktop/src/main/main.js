@@ -36,6 +36,7 @@ const { logGpu, watchDecoders } = require('./gpu-diag');
 const { setupChatExtensions } = require('./chat-extensions');
 const { WEB_ROOT, ASSETS_DIR, HLS_JS } = require('./paths');
 const { createAppLog } = require('./app-log');
+const { createUpdater } = require('./updater');
 const { twitchChatZoom, chatFrameZoom, zoomFrameSource } = require('@lurkbox/core/src/shared/tv-zoom.js');
 let chatExt = null; // experimental 7TV/BTTV/FFZ extensions in Twitch's chat frame (Settings → Chat)
 
@@ -822,6 +823,7 @@ app.whenReady().then(async () => {
   });
 
   registerIpc();
+  startUpdater(dir);
   // Twitch's chat iframe lives in the default session, so the extensions are loaded there before the window opens.
   chatExt = setupChatExtensions({ ipcMain: appIpc, ses: session.defaultSession, getSettings: () => settings.get(), dir: path.join(dir, 'extensions'), fetch: (u, o) => net.fetch(u, o), log: appLog });
   await chatExt.loadChatExtensions(session.defaultSession).catch((e) => appLog(`[extensions] startup load failed: ${e.message}`));
@@ -845,6 +847,32 @@ app.whenReady().then(async () => {
   startDropsClaimer();
   logGpu({ log: appLog, hwRequested, config: `config ${gpuConfig}, ozone ${ozoneNote}` }).catch(() => {});
 });
+
+/**
+ * Update notifications (updater.js): GitHub's latest release at start and once a day (Settings → About, "Check for
+ * updates"); an AppImage can download the new one over itself and restart into it.
+ */
+function startUpdater(dir) {
+  const updater = createUpdater({
+    hop: hlsProxy.netHop(net),
+    current: app.getVersion(),
+    cacheFile: path.join(dir, 'update-check.json'),
+    getSettings: () => settings.get(),
+    onState: (st) => send('update:state', st),
+    log: appLog,
+    relaunch: () => {
+      app.relaunch({ execPath: process.env.APPIMAGE, args: process.argv.slice(1) });
+      app.quit();
+      setTimeout(() => app.exit(0), 3000).unref();
+    },
+  });
+  appIpc.handle('update:state', () => updater.state());
+  appIpc.handle('update:check', () => updater.check());
+  appIpc.handle('update:download', () => updater.download());
+  appIpc.handle('update:install', () => updater.install());
+  app.on('will-quit', () => updater.shutdown());
+  updater.start();
+}
 
 /**
  * At startup the active account's twitch.tv web session must be in the default session (the direct engine's signed-in
