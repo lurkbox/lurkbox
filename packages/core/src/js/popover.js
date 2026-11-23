@@ -56,10 +56,10 @@ export class Popover {
    * Controller input while open. Returns true when consumed (B, A, directions, and whatever the pop-over's own
    * onAction takes, e.g. X/Y in quick chat or LB/RB tabs in the emote picker); other actions pass through.
    */
-  handle(action) {
+  handle(action, source = 'pad') {
     if (!this.cur) return false;
     if (action === 'B') { this.close(); return true; }
-    if (this.cur.onAction && this.cur.onAction(action)) return true;
+    if (this.cur.onAction && this.cur.onAction(action, source)) return true;
     const a = this.deps.active();
     if (['UP', 'DOWN', 'LEFT', 'RIGHT'].includes(action)) {
       if (!this.contains(a)) {

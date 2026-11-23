@@ -2092,7 +2092,7 @@ export class Player {
 
   handleAction(action, source = 'pad') {
     if (this.cpop.isOpen) {
-      this.cpop.handle(action); // B closes it (focus back to the composer's button), A, D-pad, LB/RB tabs, X/Y
+      this.cpop.handle(action, source); // B closes it (focus back to the composer's button), A, D-pad, LB/RB tabs, X/Y
       return true;
     }
     if (this.linePick && this.handleLinePick(action)) return true;

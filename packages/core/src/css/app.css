@@ -505,6 +505,7 @@ body.input-mouse .cw-chip .cw-chip-touch { display: inline; }
 #player-screen > .po-pop { z-index: 6; }
 .po-pop.pop-emotes { width: 27rem; }
 .po-pop.pop-quick { width: 24rem; }
+.ep-search { width: 100%; font-size: 1rem; min-height: 2.3rem; padding: 0.25rem 0.6rem; }
 .ep-tabs { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .btn.ep-tab { min-height: 2.3rem; padding: 0.25rem 0.7rem; font-size: 1rem; }
 .btn.ep-tab.selected { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--accent); }

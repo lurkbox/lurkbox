@@ -1,12 +1,15 @@
 // The emote picker (opened from the chat composer): tabs Recent, Twitch (your own emotes), 7TV, BTTV and FFZ (the
 // channel's and global sets the chat already loaded), and a grid of emotes. A inserts the emote's name into the
-// message at the caret; LB/RB switch tabs; B closes. The tab lists and the insertion are pure and unit-tested.
+// message at the caret; LB/RB switch tabs; B closes. A search box above the tabs filters every tab by name as you type
+// (any keyboard: the built-in one, Steam's or the system's); DOWN from it goes to the results. The tab lists, the
+// filter and the insertion are pure and unit-tested.
 import { el, button } from './ui.js';
 import { emoteImg } from './chat-render.js';
 import { hint } from './input.js';
 import { focusEl, focusables } from './focus.js';
 import { snapshotFocus, restoreFocus } from './focus-keep.js';
 import { MAX_CHAT_LENGTH, chatLength } from './chat-send.js';
+import { keyboardFor } from './text-entry.js';
 
 export const TAB_LABELS = { recent: 'Recent', twitch: 'Twitch', '7tv': '7TV', bttv: 'BTTV', ffz: 'FFZ' };
 /** A tab shows at most this many emotes (the grid stays quick on the TV). */
@@ -52,6 +55,32 @@ export function pickerTabs({ recents = [], own = [], sets = new Map(), enabled =
   return tabs;
 }
 
+/**
+ * Every tab filtered by `query`: names containing it (ignoring case and surrounding spaces), the ones starting with it
+ * first, each group in the tab's order. An empty query returns the tabs as they are.
+ */
+export function filterTabs(tabs, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return tabs;
+  return tabs.map((t) => {
+    const starts = [];
+    const contains = [];
+    for (const e of t.emotes) {
+      const n = String(e.name).toLowerCase();
+      if (n.startsWith(q)) starts.push(e);
+      else if (n.includes(q)) contains.push(e);
+    }
+    return { ...t, emotes: [...starts, ...contains] };
+  });
+}
+
+/** The grid's empty state: no matches for the search, still loading, or nothing in the tab. */
+export function emptyNote(tab, query, loading = null) {
+  const q = String(query || '').trim();
+  if (q) return `No ${tab.key === 'recent' ? 'recent' : tab.label} emotes match "${q}".`;
+  return loading || (tab.key === 'recent' ? 'Emotes you insert show here.' : `No ${tab.label} emotes here.`);
+}
+
 /** The first tab to show: Recent when it has emotes, else the first non-empty one, else Twitch. */
 export function initialTab(tabs) {
   const recent = tabs.find((t) => t.key === 'recent');
@@ -61,19 +90,26 @@ export function initialTab(tabs) {
 
 /**
  * DOM. o: { tabs: () => tabs (re-read on update), onPick(emote), draft: () => string, loading: () => string|null }.
- * build() returns { title, body, initial, update, onAction } for a Popover.
+ * build() returns { title, body, initial, update, onAction(action, source) } for a Popover.
  */
 export class EmotePicker {
   constructor(o) {
     this.o = o;
     this.tab = null;
+    this.query = '';
   }
 
   build() {
+    this.search = el('input', {
+      class: 'text-input focusable ep-search', type: 'text', spellcheck: 'false', autocomplete: 'off', enterkeyhint: 'search',
+      placeholder: 'Search emotes', 'aria-label': 'Search emotes', maxlength: '50', dataset: { focusKey: 'ep-search' },
+    });
+    // Every keyboard ends in an input event (typing, Steam's keyboard, the built-in one's Done, the system one).
+    this.search.addEventListener('input', () => { if (this.search.value !== this.query) { this.query = this.search.value; this.update(); } });
     this.tabsRow = el('div', { class: 'ep-tabs', role: 'tablist' });
     this.draft = el('div', { class: 'ep-draft' });
     this.grid = el('div', { class: 'ep-grid' });
-    this.body = el('div', { class: 'po-pop-body ep' }, this.tabsRow, this.draft, this.grid,
+    this.body = el('div', { class: 'po-pop-body ep' }, this.search, this.tabsRow, this.draft, this.grid,
       el('div', { class: 'po-pop-note ep-hint' }, hint('{A} insert · {LB}/{RB} tab · {B} close')));
     this.update();
     return {
@@ -81,16 +117,17 @@ export class EmotePicker {
       body: this.body,
       initial: () => this.grid.querySelector('.ep-emote') || this.tabsRow.querySelector('.ep-tab.selected'),
       update: () => this.update(),
-      onAction: (a) => this.onAction(a),
+      onAction: (a, source) => this.onAction(a, source),
     };
   }
 
   current() { return this.lastTabs.find((t) => t.key === this.tab) || this.lastTabs[0]; }
 
   update() {
-    const tabs = this.o.tabs();
+    const all = this.o.tabs();
+    if (!this.tab || !all.some((t) => t.key === this.tab)) this.tab = initialTab(all);
+    const tabs = filterTabs(all, this.query);
     this.lastTabs = tabs;
-    if (!this.tab || !tabs.some((t) => t.key === this.tab)) this.tab = initialTab(tabs);
     const snap = snapshotFocus(this.body, focusables(this.body));
     // Tabs.
     const sig = tabs.map((t) => `${t.key}:${t.emotes.length}`).join(',') + `|${this.tab}`;
@@ -107,13 +144,12 @@ export class EmotePicker {
     this.draft.classList.toggle('empty', !d);
     // Grid.
     const tab = this.current();
-    const gsig = `${tab.key}:${tab.emotes.length}:${tab.emotes.slice(0, 3).map((e) => e.name).join(',')}:${this.o.loading ? this.o.loading(tab.key) || '' : ''}`;
+    const gsig = `${tab.key}:${this.query.trim().toLowerCase()}:${tab.emotes.length}:${tab.emotes.slice(0, 3).map((e) => e.name).join(',')}:${this.o.loading ? this.o.loading(tab.key) || '' : ''}`;
     if (this.grid.dataset.sig !== gsig) {
       this.grid.dataset.sig = gsig;
       const loading = this.o.loading ? this.o.loading(tab.key) : null;
       if (!tab.emotes.length) {
-        const empty = loading || (tab.key === 'recent' ? 'Emotes you insert show here.' : `No ${tab.label} emotes here.`);
-        this.grid.replaceChildren(el('div', { class: 'po-pop-note ep-empty' }, empty));
+        this.grid.replaceChildren(el('div', { class: 'po-pop-note ep-empty' }, emptyNote(tab, this.query, loading)));
       } else {
         const list = tab.emotes.slice(0, MAX_GRID);
         this.grid.replaceChildren(...list.map((e) => el('button', {
@@ -125,20 +161,36 @@ export class EmotePicker {
     restoreFocus(this.body, snap, focusables(this.body), (n) => focusEl(n, { instant: true }));
   }
 
-  select(key, { focusGrid = false } = {}) {
+  select(key, { focusGrid = false, keepFocus = false } = {}) {
     if (key === this.tab) return;
     this.tab = key;
     this.update();
+    if (keepFocus) return;
     const target = focusGrid ? this.grid.querySelector('.ep-emote') : null;
     focusEl(target || this.tabsRow.querySelector(`[data-tab="${key}"]`), { instant: true });
   }
 
-  onAction(a) {
+  /** The search box takes A (a keyboard; a physical Enter goes to the results) and DOWN (to the results). */
+  onSearchAction(a, source) {
+    if (a === 'A' && source !== 'key') {
+      keyboardFor(this.search, { title: 'Search emotes', maxLength: 50 });
+      return true;
+    }
+    if (a === 'A' || a === 'DOWN') {
+      focusEl(this.grid.querySelector('.ep-emote') || this.tabsRow.querySelector('.ep-tab.selected'), { instant: true });
+      return true;
+    }
+    return a === 'UP'; // nothing above it
+  }
+
+  onAction(a, source) {
+    if (document.activeElement === this.search && this.onSearchAction(a, source)) return true;
     if (a !== 'LB' && a !== 'RB') return false;
     const keys = this.lastTabs.map((t) => t.key);
     const i = keys.indexOf(this.tab);
     const inGrid = this.grid.contains(document.activeElement);
-    this.select(keys[(i + (a === 'RB' ? 1 : -1) + keys.length) % keys.length], { focusGrid: inGrid });
+    const inSearch = document.activeElement === this.search;
+    this.select(keys[(i + (a === 'RB' ? 1 : -1) + keys.length) % keys.length], { focusGrid: inGrid, keepFocus: inSearch });
     return true;
   }
 }
