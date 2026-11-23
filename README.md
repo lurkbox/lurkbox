@@ -37,6 +37,11 @@ Lurkbox is not affiliated with or endorsed by Twitch.
 
 More in [docs/screenshots/](docs/screenshots/): the Undo toast after removing from Continue watching, a clip in the player, a clip just made, a channel's schedule, pop-overs, chat over the video, the chat composer, categories, search, the on-screen keyboard, settings, "Who's watching?" and the phone sign-in. They come from demo mode (`npm run screenshots`): every channel, picture, chat message and emote is made up for Lurkbox, and nothing is real Twitch content.
 
+## Install
+
+- **Flatpak (Linux, KDE Discover):** open **https://lurkbox.github.io/lurkbox/** and click Install, or run `flatpak install --user https://lurkbox.github.io/lurkbox/io.github.lurkbox.Lurkbox.flatpakref`. It updates through Discover or `flatpak update`. This is Lurkbox's own signed repository, not Flathub. See [docs/flatpak.md](docs/flatpak.md), including what the sandbox limits (Floater audio, the Decky bridge).
+- **AppImage (SteamOS Game Mode with Floater):** see [Steam (Game Mode)](#steam-game-mode) below.
+
 ## Features (v0.1)
 
 - **Controller UI.** A left rail (Following, Browse, Categories, Search, Drops, Settings) with card grids. A selects, B goes back, and LB/RB switch sections.
@@ -82,10 +87,10 @@ Lurkbox is one codebase for several platforms, organised as npm workspaces:
 | Path | What it is |
 |---|---|
 | `packages/core/` | `@lurkbox/core`: the platform-neutral app. The TV UI (`src/index.html`, `css/`, `js/`, `js/views/`, `fonts/`), the Twitch, chat and theme logic, and the shared settings schema and Twitch config (`src/shared/`). Plain browser code: no Node, no Electron. Its only contact with the host is `window.lurkbox`, documented in `src/platform.d.ts`. Tests in `test/`. |
-| `apps/desktop/` | The Electron app for SteamOS and Linux: main process (`src/main/`), `preload.js` (the desktop `window.lurkbox`), `login-preload.js`, the electron-builder config, the Flatpak draft (`flatpak/`), the deploy and Steam shortcut scripts (`scripts/`), and its unit and smoke tests (`test/`). |
+| `apps/desktop/` | The Electron app for SteamOS and Linux: main process (`src/main/`), `preload.js` (the desktop `window.lurkbox`), `login-preload.js`, the electron-builder config, the Flatpak manifest, metadata and Pages site (`flatpak/`), the deploy and Steam shortcut scripts (`scripts/`), and its unit and smoke tests (`test/`). |
 | `apps/android/` | Early: the Capacitor app for Android TV / Google TV, tablets and phones, its `window.lurkbox` (`src/`) and the Android project (`android/`). See [docs/android.md](docs/android.md). |
 | `assets/` | Icons, Steam library art and their sources, shared by the apps. |
-| `docs/` | [Architecture](docs/architecture.md), [development](docs/development.md) and the [Android plan](docs/android.md). |
+| `docs/` | [Architecture](docs/architecture.md), [development](docs/development.md), the [Flatpak](docs/flatpak.md) and the [Android plan](docs/android.md). |
 | (separate repo) | The Decky companion plugin: [lurkbox/decky-lurkbox](https://github.com/lurkbox/decky-lurkbox). |
 
 ## Android (early)
@@ -130,7 +135,7 @@ npm start -- --windowed --channel=somechannel   # open a channel directly
 npm run dist        # dist/Lurkbox-0.1.0-x86_64.AppImage (electron-builder, config in apps/desktop/electron-builder.config.js)
 ```
 
-A Flatpak manifest draft is in `apps/desktop/flatpak/io.github.lurkbox.Lurkbox.yml`. It packages the electron-builder `--dir` output on top of `org.electronjs.Electron2.BaseApp` and has not been built yet.
+The Flatpak manifest is `apps/desktop/flatpak/io.github.lurkbox.Lurkbox.yml`. It packages the electron-builder `--dir` output on top of `org.electronjs.Electron2.BaseApp`. CI builds it and publishes it to https://lurkbox.github.io/lurkbox/ ([docs/flatpak.md](docs/flatpak.md)).
 
 ## Tests
 

@@ -1,34 +1,38 @@
-# DRAFT, not built yet (flatpak-builder isn't installed on the dev laptop).
+# Lurkbox as a Flatpak, published from this repository (not Flathub): see docs/flatpak.md.
 #
-# Packages the electron-builder "unpacked" output rather than building from
-# source inside the sandbox; a source build would need
-# org.freedesktop.Sdk.Extension.node* and flatpak-node-generator for offline
-# npm sources. Steps:
-# (from the repo root)
+# Packages the electron-builder "dir" output (dist/linux-unpacked/) rather than building from source inside the
+# sandbox; a source build would need org.freedesktop.Sdk.Extension.node* and flatpak-node-generator for offline npm
+# sources. Electron's sandbox runs through zypak, which the Electron BaseApp provides. Locally, from the repo root:
 #   npm ci --ignore-scripts && npm rebuild electron
 #   npm run dist -- --dir                 # -> dist/linux-unpacked/
-#   flatpak-builder --user --install --force-clean apps/desktop/flatpak/build-dir apps/desktop/flatpak/io.github.lurkbox.Lurkbox.yml
-#
-# Electron's sandbox runs through zypak, which the Electron BaseApp provides.
+#   flatpak-builder --user --install --install-deps-from=flathub --force-clean --default-branch=stable \
+#     apps/desktop/flatpak/build-dir apps/desktop/flatpak/io.github.lurkbox.Lurkbox.yml
+# CI (.github/workflows/flatpak.yml) does the same with --repo, signs it and publishes it to GitHub Pages.
 app-id: io.github.lurkbox.Lurkbox
 runtime: org.freedesktop.Platform
-runtime-version: '24.08'
+runtime-version: '26.08'
 sdk: org.freedesktop.Sdk
 base: org.electronjs.Electron2.BaseApp
-base-version: '24.08'
+base-version: '26.08'
 command: lurkbox
 separate-locales: false
 finish-args:
-  - --share=network           # Twitch API, embed, chat, EventSub
+  - --share=network             # Twitch API, embed, chat, EventSub; also Steam's CEF debugger on 127.0.0.1:8080
   - --share=ipc
-  - --socket=x11              # XWayland under Gamescope, so Steam/Floater can track the window
-  - --socket=pulseaudio       # audio as its own PipeWire stream
-  - --device=all              # gamepads (/dev/input, hidraw) for the Gamepad API
-  - --device=dri
+  - --socket=wayland
+  - --socket=fallback-x11       # X11 only without Wayland, e.g. XWayland under Gamescope (Game Mode)
+  - --socket=pulseaudio         # audio as its own PipeWire stream
+  - --device=all                # gamepads: /dev/input/js* (joydev.js), event and hidraw nodes; includes the GPU
+  # One-time import of the AppImage's profile (flatpak-import.js). Deliberately not xdg-config/Lurkbox: Flatpak also
+  # binds an xdg-config/<dir> grant over the app's own ~/.var/app/<id>/config/<dir>, which would make userData read-only.
+  - --filesystem=~/.config/Lurkbox:ro
+  - --filesystem=~/.local/share/Steam/userdata        # Steam library art: shortcuts.vdf and config/grid/ (opt-in setting)
   - --env=ELECTRON_TRASH=gio
 modules:
   - name: lurkbox
     buildsystem: simple
+    build-options:
+      no-debuginfo: true        # prebuilt Electron binaries: nothing to split, no .Debug extension
     sources:
       - type: dir
         path: ../../../dist/linux-unpacked
@@ -36,26 +40,21 @@ modules:
       - type: dir
         path: ../../../assets/icons
         dest: icons
+      - type: file
+        path: io.github.lurkbox.Lurkbox.desktop
+      - type: file
+        path: io.github.lurkbox.Lurkbox.metainfo.xml
       - type: inline
         dest-filename: lurkbox.sh
         contents: |
           #!/bin/sh
           exec zypak-wrapper /app/lurkbox/lurkbox "$@"
-      - type: inline
-        dest-filename: io.github.lurkbox.Lurkbox.desktop
-        contents: |
-          [Desktop Entry]
-          Type=Application
-          Name=Lurkbox
-          Comment=A couch and controller client for Twitch
-          Exec=lurkbox
-          Icon=io.github.lurkbox.Lurkbox
-          Categories=AudioVideo;Video;Player;
-          StartupWMClass=Lurkbox
     build-commands:
       - cp -a app /app/lurkbox
+      - rm -f /app/lurkbox/chrome-sandbox   # zypak replaces the SUID sandbox helper
       - install -Dm755 lurkbox.sh /app/bin/lurkbox
       - install -Dm644 io.github.lurkbox.Lurkbox.desktop /app/share/applications/io.github.lurkbox.Lurkbox.desktop
+      - install -Dm644 io.github.lurkbox.Lurkbox.metainfo.xml /app/share/metainfo/io.github.lurkbox.Lurkbox.metainfo.xml
       - |
         for s in 16 32 48 64 128 256 512; do
           install -Dm644 icons/${s}x${s}.png /app/share/icons/hicolor/${s}x${s}/apps/io.github.lurkbox.Lurkbox.png

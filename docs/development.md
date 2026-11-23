@@ -63,10 +63,10 @@ node packages/core/src/platform-check.js   # the platform interface check on its
 
 ```sh
 npm run dist           # dist/Lurkbox-<version>-x86_64.AppImage
-npm run dist -- --dir  # dist/linux-unpacked/ only (input for the Flatpak draft)
+npm run dist -- --dir  # dist/linux-unpacked/ only (input for the Flatpak)
 ```
 
-The electron-builder config is `apps/desktop/electron-builder.config.js` (app id `io.github.lurkbox.Lurkbox`, productName `Lurkbox`). It reads the Electron version from the installed package, because npm hoists Electron to the root. The Flatpak manifest draft is `apps/desktop/flatpak/io.github.lurkbox.Lurkbox.yml` (not built yet).
+The electron-builder config is `apps/desktop/electron-builder.config.js` (app id `io.github.lurkbox.Lurkbox`, productName `Lurkbox`). It reads the Electron version from the installed package, because npm hoists Electron to the root. The Flatpak manifest is `apps/desktop/flatpak/io.github.lurkbox.Lurkbox.yml`; how it is built, signed and published is in [flatpak.md](flatpak.md).
 
 ## Installing on a SteamOS device
 
@@ -81,6 +81,8 @@ The electron-builder config is `apps/desktop/electron-builder.config.js` (app id
 | Unit tests | `npm ci --ignore-scripts`; `node --check` on every tracked `.js` in `packages/*/src`, `apps/*/src`, `apps/*/test` and `apps/*/*.config.js`; `npm test` |
 | Launch smoke test | `npm ci --ignore-scripts && npm rebuild electron`; `xvfb-run -a npm run test:smoke`; `xvfb-run -a npm run test:drops`; `xvfb-run -a npm run test:follow`; `xvfb-run -a npm run test:points-cookies`; `xvfb-run -a npm run test:chat-send`; `xvfb-run -a npm run test:channel`; `xvfb-run -a npm run test:continue` |
 | AppImage builds | the same install; `npm run dist -- --publish never`; uploads `dist/*.AppImage` |
-| Secret scan | gitleaks over the full history |
+| Secret scan | gitleaks over the full history of the checked-out commit (`--log-opts=HEAD`, not other fetched branches), with `.gitleaks.toml` |
+
+`.github/workflows/flatpak.yml` ("Flatpak") builds the Flatpak on every pull request, and on `v*` tags and manual runs also signs it and publishes it to GitHub Pages. See [flatpak.md](flatpak.md).
 
 To reproduce CI locally, run those commands in a fresh clone.

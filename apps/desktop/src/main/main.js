@@ -75,6 +75,8 @@ const proxyHosts = new hlsProxy.ProxyHosts();
 if (process.env.LURKBOX_USER_DATA) app.setPath('userData', process.env.LURKBOX_USER_DATA);
 // Demo mode (README screenshots): made-up data, no network, none of the setup below. Only for exactly LURKBOX_DEMO=1.
 if (require('./demo').isDemo()) { require('./demo').runDemo(); return; }
+// Flatpak: the first start copies the AppImage's ~/.config/Lurkbox (granted read-only) into the sandbox's own folder.
+const flatpakImport = process.env.LURKBOX_USER_DATA ? null : require('./flatpak-import').importHostConfig({ userData: app.getPath('userData') });
 
 // Hardware video decoding (VA-API) for the direct engine; Settings → Player, needs a restart.
 const earlySettings = (() => {
@@ -117,6 +119,7 @@ function appLog(line) {
   if (!appLogImpl) appLogImpl = createAppLog(path.join(app.getPath('userData'), 'lurkbox.log'));
   appLogImpl(line);
 }
+if (flatpakImport && flatpakImport.reason !== 'not a Flatpak') appLog(`[flatpak] config import: ${flatpakImport.reason}${flatpakImport.entries ? ` (${flatpakImport.entries} entries from ${flatpakImport.from})` : ''}`);
 
 let joydev = null;
 let hiddenSince = null;
