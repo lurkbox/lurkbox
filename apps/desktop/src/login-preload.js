@@ -1,6 +1,6 @@
 'use strict';
 // Preload for the twitch.tv login window: reads the controller and sends each press to the main process, which runs
-// the shared controller navigation (src/main/frame-nav.js, injected into the page) and opens Steam's keyboard when A
+// the shared controller navigation (packages/core/src/shared/frame-nav.js, injected into the page) and opens Steam's keyboard when A
 // lands on a text box. Sandboxed: no page access from here, no field values or cookies.
 const { ipcRenderer } = require('electron');
 

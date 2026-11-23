@@ -3,9 +3,10 @@
 //
 // Implemented: settings, accounts and the phone (device-code) sign-in, Helix, the direct engine (web GQL + usher, with
 // the master's playlists through the app's HLS proxy), clips, VOD storyboards, resume positions, QR codes, logging,
-// window focus (app pause/resume). Left out (optional members) or answered as "unavailable": everything that needs a
-// twitch.tv web session (the TV sign-in, the player session, channel points, Drops, follow) and the desktop-only parts
-// (Steam art and keyboard, joydev, window icon, chat extensions). docs/android.md lists what comes later.
+// window focus (app pause/resume), and with the native twitch.tv window (web-session.js) the TV sign-in, the player
+// session and subs/Turbo in the direct engine. Left out (optional members) or answered as "unavailable": channel points,
+// Drops, follow and the desktop-only parts (Steam art and keyboard, joydev, window icon, chat extensions).
+// docs/android.md lists what comes later.
 import { DEFAULT_SETTINGS, sanitizeSettings } from '@lurkbox/core/src/shared/settings.js';
 import { Twitch, Emitter } from '@lurkbox/core/src/shared/twitch-auth.js';
 import { fetchMaster, fetchLiveInfo, fetchStoryboard } from '@lurkbox/core/src/shared/direct.js';
@@ -14,6 +15,7 @@ import { resumeUpdate, resumeEntries, RESUME_MAX_PER_ACCOUNT } from '@lurkbox/co
 import { storeWhispers, loadWhispers } from '@lurkbox/core/src/shared/whispers.js';
 import { accountsWithIndex, accountIndexKey } from '@lurkbox/core/src/shared/emote-index.js';
 import { ProxyHosts, rewriteMaster } from '@lurkbox/core/src/shared/hls-rewrite.js';
+import { createWebSession, mismatchWarning, SESSION_TOKEN } from './web-session.js';
 
 /** Same-origin prefix the WebView answers natively (MainActivity's HLS proxy): <prefix><host>/<path>?<query>. */
 export const PROXY_PREFIX = 'https://localhost/_lbhls/';
@@ -81,7 +83,7 @@ export class ResumePositions {
  * @param {typeof fetch} d.fetch      native HTTP (http.js makeNativeFetch(CapacitorHttp))
  * @param {{get, set}} d.prefs        Capacitor Preferences
  * @param {{addListener, exitApp}} d.app   Capacitor App
- * @param {{log?, proxyAllow?}} d.native   the app's own LurkboxNative plugin
+ * @param {{log?, proxyAllow?, webOpen?}} d.native   the app's own LurkboxNative plugin (web*: the twitch.tv window)
  * @param {(text: string) => string} d.qrSvg
  * @param {string} d.version
  */
@@ -105,10 +107,12 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
   const emoteIndexValue = new PrefValue(prefs, 'emoteIndex', { accounts: {} }); // Emote search → Seen channels
   const hosts = new ProxyHosts();
   let twitch = null;
+  // The twitch.tv web session (TV sign-in, player session) when the native twitch.tv window is there.
+  const web = native.webOpen ? createWebSession({ native, log, getSettings: () => settings.get() }) : null;
 
   const ready = (async () => {
     await Promise.all([settings.load(), tokens.load(), resumeValue.load(), whispersValue.load(), emoteIndexValue.load()]);
-    twitch = new Twitch({ getSettings: () => settings.get(), tokens, fetch });
+    twitch = new Twitch({ getSettings: () => settings.get(), tokens, fetch, onSwitch: web ? web.onSwitch : undefined });
     twitch.on('state', (s) => bus.emit('auth:state', s));
     twitch.on('auth', (ev) => bus.emit('auth:event', ev));
     twitch.validate().catch((e) => log(`[auth] validate failed: ${e.message}`)).finally(() => twitch.emitState());
@@ -122,6 +126,16 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
   }
 
   const signedOutPlayer = () => ({ signedIn: false, login: null, mismatch: null });
+  const playerState = async () => {
+    if (!web) return signedOutPlayer();
+    const st = await web.status();
+    return { ...st, mismatch: mismatchWarning(st.login, twitch.user && twitch.user.login) };
+  };
+  // Only with the native twitch.tv window: without these members the core uses the phone sign-in everywhere.
+  const webMembers = web ? {
+    tvSignIn: after((opts) => web.tvSignIn(twitch, opts)),
+    playerSessionLogin: after(async () => ({ ...(await web.playerLogin(twitch)), ...(await playerState()) })),
+  } : {};
 
   return {
     // ---- app and window ----
@@ -153,10 +167,31 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
       try { return { ok: true, flow: await twitch.startDeviceFlow() }; } catch (e) { return { ok: false, error: e.message }; }
     }),
     authCancel: after(() => { twitch.cancelDeviceFlow(); }),
-    signOut: after((id) => twitch.signOut(id || undefined)),
-    accountsStatus: after(() => twitch.state().accounts.map((a) => ({ id: a.id, api: !a.needsSignin, player: false, playerLogin: null }))),
+    // One sign-in covers the API and the player, so signing out does both.
+    signOut: after(async (id) => {
+      const target = id || twitch.store().active;
+      if (web) {
+        if (target === twitch.store().active) await web.jar.clear().catch((e) => log(`[web] clear failed: ${e.message}`));
+        await web.jar.remove(target);
+      }
+      return twitch.signOut(target || undefined);
+    }),
+    // Per account: the API token, and whether the twitch.tv session (live for the active one, else its jar) is them.
+    accountsStatus: after(async () => {
+      const st = twitch.state();
+      const live = web ? await web.status() : { signedIn: false, login: null };
+      return Promise.all(st.accounts.map(async (a) => {
+        const playerLogin = !web ? null : a.id === st.active ? (live.signedIn ? live.login || '' : null) : await web.jar.peekLogin(a.id);
+        return { id: a.id, api: !a.needsSignin, player: playerLogin !== null && (!playerLogin || playerLogin.toLowerCase() === String(a.login).toLowerCase()), playerLogin };
+      }));
+    }),
     switchAccount: after((id) => twitch.switchAccount(String(id))),
-    removeAccount: after((id) => { whispersValue.replace(storeWhispers(whispersValue.get(), String(id), [])); return twitch.removeAccount(String(id)); }), // its whisper history goes too
+    removeAccount: after(async (id) => {
+      whispersValue.replace(storeWhispers(whispersValue.get(), String(id), [])); // its whisper history goes too
+      if (web) await web.jar.remove(String(id));
+      return twitch.removeAccount(String(id));
+    }),
+    ...webMembers,
     onAuthState: on('auth:state'),
     onAuthEvent: on('auth:event'),
 
@@ -170,9 +205,12 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
       }
     }),
 
-    // ---- player session: needs a twitch.tv web session (an Android WebView login, later) ----
-    playerSessionStatus: async () => signedOutPlayer(),
-    playerSessionSignOut: async () => signedOutPlayer(),
+    // ---- player session: the twitch.tv web session in CookieManager (signed out without the native window) ----
+    playerSessionStatus: after(() => playerState()),
+    playerSessionSignOut: after(async () => {
+      if (web) { await web.jar.clear().catch((e) => log(`[web] clear failed: ${e.message}`)); log('[player-login] signed out of the player'); }
+      return playerState();
+    }),
 
     // ---- official embed (fallback engine): no script access to its frame here ----
     dismissPlayerGate: async () => '',
@@ -184,7 +222,11 @@ export function createPlatform({ fetch, prefs, app, native = {}, qrSvg, version 
         const vodId = req && req.vodId && /^\d+$/.test(req.vodId) ? req.vodId : null;
         if (!login && !vodId) return { ok: false, reason: 'bad request' };
         const codecs = ((req && req.codecs) || ['h264']).filter((c) => ['av1', 'h265', 'h264'].includes(c));
-        const r = await fetchMaster({ fetch, login, vodId, codecs, authToken: null, log });
+        // Signed in to twitch.tv: the token request carries the session (subs/Turbo); native webGql adds the cookie.
+        const authed = web && (await web.status()).signedIn;
+        const r = authed
+          ? await fetchMaster({ fetch: web.gqlFetch(fetch), login, vodId, codecs, authToken: SESSION_TOKEN, log })
+          : await fetchMaster({ fetch, login, vodId, codecs, authToken: null, log });
         if (r.ok) {
           r.master = rewriteMaster(r.master, hosts, PROXY_PREFIX);
           // The native proxy only serves the cloudfront hosts a master we fetched pointed at.
