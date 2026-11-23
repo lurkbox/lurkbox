@@ -243,3 +243,8 @@ body.layout-phone .eb-toolbar .eb-search { min-width: 0; flex: 1 1 100%; margin-
 body.layout-phone .eb-grid { grid-template-columns: repeat(auto-fill, minmax(5.6rem, 1fr)); }
 body.layout-phone .eb-pic { width: 3.4rem; height: 3.4rem; }
 body.touch-ui .eb-detail-actions .btn { min-height: var(--touch-min); }
+
+/* Whispers: not a bottom tab on the phone (the avatar's menu has it, and the avatar shows the unread dot). */
+body.layout-phone #rail .rail-item[data-view="whispers"] { display: none; }
+body.layout-phone .view.whisper-thread { height: 100%; min-height: 0; }
+body.layout-phone .wmsg { max-width: 85%; }

@@ -36,6 +36,7 @@ function coreDemo() {
   return {
     data: require('@lurkbox/core/src/js/demo/data.js'),
     helix: require('@lurkbox/core/src/js/demo/helix.js'),
+    whispers: require('@lurkbox/core/src/js/demo/whispers.js'),
     images: require('@lurkbox/core/src/js/demo/images.js'),
     settings: require('@lurkbox/core/src/shared/settings.js'),
   };
@@ -85,7 +86,7 @@ function allowedUrl(url, serverUrl) {
  * Returns { handlers: { channel: (...args) => value }, serveMedia(path) → { status, type, body } }.
  */
 function createDemoHost(opts = {}) {
-  const { data, helix, images, settings: schema } = coreDemo();
+  const { data, helix, images, whispers: demoWhispers, settings: schema } = coreDemo();
   const demoMedia = require('./demo-media');
   const media = (p) => `${MEDIA_BASE}${p}`;
   const db = data.buildDemoData({ media });
@@ -130,10 +131,13 @@ function createDemoHost(opts = {}) {
     return g ? g.name : null;
   };
   seedContinueWatching(resume, db, accounts.length ? db.accounts[0].id : null, durationOf);
+  // Whisper history: the real store, in memory, seeded for the first account.
+  const whisperStore = new (require('./whispers').WhisperStore)(null);
+  if (accounts.length) whisperStore.save(db.accounts[0].id, demoWhispers.demoWhisperThreads(db, db.accounts[0].id, data.DEMO_NOW));
   const noMedia = () => ({ ok: false, reason: `demo video unavailable (${(opts.media && opts.media.reason) || 'not rendered'})` });
 
   const handlers = {
-    'app:info': () => ({ windowed: true, gamescope: false, startChannel: opts.startChannel || null, startVod: null, version: opts.version || '0.0.0', defaults: schema.DEFAULT_SETTINGS, demo: { mediaBase: MEDIA_BASE, now: data.DEMO_NOW, touch: DEMO_TOUCH }, ...(DEMO_TOUCH ? { touch: true } : {}) }),
+    'app:info': () => ({ windowed: true, gamescope: false, startChannel: opts.startChannel || null, startVod: null, version: opts.version || '0.0.0', defaults: schema.DEFAULT_SETTINGS, demo: { mediaBase: MEDIA_BASE, now: data.DEMO_NOW, touch: DEMO_TOUCH, whisperInMs: Math.max(0, Number(process.env.LURKBOX_DEMO_WHISPER_IN) || 0) * 1000 }, ...(DEMO_TOUCH ? { touch: true } : {}) }),
     'app:quit': () => { if (opts.quit) opts.quit(); },
     'window:setIcon': () => false,
     'window:toggleFullscreen': () => {},
@@ -197,6 +201,8 @@ function createDemoHost(opts = {}) {
     'resume:set': (id, position, duration, meta) => resume.set(active, String(id), position, duration, meta),
     'resume:list': () => resume.list(active),
     'resume:clear': () => resume.clear(active),
+    'whispers:load': (id) => whisperStore.load(String(id)),
+    'whispers:save': (id, threads) => whisperStore.save(String(id), threads),
     'points:watch': () => true,
     'points:openPanel': () => ({ ok: false, reason: 'not in demo mode' }),
     'points:pad': () => null,

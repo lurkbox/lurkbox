@@ -4,6 +4,7 @@
 
 import { OWN_EMOTES } from './data.js';
 import { CHATTERS } from './chat-feed.js';
+import { demoSendWhisper } from './whispers.js';
 
 const ok = (data) => ({ ok: true, status: 200, data });
 const list = (items) => ok({ data: items, pagination: {} });
@@ -169,10 +170,13 @@ export function demoHelix(db, req = {}, ctx = {}) {
       if (method === 'DELETE') { db.blocks = db.blocks.filter((b) => b.user_id !== id); return { ok: true, status: 204, data: null }; }
       return { ok: false, status: 404, error: 'Not Found', data: null, resetAt: null };
     }
+    case '/whispers':
+      if (method !== 'POST') return { ok: false, status: 404, error: 'Not Found', data: null, resetAt: null };
+      return demoSendWhisper(db, req, ctx);
     case '/eventsub/subscriptions':
       if (method === 'POST') {
         const b = req.body || {};
-        return { ok: true, status: 202, data: { data: [{ id: `demo-sub-${(b.condition && b.condition.from_broadcaster_user_id) || 0}`, status: 'enabled', type: b.type, version: '1', condition: b.condition, transport: b.transport }], total: 1 } };
+        return { ok: true, status: 202, data: { data: [{ id: `demo-sub-${b.type}-${(b.condition && (b.condition.from_broadcaster_user_id || b.condition.user_id)) || 0}`, status: 'enabled', type: b.type, version: '1', condition: b.condition, transport: b.transport }], total: 1 } };
       }
       if (method === 'DELETE') return { ok: true, status: 204, data: null };
       return list([]);

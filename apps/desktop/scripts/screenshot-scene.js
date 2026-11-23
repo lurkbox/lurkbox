@@ -52,6 +52,8 @@ const SETUP = {
     ],
     1000002: [{ q: 'not this account', at: 5 }],
   } } },
+  // Whispers: the demo account's seeded conversations; the scene replies to one and a whisper comes in.
+  whispers: {},
   settings: {},
   subscriptions: {},
   'blocked-users': { settings: { chatDefault: true } },
@@ -492,9 +494,31 @@ app.on('browser-window-created', (_e, win) => {
       await settle();
       await shoot('keyboard');
     },
+    async whispers() {
+      await following();
+      await press('RB', 'RB', 'RB', 'RB');
+      await waitFor('the conversations', "document.querySelectorAll('[data-view=whispers] .whisper-row').length === 3");
+      if (!(await js("document.querySelector('.rail-item[data-view=whispers]').classList.contains('has-unread') && document.querySelector('.whisper-row').classList.contains('unread')"))) throw new Error('no unread dot');
+      await js("document.querySelector('[data-view=whispers] .whisper-row').focus(); true");
+      await press('A');
+      await waitFor('the thread', "document.querySelectorAll('.whisper-thread .wmsg').length === 5 && document.activeElement && document.activeElement.classList.contains('cm-input')");
+      if (await js("document.querySelector('.rail-item[data-view=whispers]').classList.contains('has-unread')")) throw new Error('opening the thread left it unread');
+      // Type (what the keyboard does) and press Send; the demo's PixelMoth answers over the fake EventSub.
+      await js("(() => { const i = document.querySelector('.whisper-thread .cm-input'); i.value = 'saving you a seat! 🪑'; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
+      await press('RIGHT');
+      await waitFor('Send', "document.activeElement && document.activeElement.classList.contains('cm-send')");
+      await press('A');
+      await waitFor('the reply', "document.querySelectorAll('.whisper-thread .wmsg.them').length === 4 && document.querySelectorAll('.whisper-thread .wmsg.me').length === 3", 8000);
+      // Someone else whispers: a toast offers Y to reply.
+      await js('window.__lurkboxDemo.whisper()');
+      await waitFor('the whisper toast', "!!document.querySelector('#toasts .whisper-toast .undo-toast-btn')");
+      await js("document.querySelector('.whisper-thread .cm-input').focus(); true");
+      await settle();
+      await shoot('whispers');
+    },
     async settings() {
       await following();
-      await press('RB', 'RB', 'RB', 'RB', 'RB'); // past Drops
+      await press('RB', 'RB', 'RB', 'RB', 'RB', 'RB'); // past Whispers and Drops
       await waitFor('settings', "!!document.querySelector('[data-view=settings] .focusable')");
       await settle();
       await shoot('settings');
@@ -502,7 +526,7 @@ app.on('browser-window-created', (_e, win) => {
     async subscriptions() {
       // Settings → Account → Subscriptions: the demo account's subs among its follows (one Helix check per channel).
       await following();
-      await press('RB', 'RB', 'RB', 'RB', 'RB');
+      await press('RB', 'RB', 'RB', 'RB', 'RB', 'RB'); // Settings, past Whispers and Drops
       await waitFor('settings', "!!document.querySelector('[data-setting=subscriptions]')");
       await js("document.querySelector('[data-setting=subscriptions]').focus(); true");
       await press('A');
@@ -530,7 +554,7 @@ app.on('browser-window-created', (_e, win) => {
       await press('A');
       await waitFor('their lines gone', `![...document.querySelectorAll('#chat .chat-msg .chat-nick')].some((n) => n.textContent === ${JSON.stringify(who)})`);
       await js("window.__lurkbox.nav.closePlayer(); true");
-      await press('RB', 'RB', 'RB', 'RB', 'RB');
+      await press('RB', 'RB', 'RB', 'RB', 'RB', 'RB'); // Settings, past Whispers and Drops
       await waitFor('settings', "!!document.querySelector('[data-setting=blockedUsers]')");
       await js("document.querySelector('[data-setting=blockedUsers]').focus(); true");
       await press('A');

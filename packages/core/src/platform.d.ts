@@ -48,8 +48,9 @@ export interface AppInfo {
   touch?: boolean;
   /** Optional. Set only in demo mode (desktop: LURKBOX_DEMO=1, for screenshots): the page installs ./js/demo/install.js,
    *  which fakes the clock, chat and emote APIs. mediaBase prefixes the demo's pictures; now is the pinned clock (ms);
-   *  touch (LURKBOX_DEMO_TOUCH=1) treats the pointer as a touchscreen, for the touch layout screenshots. */
-  demo?: { mediaBase: string; now?: number; touch?: boolean } | null;
+   *  touch (LURKBOX_DEMO_TOUCH=1) treats the pointer as a touchscreen, for the touch layout screenshots;
+   *  whisperInMs > 0 fakes an incoming whisper that long after start (desktop LURKBOX_DEMO_WHISPER_IN=<s>; 0 or left out: none). */
+  demo?: { mediaBase: string; now?: number; touch?: boolean; whisperInMs?: number } | null;
   /** DEFAULT_SETTINGS from ./shared/settings.js. */
   defaults: Settings;
 }
@@ -125,6 +126,20 @@ export interface ResumeEntry extends ResumeMeta {
   position: number;
   duration: number | null;
   at: number;
+}
+
+/** A whisper conversation kept on the device (see ./shared/whispers.js; at most 50 threads of 200 messages). */
+export interface WhisperThread {
+  /** The other person's user id. */
+  id: string;
+  login: string;
+  name: string;
+  /** Unread incoming whispers. */
+  unread: number;
+  /** The newest message's time (ms). */
+  at: number;
+  /** Oldest first. me: sent by this account; failed: why Twitch didn't send it. */
+  messages: Array<{ id: string; me: boolean; text: string; at: number; failed?: string }>;
 }
 
 export interface ChatExtensionStatus {
@@ -211,8 +226,9 @@ export interface LurkboxPlatform {
 
   /**
    * Call the Helix API with the account's token (the token never reaches the page). Refreshes on 401. Chat sending
-   * uses it too: POST /chat/messages (user:write:chat) and GET /chat/emotes/user (user:read:emotes); a 429 carries
-   * Ratelimit-Reset (seconds since the epoch) as resetAt.
+   * uses it too: POST /chat/messages (user:write:chat) and GET /chat/emotes/user (user:read:emotes); whispers use
+   * POST /whispers (user:manage:whispers, 204 with no body); a 429 carries Ratelimit-Reset (seconds since the epoch)
+   * as resetAt.
    */
   helix(req: HelixRequest): Promise<HelixResult>;
 
@@ -267,6 +283,16 @@ export interface LurkboxPlatform {
   resumeList?(): Promise<ResumeEntry[]>;
   /** Optional. Forget every saved position of the active account (Settings → Clear watch history). */
   resumeClear?(): Promise<boolean>;
+
+  // ---- whispers (history kept on the device, per account) ----
+
+  /** Optional (without it the Whispers section says it isn't available). The account's stored whisper threads, newest first. */
+  whispersLoad?(accountId: string): Promise<WhisperThread[]>;
+  /**
+   * Replace the account's stored threads (an empty list forgets them: Settings → Clear whispers). Hosts validate and
+   * cap them with ./shared/whispers.js storeWhispers(); removing an account forgets its whispers too.
+   */
+  whispersSave(accountId: string, threads: WhisperThread[]): Promise<boolean>;
 
   // ---- channel points (Twitch's embedded chat page, scanned by the host) ----
 

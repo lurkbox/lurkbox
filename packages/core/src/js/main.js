@@ -28,6 +28,9 @@ import { searchView } from './views/search.js';
 import { dropsView } from './views/drops.js';
 import { settingsView } from './views/settings.js';
 import { channelView } from './views/channel.js';
+import { whispersView, whisperThreadView } from './views/whispers.js';
+import { whispers } from './whispers.js';
+import { hint } from './input.js';
 import { installLayout, applyLayout, isTouchLayout, gamepadConnected } from './layout.js';
 import { bindTouchSwipe, bindPullToRefresh } from './touch.js';
 import { tabStepForSwipe } from '../shared/gestures.js';
@@ -37,6 +40,7 @@ const TOP = {
   browse: browseView,
   categories: categoriesView,
   search: searchView,
+  whispers: whispersView,
   drops: dropsView,
   settings: settingsView,
 };
@@ -219,6 +223,12 @@ const nav = {
     if (top && c && c.login && top.view.id === `channel:${String(c.login).toLowerCase()}`) return;
     nav.push(channelView(c));
   },
+  /** Whispers → the thread with this person (from the incoming toast; closes the player first). */
+  openWhisper(peer) {
+    if (player.active) nav.closePlayer();
+    if (currentTop !== 'whispers' || stack.length > 1) nav.goTop('whispers');
+    if (peer) nav.push(whisperThreadView(peer));
+  },
   /** Focus the current section's rail button (B out of a view that keeps the controller, like Drops). */
   focusRail() { focusEl(railButton(currentTop)); },
 
@@ -236,10 +246,19 @@ const nav = {
 
 function dispatch(action, source) {
   if (hasModal()) { handleModalAction(action, source); return; }
+
+  // Y while an incoming whisper's toast shows: reply (not while typing in the chat composer).
+  if (action === Y && whisperReply && Date.now() < whisperReply.until && !document.body.classList.contains('composing')) {
+    const { peer, toast: t } = whisperReply;
+    whisperReply = null;
+    t.remove();
+    nav.openWhisper(peer);
+    return;
+  }
   if (player.active) { player.handle(action, source); return; }
 
   const entry = topEntry();
-  if (entry && entry.view.onAction && entry.view.onAction(action)) return;
+  if (entry && entry.view.onAction && entry.view.onAction(action, source)) return;
   if (handleSliderAction(action)) return; // LEFT/RIGHT on a focused slider (Settings → Chat)
   const active = document.activeElement;
   const inRail = rail.contains(active);
@@ -357,6 +376,7 @@ function exitNow() {
   exiting = true;
   quitWithCleanup([
     () => player && player.watcher.shutdown(), // delete the EventSub subscription
+    () => whispers().watcher.shutdown(), // and the whispers one
     () => player && player.chat.leave(),
     () => player && player.saveResume(), // where this VOD was, for next time
     () => flushRemovals(), // Continue watching removals still waiting out their Undo toast
@@ -387,12 +407,14 @@ const ICONS = {
   browse: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
   categories: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="9" rx="1"/><rect x="3" y="15" width="7" height="6" rx="1"/><rect x="14" y="15" width="7" height="6" rx="1"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/>',
+  // A speech bubble with three dots (a private message).
+  whispers: '<path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><path d="M8 11h.01M12 11h.01M16 11h.01"/>',
   // A gift box (a drop reward).
   drops: '<rect x="4" y="11" width="16" height="10" rx="1.5"/><path d="M12 11v10M4 15h16M12 11c-1.5-3-5-4-5-1.5S10 11 12 11zM12 11c1.5-3 5-4 5-1.5S14 11 12 11z"/>',
   // Gear (Feather "settings" icon, MIT licence).
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
 };
-const LABELS = { following: 'Following', browse: 'Browse', categories: 'Categories', search: 'Search', drops: 'Drops', settings: 'Settings' };
+const LABELS = { following: 'Following', browse: 'Browse', categories: 'Categories', search: 'Search', whispers: 'Whispers', drops: 'Drops', settings: 'Settings' };
 
 function buildRail() {
   rail.replaceChildren(
@@ -424,6 +446,35 @@ function updateRailUser() {
   b.replaceChildren(avatar(me), el('span', { class: 'rail-label' }, me ? (me.display_name || me.login) : 'Sign in'));
   const ab = appbar.querySelector('.appbar-account');
   if (ab) { ab.hidden = b.hidden; ab.replaceChildren(avatar(me)); }
+  updateWhisperBadge();
+}
+
+/** The unread dot: on the rail's Whispers item, and on the phone's account button (Whispers is in its menu there). */
+function updateWhisperBadge() {
+  const n = whispers().unread();
+  for (const node of [railButton('whispers'), appbar.querySelector('.appbar-account')]) {
+    if (!node) continue;
+    node.classList.toggle('has-unread', n > 0);
+    if (node.dataset.view === 'whispers') node.setAttribute('aria-label', n ? `Whispers, ${n} unread` : 'Whispers');
+  }
+}
+
+// ---------- whispers: the incoming toast ----------
+
+let whisperReply = null; // { peer, until, toast } while the toast offers Y to reply
+
+function onIncomingWhisper({ peer, message, open }) {
+  if (open && !player.active) return; // its thread is on screen
+  // "Video only when unfocused": no toast over the video while another app has focus (the dot still shows).
+  if (player.active && blurredAt !== null && state.settings.videoOnlyUnfocused !== false) return;
+  const ms = 6000;
+  const preview = Array.from(message.text).slice(0, 90).join('') + (Array.from(message.text).length > 90 ? '…' : '');
+  const reply = () => { if (whisperReply) { whisperReply.toast.remove(); whisperReply = null; } nav.openWhisper(peer); };
+  const t = toast(el('span', { class: 'whisper-toast-body' },
+    el('span', { class: 'whisper-toast-from' }, `Whisper from ${peer.name}`),
+    el('span', { class: 'whisper-toast-text' }, preview),
+    el('button', { class: 'undo-toast-btn', type: 'button', tabindex: '-1', onclick: reply }, hint('{Y} '), 'Reply')), ms, 'whisper-toast');
+  whisperReply = { peer, until: Date.now() + ms, toast: t };
 }
 
 // ---------- startup ----------
@@ -470,6 +521,11 @@ async function start() {
 
   buildRail();
   installTouchGestures();
+  // Whispers: their own EventSub connection while signed in, for as long as Lurkbox runs.
+  const ws = whispers();
+  ws.addEventListener('change', updateWhisperBadge);
+  ws.addEventListener('incoming', (e) => onIncomingWhisper(e.detail));
+  ws.sync();
   setChannelOpener((c) => nav.openChannel(c)); // a long-press on a stream card
 
   // After a player sign-in, reload the embed so it picks up the twitch.tv session.

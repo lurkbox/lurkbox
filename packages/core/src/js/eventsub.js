@@ -1,6 +1,8 @@
-// EventSub WebSocket client that follows one channel's outgoing raids.
+// EventSub WebSocket clients: one subscription type per connection. RaidWatcher follows one channel's outgoing
+// raids (channel.raid); WhisperWatcher receives the signed-in account's whispers (user.whisper.message). Each has
+// its own socket, so the raid one can come and go with the player while whispers stay connected.
 //
-// Lifecycle:
+// Lifecycle (shown for raids; whispers watch the signed-in user instead of a channel):
 //  - The socket opens only while a live channel is being watched (Twitch closes
 //    a session with code 4003 if nothing subscribes within 10 seconds).
 //  - session_welcome on a fresh connection -> subscribe channel.raid with
@@ -19,16 +21,19 @@ import { state, onState } from './state.js';
 const WS_URL = 'wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30';
 const WATCHDOG_SLACK_MS = 8000;
 
-export class RaidWatcher extends EventTarget {
+export class EventSubWatcher extends EventTarget {
   /**
+   * @param {object} spec { type, version, tag (log prefix), condition(targetId) → condition object,
+   *   event: name of the CustomEvent fired with each notification's event, accept(ev, target) → boolean }
    * @param {object} [deps] injectable for tests
    * @param {Function} [deps.helix] Helix request function (path, query, {method, body})
    * @param {typeof WebSocket} [deps.WebSocket]
    * @param {() => boolean} [deps.isSignedIn]
    * @param {(cb: () => void) => void} [deps.onSignin] registers a callback for sign-in changes
    */
-  constructor(deps = {}) {
+  constructor(deps = {}, spec) {
     super();
+    this.spec = spec;
     this.helix = deps.helix || helix;
     this.WS = deps.WebSocket || globalThis.WebSocket;
     this.isSignedIn = deps.isSignedIn || (() => state.auth.signedIn);
@@ -39,7 +44,7 @@ export class RaidWatcher extends EventTarget {
     this.sessionId = null;
     this.gen = 0; // increments for every fresh (non-reconnect) session
     this.keepaliveMs = 30000;
-    this.sub = null; // { id, broadcasterId, gen }
+    this.sub = null; // { id, targetId, gen, accountId }
     this.watchdog = null;
     this.retryTimer = null;
     this.backoff = 0;
@@ -50,12 +55,12 @@ export class RaidWatcher extends EventTarget {
     (deps.onSignin || ((cb) => onState((what) => { if (what === 'signin') cb(); })))(() => this.kick());
   }
 
-  /** Follow raids from this channel, or stop with null. */
+  /** Watch this target ({ id, login }: the channel for raids, yourself for whispers), or stop with null. */
   watch(target) {
     const id = target && target.id ? String(target.id) : null;
     if ((this.target && this.target.id) === id) return;
     this.target = id ? { id, login: target.login } : null;
-    console.log(`[eventsub] watch ${this.target ? `${this.target.login} (${id})` : 'nothing'}`);
+    console.log(`[${this.spec.tag}] watch ${this.target ? `${this.target.login} (${id})` : 'nothing'}`);
     this.kick();
   }
 
@@ -78,7 +83,7 @@ export class RaidWatcher extends EventTarget {
         await this.syncOnce();
       }
     } catch (e) {
-      console.error('[eventsub] sync error', e);
+      console.error(`[${this.spec.tag}]`, 'sync error', e);
     } finally {
       this.syncing = false;
     }
@@ -114,7 +119,7 @@ export class RaidWatcher extends EventTarget {
       this.ensureSocket(); // the welcome message kicks another sync
       return;
     }
-    if (this.sub && this.sub.broadcasterId === want.id && this.sub.gen === this.gen) {
+    if (this.sub && this.sub.targetId === want.id && this.sub.gen === this.gen) {
       this.setStatus('active');
       return;
     }
@@ -133,8 +138,8 @@ export class RaidWatcher extends EventTarget {
         this.dirty = true;
         return;
       }
-      this.sub = { id, broadcasterId: want.id, gen, accountId };
-      console.log(`[eventsub] subscribed channel.raid from ${want.login} (${id})`);
+      this.sub = { id, targetId: want.id, gen, accountId };
+      console.log(`[${this.spec.tag}] subscribed ${this.spec.type} for ${want.login} (${id})`);
       if (!this.target || this.target.id !== want.id) this.dirty = true; // channel changed meanwhile
       else this.setStatus('active');
     } catch (e) {
@@ -143,17 +148,18 @@ export class RaidWatcher extends EventTarget {
         this.setStatus('signed-out');
         return;
       }
-      console.warn('[eventsub] subscribe failed', e.status, e.message);
+      console.warn(`[${this.spec.tag}]`, 'subscribe failed', e.status, e.message);
       this.setStatus('error', e.message);
       this.retryTimer = setTimeout(() => this.kick(), 5000);
     }
   }
 
-  async create(broadcasterId, sessionId, retried = false, accountId = this.getAccountId()) {
+  async create(targetId, sessionId, retried = false, accountId = this.getAccountId()) {
+    const condition = this.spec.condition(targetId);
     const body = {
-      type: 'channel.raid',
-      version: '1',
-      condition: { from_broadcaster_user_id: broadcasterId },
+      type: this.spec.type,
+      version: this.spec.version || '1',
+      condition,
       transport: { method: 'websocket', session_id: sessionId },
     };
     try {
@@ -163,12 +169,12 @@ export class RaidWatcher extends EventTarget {
       if (e.status === 409) {
         // Already subscribed on this session (e.g. a retried request succeeded).
         const existing = (await this.listSubs()).find((s) => s.transport && s.transport.session_id === sessionId
-          && s.condition && s.condition.from_broadcaster_user_id === broadcasterId);
+          && s.condition && Object.entries(condition).every(([k, v]) => s.condition[k] === v));
         if (existing) return existing.id;
       }
       if (!retried && (e.status === 429 || /limit|cost/i.test(e.message || ''))) {
         await this.cleanupStale();
-        return this.create(broadcasterId, sessionId, true, accountId);
+        return this.create(targetId, sessionId, true, accountId);
       }
       throw e;
     }
@@ -178,7 +184,7 @@ export class RaidWatcher extends EventTarget {
     const out = [];
     let after;
     for (let i = 0; i < 10; i++) {
-      const r = await this.helix('/eventsub/subscriptions', { type: 'channel.raid', after });
+      const r = await this.helix('/eventsub/subscriptions', { type: this.spec.type, after });
       out.push(...(r.data || []));
       after = r.pagination && r.pagination.cursor;
       if (!after) break;
@@ -192,7 +198,7 @@ export class RaidWatcher extends EventTarget {
       const subs = await this.listSubs();
       for (const s of subs) if (s.status !== 'enabled') await this.deleteSub(s.id);
     } catch (e) {
-      console.warn('[eventsub] cleanup failed', e.message);
+      console.warn(`[${this.spec.tag}]`, 'cleanup failed', e.message);
     }
   }
 
@@ -200,7 +206,7 @@ export class RaidWatcher extends EventTarget {
     try {
       await this.helix('/eventsub/subscriptions', { id }, { method: 'DELETE', accountId });
     } catch (e) {
-      if (e.status !== 404) console.warn('[eventsub] delete failed', e.status, e.message);
+      if (e.status !== 404) console.warn(`[${this.spec.tag}]`, 'delete failed', e.status, e.message);
     }
   }
 
@@ -248,7 +254,7 @@ export class RaidWatcher extends EventTarget {
         this.pendingWs = null;
         this.sessionId = s.id;
         if (old) { old.onclose = null; try { old.close(); } catch { /* ignore */ } }
-        console.log('[eventsub] reconnected, subscriptions carried over');
+        console.log(`[${this.spec.tag}]`, 'reconnected, subscriptions carried over');
         this.armWatchdog();
         return;
       }
@@ -267,17 +273,17 @@ export class RaidWatcher extends EventTarget {
       case 'session_keepalive':
         break;
       case 'notification':
-        if (meta.subscription_type === 'channel.raid') this.onRaid(meta, msg.payload.event);
+        if (meta.subscription_type === this.spec.type) this.onEvent(meta, msg.payload.event);
         break;
       case 'session_reconnect':
         if (ws === this.ws && !this.pendingWs) {
-          console.log('[eventsub] session_reconnect');
+          console.log(`[${this.spec.tag}]`, 'session_reconnect');
           this.pendingWs = this.open(msg.payload.session.reconnect_url);
         }
         break;
       case 'revocation': {
         const sid = msg.payload.subscription && msg.payload.subscription.id;
-        console.warn('[eventsub] revocation', msg.payload.subscription && msg.payload.subscription.status);
+        console.warn(`[${this.spec.tag}]`, 'revocation', msg.payload.subscription && msg.payload.subscription.status);
         if (this.sub && this.sub.id === sid) {
           this.sub = null;
           this.retryTimer = setTimeout(() => this.kick(), 3000);
@@ -289,7 +295,7 @@ export class RaidWatcher extends EventTarget {
     }
   }
 
-  onRaid(meta, ev) {
+  onEvent(meta, ev) {
     if (!ev) return;
     const id = meta.message_id;
     if (id) {
@@ -298,15 +304,14 @@ export class RaidWatcher extends EventTarget {
       if (this.seen.size > 50) this.seen.delete(this.seen.keys().next().value);
     }
     if (meta.message_timestamp && Date.now() - Date.parse(meta.message_timestamp) > 10 * 60 * 1000) return;
-    if (!this.target || ev.from_broadcaster_user_id !== this.target.id) return;
-    console.log(`[eventsub] raid ${ev.from_broadcaster_user_login} -> ${ev.to_broadcaster_user_login} (${ev.viewers})`);
-    this.dispatchEvent(new CustomEvent('raid', { detail: ev }));
+    if (!this.target || !this.spec.accept(ev, this.target)) return;
+    this.dispatchEvent(new CustomEvent(this.spec.event, { detail: ev }));
   }
 
   armWatchdog() {
     clearTimeout(this.watchdog);
     this.watchdog = setTimeout(() => {
-      console.warn('[eventsub] keepalive timeout, reconnecting');
+      console.warn(`[${this.spec.tag}]`, 'keepalive timeout, reconnecting');
       this.dropSocket();
     }, this.keepaliveMs + WATCHDOG_SLACK_MS);
   }
@@ -323,11 +328,11 @@ export class RaidWatcher extends EventTarget {
   onClose(ws, code, reason) {
     if (ws === this.pendingWs) {
       this.pendingWs = null;
-      console.warn('[eventsub] reconnect socket closed', code, reason);
+      console.warn(`[${this.spec.tag}]`, 'reconnect socket closed', code, reason);
       return;
     }
     if (ws !== this.ws) return;
-    console.warn('[eventsub] socket closed', code, reason || '');
+    console.warn(`[${this.spec.tag}]`, 'socket closed', code, reason || '');
     clearTimeout(this.watchdog);
     this.ws = null;
     this.sessionId = null;
@@ -355,5 +360,34 @@ export class RaidWatcher extends EventTarget {
     this.pendingWs = null;
     this.sessionId = null;
     this.sub = null;
+  }
+}
+
+/** Outgoing raids of the watched channel (any user token, no scope). */
+export class RaidWatcher extends EventSubWatcher {
+  constructor(deps = {}) {
+    super(deps, {
+      type: 'channel.raid', version: '1', tag: 'eventsub', event: 'raid',
+      condition: (id) => ({ from_broadcaster_user_id: id }),
+      accept: (ev, target) => {
+        if (ev.from_broadcaster_user_id !== target.id) return false;
+        console.log(`[eventsub] raid ${ev.from_broadcaster_user_login} -> ${ev.to_broadcaster_user_login} (${ev.viewers})`);
+        return true;
+      },
+    });
+  }
+}
+
+/**
+ * The signed-in account's whispers (user.whisper.message, condition user_id = you; user:manage:whispers). The
+ * whispers service watches the active account while signed in, for as long as the app runs.
+ */
+export class WhisperWatcher extends EventSubWatcher {
+  constructor(deps = {}) {
+    super(deps, {
+      type: 'user.whisper.message', version: '1', tag: 'whispers', event: 'whisper',
+      condition: (id) => ({ user_id: id }),
+      accept: (ev, target) => String(ev.to_user_id) === target.id,
+    });
   }
 }

@@ -3,6 +3,7 @@ import { el, button, toast } from './ui.js';
 import { openModal, pickFromList } from './modal.js';
 import { state } from './state.js';
 import { tvSignIn } from './auth.js';
+import { whispers } from './whispers.js';
 
 function avatar(a, cls = 'acct-avatar') {
   return a && a.profile_image_url
@@ -28,13 +29,17 @@ export function accountMenu(nav) {
     value: a.id,
     label: `${a.display_name || a.login}${a.needsSignin ? ' (sign in again)' : ''}`,
   }));
+  // Whispers are here too: the phone's bottom tabs leave them out (the avatar shows the unread dot instead).
+  const unread = state.auth.signedIn ? whispers().unread() : 0;
+  if (state.auth.signedIn) items.push({ value: '__whispers', label: unread ? `Whispers (${unread} unread)` : 'Whispers' });
   items.push({ value: '__add', label: 'Add account' }, { value: '__manage', label: 'Manage accounts' });
   pickFromList({
     title: 'Accounts',
     items,
     current: state.auth.active,
     onPick: (v) => {
-      if (v === '__add') addAccount();
+      if (v === '__whispers') nav.goTop('whispers');
+      else if (v === '__add') addAccount();
       else if (v === '__manage') nav.goTop('settings');
       else switchTo(v);
     },
